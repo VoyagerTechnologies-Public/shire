@@ -6,3 +6,7 @@
 	path = cfs/osal
 	url = https://github.com/VoyagerTechnologies-Public/external-osal.git
 	branch = dev
+[submodule "cfs/psp"]
+	path = cfs/psp
+	url = https://github.com/VoyagerTechnologies-Public/external-PSP.git
+	branch = dev
