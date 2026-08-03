@@ -18,3 +18,7 @@
 	path = cfs/apps/cf
 	url = https://github.com/VoyagerTechnologies-Public/external-CF.git
 	branch = dev
+[submodule "cfs/apps/ci_lab"]
+	path = cfs/apps/ci_lab
+	url = https://github.com/VoyagerTechnologies-Public/external-ci_lab.git
+	branch = dev
