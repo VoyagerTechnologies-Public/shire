@@ -38,3 +38,7 @@
 	path = cfs/apps/sc
 	url = https://github.com/VoyagerTechnologies-Public/external-SC.git
 	branch = dev
+[submodule "cfs/apps/sch"]
+	path = cfs/apps/sch
+	url = https://github.com/VoyagerTechnologies-Public/external-SCH.git
+	branch = master
