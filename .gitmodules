@@ -26,3 +26,7 @@
 	path = cfs/apps/ds
 	url = https://github.com/VoyagerTechnologies-Public/external-DS.git
 	branch = dev
+[submodule "cfs/apps/fm"]
+	path = cfs/apps/fm
+	url = https://github.com/VoyagerTechnologies-Public/external-FM.git
+	branch = dev
