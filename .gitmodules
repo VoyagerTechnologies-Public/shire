@@ -14,3 +14,7 @@
 	path = cfs/tools/elf2cfetbl
 	url = https://github.com/VoyagerTechnologies-Public/external-elf2cfetbl.git
 	branch = dev
+[submodule "cfs/apps/cf"]
+	path = cfs/apps/cf
+	url = https://github.com/VoyagerTechnologies-Public/external-CF.git
+	branch = dev
