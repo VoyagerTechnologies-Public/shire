@@ -1,0 +1,4 @@
+[submodule "cfs/cfe"]
+	path = cfs/cfe
+	url = https://github.com/VoyagerTechnologies-Public/external-cFE.git
+	branch = dev
