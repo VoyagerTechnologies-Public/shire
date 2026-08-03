@@ -10,3 +10,7 @@
 	path = cfs/psp
 	url = https://github.com/VoyagerTechnologies-Public/external-PSP.git
 	branch = dev
+[submodule "cfs/tools/elf2cfetbl"]
+	path = cfs/tools/elf2cfetbl
+	url = https://github.com/VoyagerTechnologies-Public/external-elf2cfetbl.git
+	branch = dev
