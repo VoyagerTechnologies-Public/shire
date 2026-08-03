@@ -2,3 +2,7 @@
 	path = cfs/cfe
 	url = https://github.com/VoyagerTechnologies-Public/external-cFE.git
 	branch = dev
+[submodule "cfs/osal"]
+	path = cfs/osal
+	url = https://github.com/VoyagerTechnologies-Public/external-osal.git
+	branch = dev
