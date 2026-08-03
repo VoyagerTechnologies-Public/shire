@@ -1,0 +1,627 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-06-26T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "manual-sbom-audit",
+          "version": "1.0",
+          "description": "Manually curated. Known gaps: YAMCS transitive Java deps (Jetty, Jackson, Protobuf, Netty, Guava, RocksDB, SLF4J, Apache Commons); apt-installed system packages (libcurl4, libzmq3, gcc, cmake, binutils); Python transitive deps. Run: mvn dependency:tree -f yamcs/pom.xml and syft on container images for full coverage. No vulnerability scan data included — run grype or OWASP Dependency-Check."
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:generic/shire@dev",
+      "name": "SHIRE",
+      "version": "dev",
+      "description": "Software and Hardware Integration Runtime Environment — spacecraft FSW, simulation, and ground software integration reference mission",
+      "licenses": [
+        {
+          "license": {
+            "name": "Permissive Open-Source License v1.0",
+            "url": "https://github.com/VoyagerTechnologies-NATSEC/sw-shire-top/blob/dev/LICENSE"
+          }
+        }
+      ],
+      "supplier": {
+        "name": "Voyager Technologies Inc.",
+        "url": ["https://voyagertechnologies.com"]
+      },
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "git@github.com:VoyagerTechnologies-NATSEC/sw-shire-top.git"
+        }
+      ]
+    },
+    "authors": [{ "name": "Voyager Technologies Inc." }],
+    "properties": [
+      { "name": "cdx:sbom:completeness", "value": "partial" },
+      {
+        "name": "cdx:sbom:gaps",
+        "value": "YAMCS transitive Java deps (Jetty, Jackson, Protobuf, Netty, Guava, RocksDB, SLF4J, Logback, Apache Commons); apt system packages (libcurl4, libzmq3, gcc, cmake, binutils, gdb); Python transitive deps; GitHub Actions runner packages"
+      },
+      { "name": "shire:vcs:commit", "value": "96d73c7" },
+      { "name": "shire:vcs:branch", "value": "dev" }
+    ]
+  },
+  "components": [
+
+    {
+      "type": "firmware",
+      "bom-ref": "shire:fsw",
+      "name": "SHIRE FSW",
+      "version": "dev",
+      "description": "Flight software layer built on NASA cFS, targeting Linux/amd64 (digital twin) and ARM32 (Zybo 7020)",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "cfs/" }]
+    },
+    {
+      "type": "application",
+      "bom-ref": "shire:gsw",
+      "name": "SHIRE GSW",
+      "version": "dev",
+      "description": "Ground software configuration layer: YAMCS mission config, XTCE dictionaries, timeline definitions",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "yamcs/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:simulith",
+      "name": "Simulith",
+      "version": "dev",
+      "description": "Simulator integration and director layer — ZeroMQ-based middleware connecting FSW and physics simulators",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "simulith/" }]
+    },
+    {
+      "type": "application",
+      "bom-ref": "shire:42",
+      "name": "42 Spacecraft Simulator (SHIRE fork)",
+      "version": "dev",
+      "description": "NASA 42 dynamics simulator with SHIRE-specific overlays — designation GSC-16720-1",
+      "scope": "required",
+      "licenses": [
+        { "license": { "name": "NASA Open Source Software Agreement" } },
+        { "license": { "name": "Permissive Open-Source License v1.0" } }
+      ],
+      "supplier": { "name": "NASA Goddard Space Flight Center / Eric Stoneking" },
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/ericstoneking/42" }
+      ],
+      "properties": [
+        { "name": "shire:directory", "value": "42/" },
+        { "name": "shire:upstream:designation", "value": "GSC-16720-1" },
+        { "name": "shire:provenance:risk", "value": "high — upstream tracked by branch master, no commit-hash pinning; single maintainer" }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:adcs",
+      "name": "ADCS Component",
+      "version": "dev",
+      "description": "Attitude Determination and Control System — CFS app, simulator, CLI, and GSW layers",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "comp/adcs/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:eps",
+      "name": "EPS Component",
+      "version": "dev",
+      "description": "Electrical Power System — CFS app, simulator, CLI, and GSW layers",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "comp/eps/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:radio",
+      "name": "Radio Component",
+      "version": "dev",
+      "description": "Radio communication subsystem — CFS app, simulator, CLI, and GSW layers",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "comp/radio/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:demo",
+      "name": "Demo Component",
+      "version": "dev",
+      "description": "Template/reference component for new SHIRE component development",
+      "scope": "optional",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "supplier": { "name": "Voyager Technologies Inc." },
+      "properties": [{ "name": "shire:directory", "value": "comp/demo/" }]
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/nasa/cFE",
+      "name": "Core Flight Executive (cFE)",
+      "description": "NASA Core Flight Executive — software bus, executive services, event services, table services, time services",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/nasa/cFE" }],
+      "properties": [
+        { "name": "shire:directory", "value": "cfs/cfe/" },
+        { "name": "shire:provenance", "value": "source committed directly to monorepo — no submodule pinning; version not tagged in repo" }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/nasa/osal",
+      "name": "Operating System Abstraction Layer (OSAL)",
+      "description": "NASA OSAL — abstracts POSIX and RTEMS OS APIs for cFS portability",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/nasa/osal" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/osal/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/nasa/psp",
+      "name": "Platform Support Package (PSP)",
+      "description": "NASA PSP — hardware abstraction for cFS on Linux and ARM targets",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/nasa/psp" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/psp/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/nasa/CryptoLib",
+      "name": "CryptoLib",
+      "description": "NASA CFS Cryptography Library — CCSDS cryptographic commanding (GSC-17776-1)",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "NASA-1.3" } }],
+      "supplier": { "name": "NASA IV&V" },
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/nasa/CryptoLib" }],
+      "properties": [
+        { "name": "shire:directory", "value": "comp/cryptolib/" },
+        { "name": "shire:export-control", "value": "EAR Category 5 Part 2 (Information Security) — confirm EAR classification and BIS/NSA notification before export or open-source release" },
+        { "name": "shire:nosa:registration", "value": "NASA requests registration at https://github.com/nasa/CryptoLib (NOSA 1.3 §3.F)" },
+        { "name": "shire:nosa:export-notice", "value": "NOSA 1.3 §3.J — export of this software may require U.S. export license" }
+      ]
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:cf",
+      "name": "CF (CFDP)",
+      "description": "CCSDS File Delivery Protocol application",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/cf/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:ci_lab",
+      "name": "CI Lab",
+      "description": "Command interface lab",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/ci_lab/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:ds",
+      "name": "DS",
+      "description": "Data storage application",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/ds/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:fm",
+      "name": "FM",
+      "description": "File manager application",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/fm/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:io_lib",
+      "name": "IO Lib",
+      "description": "I/O library",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/io_lib/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:lc",
+      "name": "LC",
+      "description": "Limit checker application",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/lc/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:sc",
+      "name": "SC",
+      "description": "Stored commands application",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/sc/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:sch",
+      "name": "SCH",
+      "description": "Scheduler application",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/sch/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cfs:app:to_lab",
+      "name": "TO Lab",
+      "description": "Telemetry output lab",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "NASA" },
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/to_lab/" }]
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.yamcs/yamcs-core@5.12.0",
+      "name": "yamcs-core",
+      "group": "org.yamcs",
+      "version": "5.12.0",
+      "description": "YAMCS mission control core framework — telemetry, commanding, archiving, and web services",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "AGPL-3.0-only" } }],
+      "supplier": { "name": "Space Applications Services" },
+      "purl": "pkg:maven/org.yamcs/yamcs-core@5.12.0",
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/yamcs/yamcs" },
+        { "type": "distribution", "url": "https://mvnrepository.com/artifact/org.yamcs/yamcs-core/5.12.0" }
+      ],
+      "properties": [
+        { "name": "cdx:license:obligation", "value": "AGPL-3.0 §13 applies — network users (port 8090) must be able to obtain YAMCS source. Consider SAS commercial license." },
+        { "name": "cdx:note:transitive", "value": "Transitive deps not enumerated — run: mvn dependency:tree -f yamcs/pom.xml" }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.yamcs/yamcs-web@5.12.0",
+      "name": "yamcs-web",
+      "group": "org.yamcs",
+      "version": "5.12.0",
+      "description": "YAMCS web UI",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "AGPL-3.0-only" } }],
+      "supplier": { "name": "Space Applications Services" },
+      "purl": "pkg:maven/org.yamcs/yamcs-web@5.12.0",
+      "externalReferences": [
+        { "type": "distribution", "url": "https://mvnrepository.com/artifact/org.yamcs/yamcs-web/5.12.0" }
+      ]
+    },
+
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.yamcs/yamcs-maven-plugin@1.3.5",
+      "name": "yamcs-maven-plugin",
+      "group": "org.yamcs",
+      "version": "1.3.5",
+      "description": "Maven plugin for building and running YAMCS server",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "LGPL-3.0-only" } }],
+      "supplier": { "name": "Space Applications Services" },
+      "purl": "pkg:maven/org.yamcs/yamcs-maven-plugin@1.3.5"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.apache.maven.plugins/maven-compiler-plugin@3.13.0",
+      "name": "maven-compiler-plugin",
+      "group": "org.apache.maven.plugins",
+      "version": "3.13.0",
+      "description": "Maven Java compiler plugin (Java 17 target)",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "Apache Software Foundation" },
+      "purl": "pkg:maven/org.apache.maven.plugins/maven-compiler-plugin@3.13.0"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.apache.maven.plugins/maven-site-plugin@3.12.1",
+      "name": "maven-site-plugin",
+      "group": "org.apache.maven.plugins",
+      "version": "3.12.1",
+      "description": "Maven site generation plugin",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "Apache Software Foundation" },
+      "purl": "pkg:maven/org.apache.maven.plugins/maven-site-plugin@3.12.1"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.apache.maven.plugins/maven-project-info-reports-plugin@3.4.3",
+      "name": "maven-project-info-reports-plugin",
+      "group": "org.apache.maven.plugins",
+      "version": "3.4.3",
+      "description": "Maven project info reports plugin",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "Apache Software Foundation" },
+      "purl": "pkg:maven/org.apache.maven.plugins/maven-project-info-reports-plugin@3.4.3"
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml",
+      "name": "pyyaml",
+      "description": "YAML parsing for build orchestration scripts",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "supplier": { "name": "Kirill Simonov" },
+      "purl": "pkg:pypi/pyyaml",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — no version constraint in cfg/requirements.txt" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/jinja2",
+      "name": "jinja2",
+      "description": "Template rendering for configuration file generation",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "BSD-3-Clause" } }],
+      "supplier": { "name": "Pallets Projects" },
+      "purl": "pkg:pypi/jinja2",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — no version constraint in cfg/requirements.txt" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/yamcs-client@1.9.0",
+      "name": "yamcs-client",
+      "version": "1.9.0",
+      "description": "Python YAMCS client — timeline and commander automation scripts",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "LGPL-3.0-only" } }],
+      "supplier": { "name": "Space Applications Services" },
+      "purl": "pkg:pypi/yamcs-client@1.9.0",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — minimum 1.9.0, exact version unresolved at build time" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.31.0",
+      "name": "requests",
+      "version": "2.31.0",
+      "description": "HTTP client used by YAMCS automation scripts",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "Python Software Foundation" },
+      "purl": "pkg:pypi/requests@2.31.0",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — minimum 2.31.0, exact version unresolved at build time" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/sphinx@8.0.0",
+      "name": "sphinx",
+      "version": "8.0.0",
+      "description": "Documentation generator for CryptoLib docs",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "BSD-2-Clause" } }],
+      "supplier": { "name": "Sphinx contributors" },
+      "purl": "pkg:pypi/sphinx@8.0.0",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — minimum 8.0, exact version unresolved" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/sphinx-rtd-theme",
+      "name": "sphinx-rtd-theme",
+      "description": "Read the Docs theme for Sphinx",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "supplier": { "name": "Read the Docs" },
+      "purl": "pkg:pypi/sphinx-rtd-theme",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — unpinned" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/myst-parser",
+      "name": "myst-parser",
+      "description": "Markdown support for Sphinx",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "supplier": { "name": "Executable Books Project" },
+      "purl": "pkg:pypi/myst-parser",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — unpinned" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/mkdocs-material",
+      "name": "mkdocs-material",
+      "description": "Material theme for MkDocs — builds SHIRE Atlas documentation site",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "supplier": { "name": "Martin Donath" },
+      "purl": "pkg:pypi/mkdocs-material",
+      "properties": [{ "name": "cdx:version:pinned", "value": "false — unpinned" }]
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/libgcrypt@1.11.0",
+      "name": "libgcrypt",
+      "version": "1.11.0",
+      "description": "General-purpose cryptographic library — built from source for native and ARM32 targets",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "LGPL-2.1-only" } }],
+      "supplier": { "name": "GnuPG Project" },
+      "purl": "pkg:generic/libgcrypt@1.11.0?download_url=https%3A%2F%2Fwww.gnupg.org%2Fftp%2Fgcrypt%2Flibgcrypt%2Flibgcrypt-1.11.0.tar.bz2",
+      "externalReferences": [
+        { "type": "website", "url": "https://gnupg.org/software/libgcrypt/" }
+      ],
+      "properties": [
+        { "name": "shire:build:provenance", "value": "downloaded at container build time from gnupg.org — no checksum verification" },
+        { "name": "shire:export-control", "value": "EAR Category 5 Part 2 — cryptographic library" }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/libgpg-error@1.50",
+      "name": "libgpg-error",
+      "version": "1.50",
+      "description": "Error codes and utilities for GnuPG — built from source for native and ARM32 targets",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "LGPL-2.1-only" } }],
+      "supplier": { "name": "GnuPG Project" },
+      "purl": "pkg:generic/libgpg-error@1.50?download_url=https%3A%2F%2Fwww.gnupg.org%2Fftp%2Fgcrypt%2Flibgpg-error%2Flibgpg-error-1.50.tar.bz2",
+      "properties": [
+        { "name": "shire:build:provenance", "value": "downloaded at container build time from gnupg.org — no checksum verification" }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/wolfssl/wolfssl@v5.7.6-stable",
+      "name": "wolfSSL",
+      "version": "5.7.6-stable",
+      "description": "Embedded TLS and cryptographic library — compiled into CryptoLib with AES-CCM, AES-SIV, CMAC",
+      "scope": "required",
+      "licenses": [
+        { "expression": "GPL-2.0-only OR LicenseRef-wolfSSL-Commercial" }
+      ],
+      "supplier": { "name": "wolfSSL Inc." },
+      "purl": "pkg:github/wolfssl/wolfssl@v5.7.6-stable",
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/wolfSSL/wolfssl" },
+        { "type": "website", "url": "https://www.wolfssl.com" }
+      ],
+      "properties": [
+        { "name": "shire:build:provenance", "value": "downloaded from GitHub as zip at container build time — no checksum verification" },
+        { "name": "shire:export-control", "value": "EAR Category 5 Part 2 — TLS/cryptographic library" },
+        { "name": "shire:license:note", "value": "GPL-2.0 open-source; commercial license required for proprietary embedding. NOSA/GPL-2.0 compatibility not listed as compatible by FSF." }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/AFLplusplus/AFLplusplus@v4.31c",
+      "name": "AFLplusplus",
+      "version": "v4.31c",
+      "description": "Coverage-guided fuzzer with QEMU support — CryptoLib development/testing only",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "AFLplusplus Community" },
+      "purl": "pkg:github/AFLplusplus/AFLplusplus@v4.31c",
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/AFLplusplus/AFLplusplus" }
+      ],
+      "properties": [
+        { "name": "shire:build:provenance", "value": "git clone by tag at build time — no commit-hash pinning; tags can be moved" }
+      ]
+    },
+
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/debian@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd",
+      "name": "debian",
+      "version": "bookworm-slim",
+      "description": "Debian 12 (bookworm) slim — base for shire-base build and runtime container",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Various — see https://www.debian.org/legal/licenses/" } }],
+      "supplier": { "name": "Debian Project" },
+      "purl": "pkg:oci/debian@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd?repository_url=index.docker.io%2Flibrary&tag=bookworm-slim",
+      "hashes": [
+        { "alg": "SHA-256", "content": "6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd" }
+      ],
+      "properties": [
+        { "name": "cdx:image:pinned", "value": "true — SHA256 digest in cfg/Dockerfile.base" }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/maven@3.9.9-eclipse-temurin-17",
+      "name": "maven",
+      "version": "3.9.9-eclipse-temurin-17",
+      "description": "Maven 3.9.9 with Eclipse Temurin JDK 17 — YAMCS build environment",
+      "scope": "excluded",
+      "licenses": [{ "license": { "name": "Apache-2.0 (Maven); GPL-2.0 with Classpath exception (JDK)" } }],
+      "supplier": { "name": "Docker Hub / Eclipse Foundation" },
+      "purl": "pkg:oci/maven@3.9.9-eclipse-temurin-17?repository_url=index.docker.io%2Flibrary",
+      "properties": [
+        { "name": "cdx:image:pinned", "value": "false — tag only, no digest" },
+        { "name": "cdx:image:risk", "value": "moderate — mutable tag" }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/ubuntu@noble-20250127",
+      "name": "ubuntu",
+      "version": "noble-20250127",
+      "description": "Ubuntu 24.04 LTS (Noble) — CryptoLib build environment",
+      "scope": "excluded",
+      "licenses": [{ "license": { "name": "Various — see https://ubuntu.com/legal" } }],
+      "supplier": { "name": "Canonical" },
+      "purl": "pkg:oci/ubuntu@noble-20250127?repository_url=index.docker.io%2Flibrary",
+      "properties": [
+        { "name": "cdx:image:pinned", "value": "false — date tag, no digest" },
+        { "name": "cdx:image:risk", "value": "moderate" }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/x-vnc@latest",
+      "name": "haisamido/x-vnc",
+      "version": "latest",
+      "description": "VNC desktop environment — base for 42 simulator container",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Unknown — third-party individual GHCR image" } }],
+      "supplier": { "name": "haisamido (individual, GHCR)" },
+      "purl": "pkg:oci/x-vnc@latest?repository_url=ghcr.io%2Fhaisamido",
+      "properties": [
+        { "name": "cdx:image:pinned", "value": "false — mutable :latest tag, external individual account" },
+        { "name": "cdx:image:risk", "value": "high — unverified provenance; pin by digest or fork to internal registry" }
+      ]
+    },
+
+    {
+      "type": "application",
+      "bom-ref": "pkg:generic/apache-maven@3.9.9",
+      "name": "Apache Maven",
+      "version": "3.9.9",
+      "description": "Java build tool — resolves dependencies and packages YAMCS GSW bundle",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "supplier": { "name": "Apache Software Foundation" },
+      "purl": "pkg:generic/apache-maven@3.9.9?download_url=https%3A%2F%2Frepo.maven.apache.org%2Fmaven2%2Forg%2Fapache%2Fmaven%2Fapache-maven%2F3.9.9%2Fapache-maven-3.9.9-bin.zip",
+      "properties": [
+        { "name": "shire:build:provenance", "value": "downloaded by Maven wrapper (mvnw) — maven-wrapper.properties does not include distributionSha256Sum" }
+      ]
+    }
+
+  ]
+}

@@ -1,0 +1,12 @@
+# Metadata
+.DS_Store
+.vscode
+*.tar.gz
+atlas/site
+build
+tmp
+
+# AIs
+.claude/
+.continue/
+.cursor/

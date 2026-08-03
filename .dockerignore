@@ -1,0 +1,9 @@
+# Exclude VCS metadata and compiled objects from Docker build contexts.
+# Note: 
+#   build/ is intentionally NOT excluded
+#   Dockerfile.42 and Dockerfile.fsw both COPY files from build/ as part of their image assembly
+.git/
+.github/
+**/*.o
+**/*.a
+**/.DS_Store
