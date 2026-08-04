@@ -165,7 +165,7 @@ test-sim: clean-sim container
 	docker run --rm -v $(CURDIR):$(CURDIR) --user $(shell id -u):$(shell id -g) -w $(CURDIR)/simulith $(BUILD_IMAGE) make build-comp-test
 
 uninstall: clean clean-cache
-	rm -f $(BUILD_DIR)/active.yaml $(BUILD_DIR)/build.yaml 
+	rm -rf $(BUILD_DIR) .container.stamp
 	docker ps -a --filter "name=shire-" -q | xargs -r docker rm -f
 	docker images "shire-*" -q | xargs -r docker rmi -f
 	docker volume ls -q --filter "name=gsw-data" | xargs -r docker volume rm -f 
