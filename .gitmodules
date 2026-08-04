@@ -58,3 +58,7 @@
 	path = yamcs
 	url = git@github.com:VoyagerTechnologies-Public/external-yamcs.git
 	branch = master
+[submodule "comp/cryptolib"]
+	path = comp/cryptolib
+	url = git@github.com:VoyagerTechnologies-Public/external-CryptoLib.git
+	branch = dev
