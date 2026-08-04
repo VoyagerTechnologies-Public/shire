@@ -54,3 +54,7 @@
 	path = 42
 	url = git@github.com:VoyagerTechnologies-Public/external-42.git
 	branch = master
+[submodule "yamcs"]
+	path = yamcs
+	url = git@github.com:VoyagerTechnologies-Public/external-yamcs.git
+	branch = master
