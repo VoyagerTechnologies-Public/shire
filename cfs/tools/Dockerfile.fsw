@@ -1,0 +1,27 @@
+# SHIRE Flight Software (FSW) Dockerfile w/ Pre-built Files
+
+FROM ghcr.io/voyagertechnologies-public/shire-base:latest
+
+# Build argument for spacecraft configuration
+ARG SPACECRAFT=sat-1
+ARG MISSION=drm
+
+# Copy built files into the image
+COPY build/${MISSION}/${SPACECRAFT}/fsw/exe/cpu1 /app
+
+# Copy simulith library
+COPY build/${MISSION}/${SPACECRAFT}/lib/ /usr/lib/
+
+# Create directories and set permissions
+RUN mkdir /app/cf/data && \
+    mkdir /app/cf/tmp && \
+    mkdir /app/cf/fail && \
+    mkdir /app/cf/poll_dir && \
+    mkdir /app/d && \
+    chmod 755 -R /app
+
+# Set working directory
+WORKDIR /app
+
+# Set command to run
+CMD ["/app/core-cpu1"]

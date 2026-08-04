@@ -25,7 +25,7 @@
         {
           "license": {
             "name": "Permissive Open-Source License v1.0",
-            "url": "https://github.com/VoyagerTechnologies-NATSEC/sw-shire-top/blob/dev/LICENSE"
+            "url": "https://github.com/VoyagerTechnologies-Public/shire/blob/main/LICENSE"
           }
         }
       ],
@@ -36,7 +36,7 @@
       "externalReferences": [
         {
           "type": "vcs",
-          "url": "git@github.com:VoyagerTechnologies-NATSEC/sw-shire-top.git"
+          "url": "git@github.com:VoyagerTechnologies-Public/shire.git"
         }
       ]
     },

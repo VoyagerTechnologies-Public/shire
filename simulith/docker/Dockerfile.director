@@ -1,0 +1,13 @@
+FROM ghcr.io/voyagertechnologies-public/shire-base:latest
+
+# Copy built simulith, director, and components
+# NOTE: 42 now runs in separate container, not included here
+COPY ./build/libsimulith.so /app/libsimulith.so
+COPY ./build/simulith_director_standalone /app/simulith_director_standalone
+COPY ./build/components /app/components
+
+# Set working directory
+WORKDIR /app
+
+# Set default command
+CMD ["/app/simulith_director_standalone"]

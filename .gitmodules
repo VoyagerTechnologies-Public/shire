@@ -50,3 +50,7 @@
 	path = cfs/apps/io_lib
 	url = https://github.com/VoyagerTechnologies-Public/external-CFS_IO_LIB.git
 	branch = master
+[submodule "42"]
+	path = 42
+	url = git@github.com:VoyagerTechnologies-Public/external-42.git
+	branch = master

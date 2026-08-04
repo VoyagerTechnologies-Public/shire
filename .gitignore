@@ -1,3 +1,6 @@
+# Build artifacts
+.container.stamp
+
 # Metadata
 .DS_Store
 .vscode

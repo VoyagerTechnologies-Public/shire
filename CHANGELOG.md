@@ -22,7 +22,7 @@ Version numbers follow MAJOR.MINOR.PATCH:
 - Pinned Python dependencies in `cfg/requirements.txt`
 
 ### Changed
-- Repository migrated from `VoyagerTechnologies-NATSEC/sw-shire-top` to `VoyagerTechnologies/shire`
+- Repository migrated to a public repository
 - All container images moved to `ghcr.io/voyagertechnologies/` registry
 - `yamcs/` extracted to `VoyagerTechnologies/shire-yamcs` and wired back as a submodule
 - External vendored directories converted to git submodules (`external-42`, `external-cfe`, `external-osal`, `external-psp`, nine cFS apps, `external-cryptolib`)

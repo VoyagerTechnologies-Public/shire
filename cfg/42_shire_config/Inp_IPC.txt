@@ -1,0 +1,17 @@
+<<<<<<<<<<<<<<< 42: InterProcess Comm Configuration File >>>>>>>>>>>>>>>>
+1                                       ! Number of Sockets
+**********************************  IPC 0   *****************************
+TXRX                                    ! IPC Mode (OFF,TX,RX,TXRX,WRITEFILE,READFILE)
+"ShireState.42"                         ! File name for WRITE or READ
+SERVER                                  ! Socket Role (SERVER,CLIENT,GMSEC_CLIENT)
+/tmp/42_ipc.sock  0                     ! Unix socket path (port unused), director connects via shared /tmp volume
+TRUE                                    ! Allow Blocking (CRITICAL: blocks until Ack received)
+FALSE                                   ! Echo to stdout (reduce noise)
+7                                       ! Number of TX prefixes
+"SC[0].qn"                              ! Prefix 0 - Quaternion
+"SC[0].wn"                              ! Prefix 1 - Angular velocity
+"SC[0].svb"                             ! Prefix 2 - Sun vector body
+"SC[0].bvb"                             ! Prefix 3 - Magnetic field body
+"SC[0].Hvb"                             ! Prefix 4 - Total angular momentum body
+"SC[0].Whl"                             ! Prefix 5 - Wheel data (momentum, torque commands)
+"Orb[0]"                                ! Prefix 6 - Orbit data (PosN, VelN)
