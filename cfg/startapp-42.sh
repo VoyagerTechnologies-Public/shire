@@ -2,7 +2,7 @@
 
 export DISPLAY=:1
 
-cd ./42 && make clean && make -j2 
+cd ./42
 
 xterm -e ./42 &
 xterm &
