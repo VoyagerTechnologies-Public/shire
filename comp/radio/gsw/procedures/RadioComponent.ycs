@@ -1,0 +1,99 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_RST_COUNTERS_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "stream": "tc_realtime",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_NOOP_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "stream": "tc_realtime",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RX_SPEED",
+          "value": "1"
+        },
+        {
+          "name": "RX_WAVE",
+          "value": "2"
+        },
+        {
+          "name": "TX_SPEED",
+          "value": "3"
+        },
+        {
+          "name": "TX_WAVE",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "stream": "tc_realtime",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_RxSpeedSetting",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_RxWavelengthSetting",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_TxSpeedSetting",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_TxWavelengthSetting",
+          "operator": "eq",
+          "value": "4"
+        }
+      ]
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Queued",
+    "wait": 0
+  }
+}

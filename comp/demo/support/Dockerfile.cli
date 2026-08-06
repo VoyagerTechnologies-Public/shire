@@ -1,0 +1,12 @@
+FROM ghcr.io/voyagertechnologies-natsec/shire-base:latest
+
+ARG BUILDDIR=./build
+
+# Copy built files into the image
+COPY ${BUILDDIR} /app
+
+# Set working directory
+WORKDIR /app
+
+# Set command to run
+CMD ["/app/demo_cli"]

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Fault Detection, Isolation, and Recovery (FDIR).\n* Enable the device\n* Confirm valid telemetry, compare to truth\n* Use backdoor to randomize telemetry\n* Confirm error\n* Confirm automated spacecraft RTS11 response\n* Restore functionality\n* Confirm valid telemetry"
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_RST_COUNTERS_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_NOOP_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/CMD_COUNT",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_ENABLE_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "ENABLED"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/CHAN1",
+          "operator": "gte",
+          "value": "256"
+        },
+        {
+          "parameter": "/DEMO/CHAN2",
+          "operator": "gte",
+          "value": "256"
+        },
+        {
+          "parameter": "/DEMO/CHAN3",
+          "operator": "gte",
+          "value": "256"
+        }
+      ],
+      "comment": "Confirm device operating nominally."
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/BACKDOOR_DEMO_RAND_DATA",
+      "comment": "Inject device data fault via simulation backdoor.",
+      "stream": "tc_backdoor",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ENABLE",
+          "value": "ENABLE"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/CHAN1",
+          "operator": "lt",
+          "value": "256"
+        },
+        {
+          "parameter": "/DEMO/CHAN2",
+          "operator": "lt",
+          "value": "256"
+        },
+        {
+          "parameter": "/DEMO/CHAN3",
+          "operator": "lt",
+          "value": "256"
+        }
+      ],
+      "comment": "Confirm device data invalid."
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFS/SC_HKTLM/RTSEXECUTINGSTATUS_1",
+          "operator": "gte",
+          "value": "1024"
+        }
+      ],
+      "comment": "Confirm spacecraft detects and acts on demo component data error."
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/BACKDOOR_DEMO_RAND_DATA",
+      "comment": "Disable device data fault via simulation backdoor.",
+      "stream": "tc_backdoor",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ENABLE",
+          "value": "DISABLE"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "DISABLED"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "ENABLED"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/DEMO/CHAN1",
+          "operator": "gte",
+          "value": "256"
+        },
+        {
+          "parameter": "/DEMO/CHAN2",
+          "operator": "gte",
+          "value": "256"
+        },
+        {
+          "parameter": "/DEMO/CHAN3",
+          "operator": "gte",
+          "value": "256"
+        }
+      ],
+      "comment": "Confirm device operating nominally."
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Queued",
+    "wait": 0
+  }
+}

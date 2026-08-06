@@ -1,0 +1,16 @@
+{
+  "$schema": "https://yamcs.org/schema/parameter-table.schema.json",
+  "scroll": false,
+  "bufferSize": 10,
+  "parameters": [
+    "/EPS/BATTERY_VOLTAGE",
+    "/EPS/SWITCH_0_STATE",
+    "/EPS/SWITCH_1_STATE",
+    "/EPS/SWITCH_2_STATE",
+    "/EPS/SWITCH_3_STATE",
+    "/EPS/SWITCH_4_STATE",
+    "/EPS/SWITCH_5_STATE",
+    "/EPS/SWITCH_6_STATE",
+    "/EPS/SWITCH_7_STATE"
+  ]
+}

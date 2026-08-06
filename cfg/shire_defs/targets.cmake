@@ -39,10 +39,10 @@ list(APPEND MISSION_GLOBAL_APPLIST
     #
     # Components
     #
-        #adcs
-        #demo
-        #eps
-        #radio
+        adcs
+        demo
+        eps
+        radio
 )
 
 # Create Application Platform Include List

@@ -1,0 +1,15 @@
+eps:
+  i2c_bus_id: 0
+  i2c_device_addr: 0x1E
+  i2c_speed: 400000
+  ms_timeout: 250
+  debug: true
+  battery_capacity_wh: 40.0
+  battery_voltage_min: 16.0
+  battery_voltage_max: 24.0
+  battery_initial_soc: 0.8
+  max_solar_power_w: 6.0
+  switch_3v3_power_w: 0.8    # Sensors, low-power electronics
+  switch_5v_power_w: 1.5     # Computing systems, cameras
+  switch_12v_power_w: 2.5    # ADCS systems, motors
+  switch_24v_power_w: 4.0    # High-power transmitters, heaters
