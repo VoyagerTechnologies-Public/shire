@@ -82,8 +82,13 @@ container: .container.stamp
 
 .container.stamp: cfg/Dockerfile.base cfg/requirements.txt
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker is not installed or not in PATH."; exit 1; }
-	docker build -t $(BUILD_IMAGE) -f cfg/Dockerfile.base \
-		--build-arg USER_ID=$(shell id -u) --build-arg GROUP_ID=$(shell id -g) cfg
+	@if docker pull $(BUILD_IMAGE) 2>/dev/null; then \
+		echo "[container] Pulled $(BUILD_IMAGE) from GHCR"; \
+	else \
+		echo "[container] Building $(BUILD_IMAGE) locally..."; \
+		docker build -t $(BUILD_IMAGE) -f cfg/Dockerfile.base \
+			--build-arg USER_ID=$(shell id -u) --build-arg GROUP_ID=$(shell id -g) cfg; \
+	fi
 	@touch .container.stamp
 
 debug: cfg

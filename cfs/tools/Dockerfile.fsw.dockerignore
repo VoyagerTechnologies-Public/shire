@@ -1,0 +1,4 @@
+# Build context filter for Dockerfile.fsw (context root = repo root)
+# Only the pre-built artifacts in build/ are COPYed into the FSW runtime image.
+*
+!build/

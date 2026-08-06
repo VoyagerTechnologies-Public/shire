@@ -1,0 +1,15 @@
+# Build context filter for Dockerfile.42 (context root = repo root)
+# Only 42/, cfg/, and the rendered build config are needed.
+# Excluding large source trees (simulith 384MB, cfs 56MB) reduces context sent to daemon.
+*
+!42/
+!cfg/
+!build/
+
+# Exclude 42 subdirectories not needed for compilation or runtime (~20MB).
+# These are also excluded from the final image, keeping it smaller.
+42/Docs/
+42/Screenshots/
+42/Development/
+42/containers/
+42/MetaCode/

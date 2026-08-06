@@ -292,17 +292,13 @@ def build_fsw(config):
     
     # Set up environment for FSW build
     fsw_dir = os.path.join(ROOT_DIR, FSW_DIR)
-    
+
     env_vars = {
         "BUILDDIR": builddirs["fsw"],
         "SPACECRAFT": spacecraft,
         "MISSION": mission,
     }
-    
-    # Clean first
-    print(f"[build] Cleaning FSW build directory...")
-    run_make("clean", cwd=fsw_dir, env_vars=env_vars, in_docker=True)
-    
+
     # Build FSW using internal target
     print(f"[build] Building FSW binaries...")
     run_make("build-fsw", cwd=fsw_dir, env_vars=env_vars, in_docker=True)
@@ -369,10 +365,7 @@ def build_gsw(config):
         "MISSION": mission,
     }
     gsw_dir = os.path.join(ROOT_DIR, GSW_DIR)
-    
-    # Clean first
-    run_make("clean", cwd=gsw_dir, env_vars=env_vars, in_docker=False)
-    
+
     # Build runtime image (this is the only build step for GSW)
     print(f"[build] Building GSW runtime image...")
     run_make("runtime", cwd=gsw_dir, env_vars=env_vars, in_docker=False)
