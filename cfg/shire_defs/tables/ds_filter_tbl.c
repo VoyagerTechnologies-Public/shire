@@ -32,7 +32,7 @@
  *   in the table might be used.
  */
 
-#include "cfe_sb_api_typedefs.h"
+#include "cfe.h"
 #include "cfe_tbl_filedef.h"
 #include "ds_platform_cfg.h"
 #include "ds_tbl.h"
@@ -51,6 +51,11 @@
 #include "sc_msgids.h"
 #include "sch_msgids.h"
 #include "to_lab_msgids.h"
+
+/* Components */
+#include "demo_msgids.h"
+#include "eps_msgids.h"
+#include "radio_msgids.h"
 
 /*
 ** Note: It is suggested that missions pre-define their file table
@@ -240,35 +245,35 @@ DS_FilterTable_t DS_FilterTable = {
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED}}},
-     /* Packet Index 020 */
-     {/* .MessageID = */ CFE_SB_MSGID_RESERVED,
+     /* Packet Index 020 - DEMO HK */
+     {/* .MessageID = */ CFE_SB_MSGID_WRAP_VALUE(DEMO_HK_TLM_MID),
       /* .Filter    = */
       {/* File table index, filter type, N, X, O */
-       {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
+       {FILE_ALL_DATA, DS_BY_COUNT, 1, 1, 0},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED}}},
-     /* Packet Index 021 */
-     {/* .MessageID = */ CFE_SB_MSGID_RESERVED,
+     /* Packet Index 021 - DEMO DEVICE */
+     {/* .MessageID = */ CFE_SB_MSGID_WRAP_VALUE(DEMO_DEVICE_TLM_MID),
       /* .Filter    = */
       {/* File table index, filter type, N, X, O */
-       {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
+       {FILE_ALL_DATA, DS_BY_COUNT, 1, 1, 0},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED}}},
-     /* Packet Index 022 */
-     {/* .MessageID = */ CFE_SB_MSGID_RESERVED,
+     /* Packet Index 022 - EPS HK*/
+     {/* .MessageID = */ CFE_SB_MSGID_WRAP_VALUE(EPS_HK_TLM_MID),
       /* .Filter    = */
       {/* File table index, filter type, N, X, O */
-       {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
+       {FILE_ALL_DATA, DS_BY_COUNT, 1, 1, 0},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED}}},
-     /* Packet Index 023 */
-     {/* .MessageID = */ CFE_SB_MSGID_RESERVED,
+     /* Packet Index 023 - RADIO HK */
+     {/* .MessageID = */ CFE_SB_MSGID_WRAP_VALUE(RADIO_HK_TLM_MID),
       /* .Filter    = */
       {/* File table index, filter type, N, X, O */
-       {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
+       {FILE_ALL_DATA, DS_BY_COUNT, 1, 1, 0},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED},
        {DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED, DS_UNUSED}}},

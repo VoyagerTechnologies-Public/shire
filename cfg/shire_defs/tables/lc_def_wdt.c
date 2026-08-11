@@ -37,6 +37,10 @@
 #include "lc_msgdefs.h"
 #include "lc_tbl.h"
 
+/* Component includes */
+#include "demo_msgids.h"
+#include "radio_msgids.h"
+
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
@@ -162,16 +166,16 @@ LC_WDTEntry_t LC_WDT[LC_MAX_WATCHPOINTS] = {
         .ComparisonValue.Unsigned32 = 0,
     },
 
-    /* #5 (unused) */
+    /* #5 - Radio Enable */
     {
-        .DataType                   = LC_DATA_WATCH_NOT_USED,
-        .OperatorID                 = LC_OPER_NONE,
-        .MessageID                  = CFE_SB_MSGID_RESERVED,
-        .WatchpointOffset           = 0,
+        .DataType                   = LC_DATA_WATCH_UBYTE,
+        .OperatorID                 = LC_OPER_NE,
+        .MessageID                  = RADIO_HK_TLM_MID,
+        .WatchpointOffset           = 20,
         .BitMask                    = LC_BITMASK_NONE,
         .CustomFuncArgument         = 0,
         .ResultAgeWhenStale         = 0,
-        .ComparisonValue.Unsigned32 = 0,
+        .ComparisonValue.Unsigned8  = 1,
     },
 
     /* #6 (unused) */
@@ -222,28 +226,28 @@ LC_WDTEntry_t LC_WDT[LC_MAX_WATCHPOINTS] = {
         .ComparisonValue.Unsigned32 = 0,
     },
 
-    /* #10 (unused) */
+    /* #10 Demo Enabled */
     {
-        .DataType                   = LC_DATA_WATCH_NOT_USED,
-        .OperatorID                 = LC_OPER_NONE,
-        .MessageID                  = CFE_SB_MSGID_RESERVED,
-        .WatchpointOffset           = 0,
+        .DataType                   = LC_DATA_WATCH_UBYTE,
+        .OperatorID                 = LC_OPER_EQ,
+        .MessageID                  = DEMO_HK_TLM_MID,
+        .WatchpointOffset           = 20,
         .BitMask                    = LC_BITMASK_NONE,
         .CustomFuncArgument         = 0,
         .ResultAgeWhenStale         = 0,
-        .ComparisonValue.Unsigned32 = 0,
+        .ComparisonValue.Unsigned8  = 1,
     },
 
-    /* #11 (unused) */
+    /* #11 Demo Chan 1 Invalid Range */
     {
-        .DataType                   = LC_DATA_WATCH_NOT_USED,
-        .OperatorID                 = LC_OPER_NONE,
-        .MessageID                  = CFE_SB_MSGID_RESERVED,
-        .WatchpointOffset           = 0,
+        .DataType                   = LC_DATA_WATCH_WORD_LE,
+        .OperatorID                 = LC_OPER_LT,
+        .MessageID                  = DEMO_DEVICE_TLM_MID,
+        .WatchpointOffset           = 11,
         .BitMask                    = LC_BITMASK_NONE,
         .CustomFuncArgument         = 0,
         .ResultAgeWhenStale         = 0,
-        .ComparisonValue.Unsigned32 = 0,
+        .ComparisonValue.Unsigned16 = 256,
     },
 
     /* #12 (unused) */

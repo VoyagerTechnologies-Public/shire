@@ -5,7 +5,9 @@
 ** Required header files.
 */
 #include "device_cfg.h"
+#ifndef CFE_TABLE_BUILD
 #include "hwlib.h"
+#endif
 
 /*
 ** Type definitions
@@ -76,10 +78,12 @@ typedef struct
 /*
 ** Prototypes
 */
+#ifndef CFE_TABLE_BUILD
 int32_t ADCS_ReadData(uart_info_t *device, uint8_t *read_data, uint8_t data_length);
 int32_t ADCS_CommandDevice(uart_info_t *device, uint16_t cmd, uint16_t payload);
 int32_t ADCS_RequestHK(uart_info_t *device, ADCS_Device_HK_tlm_t *data);
 int32_t ADCS_RequestData(uart_info_t *device, ADCS_Device_Data_tlm_t *data, uint16_t data_cmd);
+#endif
 void ADCS_PrintHK(const ADCS_Device_HK_tlm_t *hk);
 
 /* Helpers for testing/processing raw frames */

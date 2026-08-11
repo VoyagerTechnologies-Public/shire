@@ -46,6 +46,13 @@
 #include "sch_msgids.h"
 /* #include "to_lab_msgids.h" */
 
+/* Components*/
+#include "adcs_msgids.h"
+#include "demo_msgids.h"
+#include "eps_msgids.h"
+#include "radio_msgids.h"
+
+
 /*************************************************************************
 **
 ** Macro definitions
@@ -203,16 +210,16 @@ SCH_MessageEntry_t SCH_DefaultMessageTable[SCH_MAX_MESSAGES] =
     /* command ID #39 - ES NOOP */
   { { CFE_MAKE_BIG16(CFE_ES_CMD_MID),   CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0000 } },
 
-    /* command ID #40 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
-    /* command ID #41 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
-    /* command ID #42 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
-    /* command ID #43 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
-    /* command ID #44 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
+    /* command ID #40 - Demo Request HK */
+  { { CFE_MAKE_BIG16(DEMO_REQ_HK_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0000 } }, /* Demo HK Request */
+    /* command ID #41 - EPS Request HK */
+  { { CFE_MAKE_BIG16(EPS_REQ_HK_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0000 } }, /* EPS HK Request */
+    /* command ID #42 - Radio Request HK */
+  { { CFE_MAKE_BIG16(RADIO_REQ_HK_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0000 } }, /* Radio HK Request */
+    /* command ID #43 - Radio Receive Data */
+  { { CFE_MAKE_BIG16(RADIO_CMD_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0005 } }, /* Radio Receive Data */
+    /* command ID #44 - ADCS Request HK */
+  { { CFE_MAKE_BIG16(ADCS_REQ_HK_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0000 } }, /* ADCS HK Request */
     /* command ID #45 */
   { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
     /* command ID #46 */
@@ -224,8 +231,8 @@ SCH_MessageEntry_t SCH_DefaultMessageTable[SCH_MAX_MESSAGES] =
     /* command ID #49 */
   { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
 
-    /* command ID #50 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
+    /* command ID #50 - Demo Request Telemetry */
+  { { CFE_MAKE_BIG16(DEMO_REQ_HK_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0001 } }, /* Demo Telemetry Request */
     /* command ID #51 */
   { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
     /* command ID #52 */

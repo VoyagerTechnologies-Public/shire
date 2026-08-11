@@ -6,8 +6,10 @@
 */
 #include <stdbool.h>
 #include "device_cfg.h"
+#ifndef CFE_TABLE_BUILD
 #include "hwlib.h"
 #include "libi2c.h"
+#endif
 
 /*
 ** EPS Command definitions (as per README)
@@ -69,9 +71,11 @@ bool EPS_Verify_CRC8(const uint8_t *data, size_t length, uint8_t expected_crc);
 /*
 ** Device Interface Functions
 */
+#ifndef CFE_TABLE_BUILD
 int32_t EPS_InitDevice(i2c_bus_info_t *device);
 int32_t EPS_CommandDevice(i2c_bus_info_t *device, uint8_t cmd, uint8_t payload);
 int32_t EPS_RequestHK(i2c_bus_info_t *device, EPS_Device_HK_tlm_t *data);
 int32_t EPS_SetSwitch(i2c_bus_info_t *device, uint8_t switch_num, bool state);
+#endif
 
 #endif /* _EPS_DEVICE_H_ */

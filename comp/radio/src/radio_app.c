@@ -230,6 +230,15 @@ int32 RADIO_AppInit(void)
     memset(RADIO_AppData.ReceiveBuffer, 0, sizeof(RADIO_AppData.ReceiveBuffer));
     RADIO_AppData.ReceiveBuffLength = 0;
 
+    /* Initialize CryptoLib for TC ProcessSecurity on received frames */
+    status = Crypto_SC_Init();
+    if (status != CRYPTO_LIB_SUCCESS)
+    {
+        CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "RADIO: Crypto_SC_Init failed, status=%d", (int)status);
+        /* Non-fatal: uplink processing will fail but downlink/HK still work */
+    }
+
     /* Initialize TM SDLP channel */
     radio_global_cfg.scId = 0x0003; /* Spacecraft ID */
     radio_global_cfg.frameLength = RADIO_TM_FRAME_SIZE;

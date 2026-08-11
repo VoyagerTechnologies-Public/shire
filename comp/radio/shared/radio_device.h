@@ -5,9 +5,11 @@
 ** Required header files.
 */
 #include "device_cfg.h"
+#ifndef CFE_TABLE_BUILD
 #include "hwlib.h"
 #include "libspi.h"
 #include "libgpio.h"
+#endif
 
 /*
 ** Type definitions
@@ -81,6 +83,7 @@ typedef struct
 /*
 ** Prototypes
 */
+#ifndef CFE_TABLE_BUILD
 int32_t RADIO_InitDevice(spi_info_t *spi_device, gpio_info_t *power_gpio, gpio_info_t *interrupt_gpio);
 int32_t RADIO_CommandDevice(spi_info_t *device, uint8_t cmd, uint16_t payload_len, uint8_t *payload);
 int32_t RADIO_RequestHK(spi_info_t *device, RADIO_Device_HK_tlm_t *data);
@@ -90,5 +93,6 @@ int32_t RADIO_ReceiveData(spi_info_t *device, uint8_t *data, uint16_t max_length
 int32_t RADIO_CheckInterrupt(gpio_info_t *interrupt_gpio, uint8_t *interrupt_status);
 int32_t RADIO_PowerOn(gpio_info_t *power_gpio);
 int32_t RADIO_PowerOff(gpio_info_t *power_gpio);
+#endif
 
 #endif /* _RADIO_DEVICE_H_ */

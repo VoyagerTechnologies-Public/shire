@@ -36,6 +36,12 @@
 #include "sch_msgids.h"
 #include "to_lab_msgids.h"
 
+/* Components */
+#include "adcs_msgids.h"
+#include "demo_msgids.h"
+#include "eps_msgids.h"
+#include "radio_msgids.h"
+
 TO_LAB_Subs_t TO_LAB_Subs = {.Subs = {
     /* cFE Core */
     {CFE_SB_MSGID_WRAP_VALUE(CFE_ES_HK_TLM_MID), {0, 0}, 4},
@@ -62,6 +68,14 @@ TO_LAB_Subs_t TO_LAB_Subs = {.Subs = {
     {CFE_SB_MSGID_WRAP_VALUE(LC_HK_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(SC_HK_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(SCH_HK_TLM_MID), {0,0}, 4},
+
+    /* Components */
+    {CFE_SB_MSGID_WRAP_VALUE(ADCS_HK_TLM_MID), {0, 0}, 32},
+    {CFE_SB_MSGID_WRAP_VALUE(DEMO_HK_TLM_MID), {0, 0}, 4},
+    {CFE_SB_MSGID_WRAP_VALUE(DEMO_DEVICE_TLM_MID), {0, 0}, 4},
+    {CFE_SB_MSGID_WRAP_VALUE(EPS_HK_TLM_MID), {0, 0}, 4},
+    {CFE_SB_MSGID_WRAP_VALUE(EPS_DEVICE_TLM_MID), {0, 0}, 4},
+    {CFE_SB_MSGID_WRAP_VALUE(RADIO_HK_TLM_MID), {0, 0}, 4},
 
     /* CFE_SB_MSGID_RESERVED entry to mark the end of valid MsgIds */
     {CFE_SB_MSGID_RESERVED, {0, 0}, 0}}};

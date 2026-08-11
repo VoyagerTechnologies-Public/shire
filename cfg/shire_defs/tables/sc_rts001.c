@@ -61,7 +61,7 @@ typedef struct
     /* 4 - Enable RTS Group */
     SC_RtsEntryHeader_t hdr4;
     SC_EnableRtsGrpCmd_t cmd4;
-    /* 5 - Start RTS #3 () */
+    /* 5 - Start RTS #3 */
     SC_RtsEntryHeader_t hdr5;
     SC_StartRtsCmd_t cmd5;
 

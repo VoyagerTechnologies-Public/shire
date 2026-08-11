@@ -10,11 +10,12 @@ services:
     ports:
       - "5801:80"  # VNC web interface for 42 graphics visualization
     cpus: "2.0"
-    mem_limit: 1g
+    mem_limit: 2g
+    environment:
+      - MESA_NO_SHM=1
     volumes:
       - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
-    tmpfs:
-      - /dev/shm:noexec,nosuid,size=500m
+    shm_size: '2gb'
 
   shire-gsw:
     image: shire-gsw-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}

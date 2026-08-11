@@ -17,6 +17,8 @@ BUILD_IMAGE = "ghcr.io/voyagertechnologies-public/shire-base:latest"
 FSW_DIR = os.environ.get("FSW_DIR", "cfs")
 GSW_DIR = os.environ.get("GSW_DIR", "yamcs")
 
+DOCKER_ENV = {**os.environ, "DOCKER_BUILDKIT": "1"}
+
 
 def fail(msg):
     print(f"[build] ERROR: {msg}", file=sys.stderr)
@@ -198,7 +200,7 @@ def build_42(config, builddirs):
     ]
 
     print(f"[build] Running: docker build -f Dockerfile.42 -t {image_name}")
-    result = subprocess.run(cmd, cwd=ROOT_DIR)
+    result = subprocess.run(cmd, cwd=ROOT_DIR, env=DOCKER_ENV)
     
     if result.returncode != 0:
         fail(f"Failed to build 42 container")
@@ -327,7 +329,7 @@ def build_fsw(config):
         "--build-arg", f"MISSION={mission}",
         "."
     ]
-    result = subprocess.run(cmd, cwd=ROOT_DIR)
+    result = subprocess.run(cmd, cwd=ROOT_DIR, env=DOCKER_ENV)
     if result.returncode != 0:
         print(f"[build] WARNING: Failed to build FSW runtime image")
     

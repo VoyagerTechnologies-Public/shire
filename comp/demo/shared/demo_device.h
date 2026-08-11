@@ -5,7 +5,9 @@
 ** Required header files.
 */
 #include "device_cfg.h"
+#ifndef CFE_TABLE_BUILD
 #include "hwlib.h"
+#endif
 
 /*
 ** Type definitions
@@ -54,9 +56,11 @@ typedef struct
 /*
 ** Prototypes
 */
+#ifndef CFE_TABLE_BUILD
 int32_t DEMO_ReadData(uart_info_t *device, uint8_t *read_data, uint8_t data_length);
 int32_t DEMO_CommandDevice(uart_info_t *device, uint16_t cmd, uint16_t payload);
 int32_t DEMO_RequestHK(uart_info_t *device, DEMO_Device_HK_tlm_t *data);
 int32_t DEMO_RequestData(uart_info_t *device, DEMO_Device_Data_tlm_t *data);
+#endif
 
 #endif /* _DEMO_DEVICE_H_ */

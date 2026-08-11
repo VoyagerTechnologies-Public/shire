@@ -15,7 +15,7 @@
 #include "radio_version.h"
 #include "hwlib.h"
 
-#include "cryptolib.h"
+#include "crypto.h"
 #include "io_lib.h"
 #include "io_lib_utils.h"
 #include "sa_interface.h"

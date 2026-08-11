@@ -41,7 +41,7 @@
  *   storage.
  */
 
-#include "cfe_sb_api_typedefs.h"
+#include "cfe.h"
 #include "cfe_tbl_filedef.h"
 #include "ds_platform_cfg.h"
 #include "ds_tbl.h"
