@@ -1,196 +1,145 @@
 # SHIRE Software Bill of Materials (SBOM)
 
-**Generated:** 2026-06-26
-**Repository:** `https://github.com/VoyagerTechnologies/shire`
+**Generated:** 2026-08-11
+
+**Source revision:** `1d4ee967fb2fe21aadd7b51a31fde56e5214c261` (`1-setup`)
+
+**Repository:** `https://github.com/VoyagerTechnologies-Public/shire`
+
 **License:** Permissive Open-Source License v1.0 — Copyright 2025 Voyager Technologies Inc.
+
 **Machine-readable SBOM:** [sbom.cdx.json](sbom.cdx.json) (CycloneDX 1.6 JSON)
 
----
+## Scope and method
 
-## System Components
+This is a source SBOM for the checked-out repository and its pinned Git submodules. It was reconciled manually against `.gitmodules`, dependency manifests, Maven configuration, and Dockerfiles. It does not enumerate Maven or Python transitive dependencies, the package set inherited from container base images, or exact versions of packages installed without a version constraint. It also does not contain vulnerability scan results.
 
-These subsystems are developed and maintained within this repository.
+For a release SBOM, generate and merge resolved dependency and image inventories (for example, CycloneDX Maven output and Syft output for every published image), then scan the result with the organization's approved vulnerability scanner.
+
+## SHIRE-maintained components
 
 | Component | Directory | Language | Description |
-|-----------|-----------|----------|-------------|
-| Flight Software (FSW) | `cfs/` | C | NASA Core Flight System (cFS) — flight executive and applications |
-| Ground Software (GSW) | `yamcs/` | Java | YAMCS-based mission control and telemetry |
-| Simulith | `simulith/` | C/C++ | Simulator integration and director layer |
-| 42 Simulator | `42/` | C | Space vehicle dynamics simulator (Eric Stoneking / NASA GSFC, SHIRE-modified) |
-| ADCS Component | `comp/adcs/` | C | Attitude Determination and Control System |
-| EPS Component | `comp/eps/` | C | Electrical Power System |
-| Radio Component | `comp/radio/` | C | Radio communication subsystem |
-| CryptoLib Component | `comp/cryptolib/` | C | Cryptographic library for secure commanding |
-| Demo Component | `comp/demo/` | C | Template/reference component |
-| Build Orchestrator | `cfg/` | Python | Mission configuration and build orchestration scripts |
-| Atlas Documentation | `atlas/` | Markdown | MkDocs-based project documentation site |
+|---|---|---|---|
+| Build orchestrator | `cfg/` | Python | Mission configuration, rendering, and build orchestration |
+| Simulith | `simulith/` | C/C++ | Simulation server, director, transport, and component integration |
+| ADCS component | `comp/adcs/` | C | Attitude determination and control FSW, simulator, CLI, and GSW definitions |
+| EPS component | `comp/eps/` | C | Electrical power FSW, simulator, CLI, and GSW definitions |
+| Radio component | `comp/radio/` | C | Radio FSW, simulator, CLI, and GSW definitions |
+| Demo component | `comp/demo/` | C | Reference component implementation |
 
-### CFS Applications
+## Pinned source submodules
 
-| Application | Directory | Description |
-|-------------|-----------|-------------|
-| CF (CFDP) | `cfs/apps/cf/` | CCSDS File Delivery Protocol — file transfer |
-| CI Lab | `cfs/apps/ci_lab/` | Command interface lab |
-| DS | `cfs/apps/ds/` | Data storage |
-| FM | `cfs/apps/fm/` | File manager |
-| IO Lib | `cfs/apps/io_lib/` | I/O library |
-| LC | `cfs/apps/lc/` | Limit checker |
-| SC | `cfs/apps/sc/` | Stored commands |
-| SCH | `cfs/apps/sch/` | Scheduler |
-| TO Lab | `cfs/apps/to_lab/` | Telemetry output lab |
+The commit IDs below are the versions actually selected by the parent repository. Branch values in `.gitmodules` are update hints and do not replace these pins.
 
-### CFS Core Libraries
+| Component | Directory | Commit | Source |
+|---|---|---|---|
+| 42 spacecraft simulator | `42/` | `af31058313ad9837c0fba296897098c198bd17fd` | `VoyagerTechnologies-Public/external-42` |
+| Core Flight Executive (cFE) | `cfs/cfe/` | `72a865663c5c167fbe523b3dd5fa950cf3796473` | `VoyagerTechnologies-Public/external-cFE` |
+| Operating System Abstraction Layer (OSAL) | `cfs/osal/` | `5654aa05548be698b1f8e840c6ac86e241280a32` | `VoyagerTechnologies-Public/external-osal` |
+| Platform Support Package (PSP) | `cfs/psp/` | `1b8f96ea225caefe763f4097bc411c6f58c9702a` | `VoyagerTechnologies-Public/external-PSP` |
+| elf2cfetbl | `cfs/tools/elf2cfetbl/` | `e888aa04fd4dcb77ace5ac218300266fe568f1dc` | `VoyagerTechnologies-Public/external-elf2cfetbl` |
+| CF | `cfs/apps/cf/` | `4f751647df1a83e9d0897879f759213e7e803e14` | `VoyagerTechnologies-Public/external-CF` |
+| CI Lab | `cfs/apps/ci_lab/` | `7a006e4429e08b50d4a58fafbcb9e4899306fcb4` | `VoyagerTechnologies-Public/external-ci_lab` |
+| DS | `cfs/apps/ds/` | `73d680405833b849486511b9c2d4ab60209e9b9e` | `VoyagerTechnologies-Public/external-DS` |
+| FM | `cfs/apps/fm/` | `7c1982e8bde1f227e786d1aa02f98b018fd56529` | `VoyagerTechnologies-Public/external-FM` |
+| IO Lib | `cfs/apps/io_lib/` | `328f79ca75208dc4b6da950133f4ae418460da1c` | `VoyagerTechnologies-Public/external-CFS_IO_LIB` |
+| LC | `cfs/apps/lc/` | `0ad442f83f01bf94afd9e4376e16245af0af1f36` | `VoyagerTechnologies-Public/external-LC` |
+| SC | `cfs/apps/sc/` | `86cfe00d89f1dc09c09a2e3bcd84d968050ef25e` | `VoyagerTechnologies-Public/external-SC` |
+| SCH | `cfs/apps/sch/` | `28110189859131739375414b80d2af6d604690dc` | `VoyagerTechnologies-Public/external-SCH` |
+| TO Lab | `cfs/apps/to_lab/` | `9ca4f85d9d10df5170b542792ab34d79144e417f` | `VoyagerTechnologies-Public/external-to_lab` |
+| CryptoLib | `comp/cryptolib/` | `f8ee0237ac36acd8bed0c490caa3b932a6d71a75` | `VoyagerTechnologies-Public/external-CryptoLib` |
+| SHIRE YAMCS | `yamcs/` | `7c77ecce36025c0e314a5eed265d15098214d4ed` | `VoyagerTechnologies-Public/external-yamcs` |
 
-| Library | Directory | Description |
-|---------|-----------|-------------|
-| CFE | `cfs/cfe/` | Core Flight Executive |
-| OSAL | `cfs/osal/` | Operating System Abstraction Layer |
-| PSP | `cfs/psp/` | Platform Support Package |
+The cFE, OSAL, PSP, elf2cfetbl, CF, CI Lab, DS, FM, LC, SC, and TO Lab checkouts contain Apache-2.0 license files. CryptoLib contains NASA Open Source Agreement 1.3. License identification for the remaining submodules should be confirmed from their upstream distributions before release.
 
----
+## Declared application dependencies
 
-## Third-Party Dependencies
+### Java — `yamcs/pom.xml`
 
-### Java (Maven) — `yamcs/pom.xml`
+| Artifact | Group | Declared version | Scope |
+|---|---|---|---|
+| `yamcs-core` | `org.yamcs` | 5.13.0 | Runtime |
+| `yamcs-web` | `org.yamcs` | 5.13.0 | Runtime |
 
-| Artifact | Group | Version | License | Description |
-|----------|-------|---------|---------|-------------|
-| yamcs-core | org.yamcs | 5.12.0 | AGPL-3.0 | YAMCS mission control core framework |
-| yamcs-web | org.yamcs | 5.12.0 | AGPL-3.0 | YAMCS web interface |
+| Build plugin | Declared version |
+|---|---|
+| `maven-compiler-plugin` | 3.15.0 |
+| `maven-site-plugin` | 3.21.0 |
+| `yamcs-maven-plugin` | 1.3.7 |
+| `maven-project-info-reports-plugin` | 3.4.3 |
 
-**Build Plugins:**
+The project targets Java 17. The Maven wrapper and YAMCS build image use Maven 3.9.9. Maven transitive dependencies are not enumerated here.
 
-| Plugin | Version | Description |
-|--------|---------|-------------|
-| yamcs-maven-plugin | 1.3.5 | YAMCS build and run integration |
-| maven-site-plugin | 3.12.1 | Maven site generation |
-| maven-project-info-reports-plugin | 3.4.3 | Project info reports |
+### Python
 
-**Build Toolchain:** Maven 3.13.0 · Java 17
+| Manifest | Package | Constraint |
+|---|---|---|
+| `cfg/requirements.txt` | `pyyaml` | Unpinned |
+| `cfg/requirements.txt` | `jinja2` | Unpinned |
+| `yamcs/requirements-commander.txt` | `yamcs-client` | `>=1.9.0` |
+| `yamcs/requirements-commander.txt` | `requests` | `>=2.31.0` |
+| `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx` | `>=8.0` |
+| `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx-rtd-theme` | Unpinned |
+| `comp/cryptolib/docs/wiki/requirements.txt` | `myst-parser` | Unpinned |
 
-### Python — `cfg/requirements.txt`
+All listed Python requirements resolve mutable versions at installation time.
 
-| Package | Version | License | Description |
-|---------|---------|---------|-------------|
-| pyyaml | latest | MIT | YAML parsing for build orchestration |
-| jinja2 | latest | BSD-3-Clause | Template rendering for configuration files |
+### Native and security tooling
 
-### Python — `comp/cryptolib/docs/wiki/requirements.txt`
+| Dependency | Version source | Use |
+|---|---|---|
+| wolfSSL | `5.7.6-stable` in `comp/cryptolib/support/Dockerfile` | CryptoLib cryptographic backend |
+| AFL++ | `v4.31c` in `comp/cryptolib/support/Dockerfile` | CryptoLib fuzz testing |
+| libgcrypt | Distribution package; optional helper downloads 1.11.0 | CryptoLib cryptographic backend |
+| libgpg-error | Distribution package; optional helper downloads 1.50 | libgcrypt support |
+| ZeroMQ | Distribution package | Simulith messaging |
+| libcurl | Distribution package | HTTP/network support |
+| SocketCAN development library | Distribution package | CAN hardware integration |
 
-| Package | Version | License | Description |
-|---------|---------|---------|-------------|
-| sphinx | ≥ 8.0 | BSD-2-Clause | Documentation generator |
-| sphinx-rtd-theme | latest | MIT | Read the Docs theme for Sphinx |
-| myst-parser | latest | MIT | Markdown support for Sphinx |
+The source downloads and Git clone in CryptoLib's support tooling are not checksum- or commit-pinned.
 
-### Python — `yamcs/requirements-commander.txt`
+## Container images
 
-| Package | Version | License | Description |
-|---------|---------|---------|-------------|
-| yamcs-client | ≥ 1.9.0 | LGPL-3.0 | Python YAMCS client — timeline and commander automation |
-| requests | ≥ 2.31.0 | Apache-2.0 | HTTP client library |
+### External base images
 
-### C/C++ External Libraries (installed via Dockerfile)
+| Image | Pinning | Used by |
+|---|---|---|
+| `debian:bookworm-slim@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd` | Digest | `cfg/Dockerfile.base` |
+| `maven:3.9.9-eclipse-temurin-17` | Mutable tag | `yamcs/Dockerfile.yamcs` |
+| `ubuntu:noble-20250127` | Date tag, no digest | `comp/cryptolib/support/Dockerfile` |
+| `ghcr.io/haisamido/x-vnc:latest` | Mutable tag | `cfg/Dockerfile.42` default build argument |
 
-| Library | Version | License | Description |
-|---------|---------|---------|-------------|
-| libgcrypt | 1.11.0 | LGPL-2.1 | General-purpose cryptographic library |
-| libgpg-error | 1.50 | LGPL-2.1 | Error values for GnuPG components |
-| libzmq (ZeroMQ) | system | LGPL-3.0 | Asynchronous messaging library |
-| libcurl (OpenSSL) | system | curl / MIT | URL transfer library |
-| wolfSSL | 5.7.6-stable | GPL-2.0 / commercial | Embedded TLS/crypto library (CryptoLib) |
+### SHIRE images referenced by Dockerfiles
 
-### Documentation — `atlas/`
+| Image | Status |
+|---|---|
+| `ghcr.io/voyagertechnologies-public/shire-base:latest` | Built from `cfg/Dockerfile.base`; consumed by FSW, Simulith, and CryptoLib standalone images |
+| `ghcr.io/voyagertechnologies-public/shire-yamcs:latest` | Built from `yamcs/Dockerfile.yamcs`; consumed by `yamcs/Dockerfile.gsw` |
+| `ghcr.io/voyagertechnologies-natsec/shire-base:latest` | External mutable dependency used by ADCS, EPS, radio, and demo CLI Dockerfiles; no producing Dockerfile is present in this repository |
 
-| Package | Version | License | Description |
-|---------|---------|---------|-------------|
-| mkdocs-material | latest | MIT | Material theme for MkDocs documentation |
+### Direct packages in `cfg/Dockerfile.base`
 
----
+`build-essential`, `cmake`, `curl`, `gcovr`, `gdb`, `git`, `gpg`, `lcov`, `libcurl4-openssl-dev`, `libgcrypt20-dev`, `libsocketcan-dev`, `libzmq3-dev`, `pkg-config`, `python3`, and `python3-pip` are installed without version constraints. Their resolved versions depend on the pinned Debian image and repository state at build time.
 
-## Container Base Images
+The 42 image additionally installs `libglu1-mesa-dev`, `freeglut3-dev`, `mesa-common-dev`, and `libglfw3-dev` without version constraints. The YAMCS image additionally installs `curl`, `python3`, and `python3-requests` without version constraints.
 
-| Image | Tag / Digest | Used In | Description |
-|-------|-------------|---------|-------------|
-| `debian:bookworm-slim` | `sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd` | `cfg/Dockerfile.base` | Base build and runtime environment |
-| `maven:3.9.9-eclipse-temurin-17` | latest | `yamcs/Dockerfile.yamcs` | YAMCS build environment |
-| `ubuntu:noble-20250127` | pinned | `comp/cryptolib/support/Dockerfile` | CryptoLib build environment |
-| `ghcr.io/haisamido/x-vnc` | latest | `cfg/Dockerfile.42` | 42 simulator VNC desktop |
+## Build and CI tooling
 
-**Internal Images (built and published to GHCR):**
+| Tool | Declared version or source |
+|---|---|
+| GNU Make | Host/container package |
+| CMake | Distribution package |
+| GCC/G++ | `build-essential` distribution package |
+| Apache Maven | 3.9.9 |
+| Eclipse Temurin JDK | 17 |
+| Docker Engine and Compose | User prerequisites; unpinned |
 
-| Image | Dockerfile | Platforms | Description |
-|-------|-----------|-----------|-------------|
-| `ghcr.io/voyagertechnologies/shire-base` | `cfg/Dockerfile.base` | linux/amd64, linux/arm64 | Shared base image for all builds |
-| `ghcr.io/voyagertechnologies/shire-yamcs` | `yamcs/Dockerfile.yamcs` | linux/amd64, linux/arm64 | YAMCS build layer with pre-fetched Maven dependencies |
+There are no parent-repository workflows under `.github/workflows/` in this checkout. Workflow files inside Git submodules belong to those submodule repositories and do not run as SHIRE parent-repository workflows.
 
----
+## Known gaps and release actions
 
-## System Packages (installed via apt in `cfg/Dockerfile.base`)
-
-| Package | Description |
-|---------|-------------|
-| build-essential | GCC, G++, make, and essential build tools |
-| cmake | Cross-platform build system |
-| binutils | Binary utilities (linker, assembler) |
-| crossbuild-essential-armhf | ARM hard-float cross-compilation toolchain |
-| gcc-arm-linux-gnueabihf | ARM 32-bit cross-compiler |
-| libcurl4-openssl-dev | cURL development headers |
-| libgcrypt20-dev | libgcrypt development headers |
-| libzmq3-dev | ZeroMQ development headers |
-| gcovr / lcov | Code coverage reporting |
-| gdb | GNU debugger |
-| python3 / python3-pip | Python 3 runtime and package manager |
-| curl / git / gpg / pkg-config | General-purpose build utilities |
-
----
-
-## Build & CI Infrastructure
-
-| Tool | Version | Description |
-|------|---------|-------------|
-| GNU Make | system | Primary build orchestration (`Makefile`) |
-| Apache Maven | 3.9.9 | Java build tool — resolves YAMCS deps and packages GSW bundle |
-| Docker Engine | latest | Container build and runtime |
-| Docker Compose | latest | Multi-container orchestration |
-| Docker Buildx | latest | Multi-platform image builds |
-| GitHub Actions | — | CI/CD automation |
-| Codecov | — | Code coverage reporting |
-| QEMU | — | ARM emulation for multi-platform container builds |
-
-### CI/CD Workflows
-
-| Workflow | File | Trigger | Description |
-|----------|------|---------|-------------|
-| CI | `.github/workflows/ci.yml` | Pull request | Build and test FSW, simulators, CLIs |
-| Containers | `.github/workflows/containers.yml` | Push to `dev` / `v*.*.*` tags | Build and publish container images to GHCR |
-| Atlas Deploy | `atlas/.github/workflows/ci.yml` | Push to `master`/`main` | Deploy documentation site via `mkdocs gh-deploy` |
-
----
-
-## Fuzzing & Security Testing Tools (CryptoLib only)
-
-| Tool | Version | License | Description |
-|------|---------|---------|-------------|
-| AFLplusplus | v4.31c | Apache-2.0 | Coverage-guided fuzzer with QEMU mode |
-| clang / LLVM | 14 | Apache-2.0 | Compiler toolchain used for instrumented builds |
-
----
-
-## Target Platforms
-
-| Platform | Architecture | Description |
-|----------|-------------|-------------|
-| Linux x86-64 | amd64 | Primary development and simulation host |
-| Linux ARM64 | arm64 | Container cross-compilation target |
-| Zybo 7020 | ARM v7 (32-bit) | Hardware FSW target (Xilinx Zynq SoC) |
-
----
-
-## Communication Standards
-
-| Standard | Description |
-|----------|-------------|
-| CCSDS Space Packet Protocol | Telemetry and telecommand framing |
-| CCSDS File Delivery Protocol (CFDP) | File transfer between GSW and FSW |
-| XTCE | Telemetry/command dictionary format consumed by YAMCS |
+- Resolve and include Maven and Python transitive dependencies.
+- Generate SBOMs from the built `shire-base`, YAMCS, FSW, Simulith, component, and 42 images so inherited operating-system packages are captured.
+- Pin mutable container tags and downloaded source archives by digest/checksum.
+- Add an automated SBOM generation and validation workflow to prevent source and SBOM drift.
+- Run vulnerability and license-policy scans on the resolved release SBOM; this document is an inventory, not a security assessment.

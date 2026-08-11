@@ -1,17 +1,15 @@
 # SHIRE-Lab Component Settings
 include(CheckCCompilerFlag)
 
-# Allow callers to skip applying these component flags by setting
-# the CMake variable TRYSPACE_SKIP_COMP_FLAGS to TRUE.
 if(ENABLE_UNIT_TESTS)
-    set(TRYSPACE_C_FLAGS
+    set(SHIRE_C_FLAGS
         # --- Diagnostics and coverage ---
         "-fdiagnostics-show-option"     # Show warning/diagnostic option in output
         "-fprofile-arcs"                # Code coverage (gcov)
         "-ftest-coverage"               # Code coverage (gcov)
     )
 else()
-    set(TRYSPACE_C_FLAGS
+    set(SHIRE_C_FLAGS
         # --- Core warnings and strictness ---
         "-Wall"                         # Enable all common warnings
         "-Werror"                       # Treat warnings as errors
@@ -59,14 +57,14 @@ endif()
 
 # Example: Add target-specific flags
 # if(${TGTNAME} STREQUAL cpu1)
-#     list(APPEND TRYSPACE_C_FLAGS "-Wformat=0")
+#     list(APPEND SHIRE_C_FLAGS "-Wformat=0")
 # endif()
 
 # GCC-only flags
 if(CMAKE_COMPILER_IS_GNUCC)
-    list(APPEND TRYSPACE_C_FLAGS "-Wlogical-op" "-Wunsafe-loop-optimizations")
+    list(APPEND SHIRE_C_FLAGS "-Wlogical-op" "-Wunsafe-loop-optimizations")
 endif()
 
 # Convert list to string and append to CMAKE_C_FLAGS
-string(REPLACE ";" " " TRYSPACE_C_FLAGS "${TRYSPACE_C_FLAGS}")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TRYSPACE_C_FLAGS}")
+string(REPLACE ";" " " SHIRE_C_FLAGS "${SHIRE_C_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SHIRE_C_FLAGS}")
