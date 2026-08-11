@@ -133,6 +133,16 @@ int simulith_transport_flush(transport_port_t *port)
         simulith_log("simulith_transport_flush: Uninitialized transport port\n");
         return SIMULITH_TRANSPORT_ERROR;
     }
+    /* Drain internal rx buffer */
+    port->rx_buf_len = 0;
+    /* Drain any pending ZMQ messages */
+    zmq_msg_t msg;
+    while (1) {
+        zmq_msg_init(&msg);
+        int rc = zmq_msg_recv(&msg, port->zmq_sock, ZMQ_DONTWAIT);
+        zmq_msg_close(&msg);
+        if (rc < 0) break;
+    }
     return SIMULITH_TRANSPORT_SUCCESS;
 }
 

@@ -7,7 +7,7 @@ static radio_sim_state_t* g_state = NULL;
 static transport_port_t g_spi_device = {0};
 static transport_port_t g_power_gpio_device = {0};
 static transport_port_t g_interrupt_gpio_device = {0};
-simulith_gpio_state_t gpio_power_state = {RADIO_CFG_GPIO_POWER_PIN, 1, 0};
+simulith_gpio_state_t gpio_power_state = {RADIO_CFG_GPIO_POWER_PIN, GPIO_INPUT, 1};
 simulith_gpio_state_t gpio_interrupt_state = {RADIO_CFG_GPIO_INTERRUPT_PIN, 0, 0};
 
 /*
@@ -454,27 +454,8 @@ static void radio_sim_on_tick(uint64_t tick_time_ns, const simulith_42_context_t
         pthread_mutex_unlock(&g_state->buffer_mutex);
     }
     
-    // Poll for SPI requests using Simulith transport
-    uint8_t spi_rx_buf[4096];
-    int spi_bytes = simulith_transport_available(&g_spi_device);
-    if (spi_bytes > 0) 
-    {
-        spi_bytes = simulith_transport_receive(&g_spi_device, spi_rx_buf, sizeof(spi_rx_buf));
-            if (spi_bytes > 0) 
-            {
-                if (gpio_power_state.value) 
-                {
-                    radio_sim_handle_spi_command(g_state, spi_rx_buf, (size_t)spi_bytes);
-                } 
-            else 
-            {
-                printf("Radio powered off - dropping %d bytes from SPI\n", spi_bytes);
-            }
-        }
-    }
-
     // Service GPIO requests for power and interrupt pins every tick
-    // Power GPIO: check for incoming requests (read/write)
+    // (Process GPIO before SPI so a power-on write takes effect before any SPI command this tick)
     uint8_t gpio_rx_buf[8];
     int gpio_bytes = simulith_transport_available((transport_port_t*)&g_power_gpio_device);
     if (gpio_bytes > 0) 
@@ -535,7 +516,7 @@ static void radio_sim_on_tick(uint64_t tick_time_ns, const simulith_42_context_t
                     uint8_t resp[3] = {0, pin, (uint8_t)gpio_interrupt_state.value};
                     simulith_transport_send((transport_port_t*)&g_interrupt_gpio_device, resp, (size_t)sizeof(resp));
                 } 
-                else if (cmd == 1 && gpio_bytes >= 3) 
+                else if (cmd == 1 && gpio_bytes >= 3)
                 {   // write
                     uint8_t value = gpio_rx_buf[2];
                     gpio_interrupt_state.value = value;
@@ -543,6 +524,25 @@ static void radio_sim_on_tick(uint64_t tick_time_ns, const simulith_42_context_t
                     printf("Interrupt GPIO set to %d (via GPIO write)\n", value);
                     #endif
                 }
+            }
+        }
+    }
+
+    // Poll for SPI requests using Simulith transport (after GPIO so power state is current)
+    uint8_t spi_rx_buf[4096];
+    int spi_bytes = simulith_transport_available(&g_spi_device);
+    if (spi_bytes > 0)
+    {
+        spi_bytes = simulith_transport_receive(&g_spi_device, spi_rx_buf, sizeof(spi_rx_buf));
+        if (spi_bytes > 0)
+        {
+            if (gpio_power_state.value)
+            {
+                radio_sim_handle_spi_command(g_state, spi_rx_buf, (size_t)spi_bytes);
+            }
+            else
+            {
+                printf("Radio powered off - dropping %d bytes from SPI\n", spi_bytes);
             }
         }
     }
