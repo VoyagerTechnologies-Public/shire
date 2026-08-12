@@ -49,7 +49,9 @@ build-test:
 	cd $(BUILDDIR) && cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=true $(CURDIR)/cfe && \
 	$(MAKE) --no-print-directory -C $(BUILDDIR) mission-install && \
 	cd $(COVDIR) && ctest --output-on-failure -O ctest.log
-	lcov -c --directory . --output-file $(COVDIR)/coverage.info
+	# Limit collection to this build tree. Some source submodules contain
+	# historical coverage artifacts produced by incompatible GCC versions.
+	lcov -c --directory $(COVDIR) --output-file $(COVDIR)/coverage.info
 	lcov --remove $(COVDIR)/coverage.info '*/unit-test/stubs/*' '*/unit-test/coveragetest/*' -o $(COVDIR)/coverage_filtered.info
 	genhtml $(COVDIR)/coverage_filtered.info --output-directory $(COVDIR)/report
 	@echo ""

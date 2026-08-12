@@ -2,7 +2,7 @@
 .PHONY: all build clean debug runtime start stop
 
 export BUILDDIR ?= $(CURDIR)/build
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-natsec/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
 export RUNTIME_NAME ?= shire-comp-adcs-cli
 export SHIRE_DIR ?= $(CURDIR)/../../..
 export TGTNAME ?= cpu1

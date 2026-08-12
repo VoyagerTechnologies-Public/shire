@@ -2,7 +2,7 @@
 .PHONY: all build build-sim clean debug
 
 export BUILDDIR ?= $(CURDIR)/build
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-natsec/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
 export RUNTIME_NAME ?= shire-comp-demo-sim
 export SHIRE_DIR ?= $(CURDIR)/../../..
 

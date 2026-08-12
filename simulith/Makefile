@@ -123,8 +123,10 @@ test:
 COMP_TESTS ?= $(shell python3 -c "import yaml,os;f='$(TOPDIR)/build/build.yaml';cfg=yaml.safe_load(open(f)) if os.path.exists(f) else {};sc=cfg.get('spacecraft_cfg',{});comps=(sc if 'components' in sc else cfg.get('mission_cfg',{})).get('components',[]);print(' '.join(c['name'] for c in comps if 'name' in c and os.path.isdir('$(TOPDIR)/comp/'+c['name']+'/test-sim')))" 2>/dev/null || echo "demo eps radio")
 
 # Build and run the component-simulator tests for each entry in COMP_TESTS.
-# Depends on libsimulith.so in $(CURDIR)/build, which build-sim produces.
+# Recreate the Simulith build directory first because runtime image staging may
+# have copied a CMake cache here from the centralized mission build directory.
 build-comp-test:
+	$(MAKE) --no-print-directory clean
 	$(MAKE) --no-print-directory build-sim
 	@for comp in $(COMP_TESTS); do \
 	    echo "===== build-comp-test: $$comp ====="; \

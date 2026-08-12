@@ -199,6 +199,9 @@ void Test_RADIO_AppMain(void)
 
 void Test_RADIO_AppInit(void)
 {
+    UT_CheckEvent_t EventTest;
+    extern int32    UT_CRYPTO_SC_Init_ReturnValue;
+
     /*
      * Test Case For:
      * int32 RADIO_AppInit( void )
@@ -220,6 +223,14 @@ void Test_RADIO_AppInit(void)
 
     UT_SetDeferredRetcode(UT_KEY(CFE_SB_Subscribe), 1, CFE_SB_BAD_ARGUMENT);
     UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SB_BAD_ARGUMENT);
+
+    /* CryptoLib initialization failure is intentionally non-fatal. */
+    UT_CRYPTO_SC_Init_ReturnValue = CRYPTO_LIB_ERROR;
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Crypto_SC_Init failed, status=%d");
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 1, "RADIO: Crypto_SC_Init failure event generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UT_CRYPTO_SC_Init_ReturnValue = CRYPTO_LIB_SUCCESS;
 
     // UT_SetDeferredRetcode(UT_KEY(CFE_EVS_SendEvent), 1, CFE_SB_BAD_ARGUMENT);
     // UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SB_BAD_ARGUMENT);

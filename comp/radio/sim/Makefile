@@ -2,8 +2,8 @@
 .PHONY: all build build-sim clean debug
 
 export BUILDDIR ?= $(CURDIR)/build
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-natsec/shire-base:latest
-export RUNTIME_NAME ?= shire-comp-eps-sim
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
+export RUNTIME_NAME ?= shire-comp-radio-sim
 export SHIRE_DIR ?= $(CURDIR)/../../..
 
 # Determine number of parallel jobs to avoid maxing out low-power systems (Raspberry Pi etc.).

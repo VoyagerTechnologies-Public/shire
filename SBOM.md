@@ -115,7 +115,6 @@ The source downloads and Git clone in CryptoLib's support tooling are not checks
 |---|---|
 | `ghcr.io/voyagertechnologies-public/shire-base:latest` | Built from `cfg/Dockerfile.base`; consumed by FSW, Simulith, and CryptoLib standalone images |
 | `ghcr.io/voyagertechnologies-public/shire-yamcs:latest` | Built from `yamcs/Dockerfile.yamcs`; consumed by `yamcs/Dockerfile.gsw` |
-| `ghcr.io/voyagertechnologies-natsec/shire-base:latest` | External mutable dependency used by ADCS, EPS, radio, and demo CLI Dockerfiles; no producing Dockerfile is present in this repository |
 
 ### Direct packages in `cfg/Dockerfile.base`
 

@@ -505,15 +505,6 @@
       "purl": "pkg:oci/shire-yamcs@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
       "properties": [{ "name": "shire:image:pinned", "value": "false" }, { "name": "shire:dockerfile", "value": "yamcs/Dockerfile.yamcs" }]
     },
-    {
-      "type": "container",
-      "bom-ref": "pkg:oci/shire-base@latest?repository_url=ghcr.io%2Fvoyagertechnologies-natsec",
-      "name": "ghcr.io/voyagertechnologies-natsec/shire-base",
-      "version": "latest",
-      "scope": "required",
-      "purl": "pkg:oci/shire-base@latest?repository_url=ghcr.io%2Fvoyagertechnologies-natsec",
-      "properties": [{ "name": "shire:image:pinned", "value": "false" }, { "name": "shire:provenance", "value": "Consumed by component CLI Dockerfiles; producer is outside this repository" }]
-    },
 
     {
       "type": "application",

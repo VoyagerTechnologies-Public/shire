@@ -10,7 +10,16 @@
 */
 int32 UT_CRYPTO_TC_ProcessSecurity_ReturnValue = CRYPTO_LIB_SUCCESS;
 int32 UT_CRYPTO_TM_ApplySecurity_ReturnValue = CRYPTO_LIB_SUCCESS;
+int32 UT_CRYPTO_SC_Init_ReturnValue = CRYPTO_LIB_SUCCESS;
 bool  UT_CRYPTO_Enable_Stubs = true;
+
+/*
+** Stub for Crypto_SC_Init
+*/
+int32 Crypto_SC_Init(void)
+{
+    return UT_CRYPTO_SC_Init_ReturnValue;
+}
 
 /*
 ** Stub for Crypto_TC_ProcessSecurity
