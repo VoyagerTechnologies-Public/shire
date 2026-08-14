@@ -11,8 +11,14 @@ The Atlas serves as a single source of truth for all things related to SHIRE, en
 The SHIRE Atlas is licensed under the repository's [Permissive Open-Source License](LICENSE).
 By contributing, you agree that your contributions will be licensed under those terms unless explicitly noted otherwise.
 
-## References
-* https://jameswillett.dev/getting-started-with-material-for-mkdocs/
-  * Run these commands from the `./atlas` directory.
-  * `mkdocs serve` - Start the live-reloading docs server.
-  * `mkdocs build` - Build the documentation site.
+## Development
+
+The Atlas is built with [Zensical](https://zensical.org/).
+From the `atlas/` directory, install the pinned dependency and start the live preview:
+
+```sh
+python3 -m pip install --requirement requirements.txt
+python3 -m zensical serve
+```
+
+Run `python3 -m zensical build --clean --strict` to validate a production build.

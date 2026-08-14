@@ -35,14 +35,14 @@ Once you have those installed you can:
 
 ## Documentation
 
-The SHIRE Atlas is maintained as a self-contained project in [atlas](atlas) and configured by [atlas/mkdocs.yml](atlas/mkdocs.yml).
+The SHIRE Atlas is maintained as a self-contained project in [atlas](atlas) and configured by [atlas/zensical.toml](atlas/zensical.toml).
 To preview it locally:
 ```sh
-python3 -m pip install mkdocs-material
 cd atlas
-mkdocs serve
+python3 -m pip install --requirement requirements.txt
+python3 -m zensical serve
 ```
-From `./atlas`, run `mkdocs build --strict` to verify the documentation before submitting a change.
+From `./atlas`, run `python3 -m zensical build --clean --strict` to verify the documentation before submitting a change.
 
 ## Project Status
 

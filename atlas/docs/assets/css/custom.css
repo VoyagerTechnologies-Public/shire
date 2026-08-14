@@ -1,4 +1,125 @@
-/* Custom site CSS for SHIRE Atlas */
+/* Voyager brand tokens from the Voyager Brand Guidelines, version 2.0. */
+:root {
+  --voyager-galaxy-blue: #0e193a;
+  --voyager-cloud-gray: #f2f6fc;
+  --voyager-helios-gold: #b59e5c;
+  --voyager-solar-gold: #d4af37;
+  --voyager-orbital-purple: #4b25b0;
+  --voyager-purple-accent: #6370f9;
+  --voyager-halo-blue: #9bafef;
+  --voyager-black: #000000;
+
+  /* Arial is the approved fallback when the licensed brand fonts aren't embedded. */
+  --md-text-font-family: Arial, "Helvetica Neue", sans-serif;
+  --md-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  --md-primary-fg-color: var(--voyager-galaxy-blue);
+  --md-primary-fg-color--light: var(--voyager-halo-blue);
+  --md-primary-fg-color--dark: var(--voyager-black);
+  --md-primary-bg-color: var(--voyager-cloud-gray);
+  --md-primary-bg-color--light: rgb(242 246 252 / 70%);
+  --md-accent-fg-color: var(--voyager-purple-accent);
+  --md-accent-fg-color--transparent: rgb(99 112 249 / 12%);
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: rgb(255 255 255 / 70%);
+}
+
+[data-md-color-scheme="default"] {
+  --md-default-fg-color: var(--voyager-galaxy-blue);
+  --md-default-fg-color--light: rgb(14 25 58 / 68%);
+  --md-default-fg-color--lighter: rgb(14 25 58 / 34%);
+  --md-default-fg-color--lightest: rgb(14 25 58 / 12%);
+  --md-default-bg-color: #ffffff;
+  --md-default-bg-color--light: rgb(255 255 255 / 85%);
+  --md-default-bg-color--lighter: rgb(242 246 252 / 65%);
+  --md-default-bg-color--lightest: rgb(242 246 252 / 35%);
+  --md-code-fg-color: var(--voyager-galaxy-blue);
+  --md-code-bg-color: var(--voyager-cloud-gray);
+  --md-typeset-a-color: var(--voyager-orbital-purple);
+  --md-footer-bg-color: var(--voyager-galaxy-blue);
+  --md-footer-bg-color--dark: var(--voyager-black);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 227;
+  --md-default-fg-color: rgb(242 246 252 / 88%);
+  --md-default-fg-color--light: rgb(242 246 252 / 62%);
+  --md-default-fg-color--lighter: rgb(242 246 252 / 36%);
+  --md-default-fg-color--lightest: rgb(242 246 252 / 14%);
+  --md-default-bg-color: var(--voyager-galaxy-blue);
+  --md-default-bg-color--light: rgb(14 25 58 / 88%);
+  --md-default-bg-color--lighter: rgb(14 25 58 / 62%);
+  --md-default-bg-color--lightest: rgb(14 25 58 / 38%);
+  --md-code-fg-color: var(--voyager-cloud-gray);
+  --md-code-bg-color: #080e22;
+  --md-typeset-a-color: var(--voyager-halo-blue);
+  --md-accent-fg-color: var(--voyager-halo-blue);
+  --md-accent-fg-color--transparent: rgb(155 175 239 / 15%);
+  --md-footer-bg-color: #080e22;
+  --md-footer-bg-color--dark: var(--voyager-black);
+}
+
+/* The Cloud Gray logo requires a dark field. */
+.md-header {
+  background-color: var(--voyager-galaxy-blue);
+  border-top: 0.1rem solid var(--voyager-helios-gold);
+  color: var(--voyager-cloud-gray);
+}
+
+/* Preserve the guide's 24 px minimum height and safe space for horizontal logos. */
+.md-header__button.md-logo,
+.md-nav__button.md-logo {
+  padding: 0.4rem;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg,
+.md-nav__button.md-logo img,
+.md-nav__button.md-logo svg {
+  height: 1.5rem;
+  width: auto;
+}
+
+.md-nav--primary .md-nav__title[for="__drawer"] {
+  background-color: var(--voyager-galaxy-blue);
+  color: var(--voyager-cloud-gray);
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  color: var(--voyager-galaxy-blue);
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-weight: 700;
+}
+
+[data-md-color-scheme="slate"] .md-typeset h1,
+[data-md-color-scheme="slate"] .md-typeset h2,
+[data-md-color-scheme="slate"] .md-typeset h3,
+[data-md-color-scheme="slate"] .md-typeset h4,
+[data-md-color-scheme="slate"] .md-typeset h5,
+[data-md-color-scheme="slate"] .md-typeset h6 {
+  color: var(--voyager-cloud-gray);
+}
+
+.md-typeset h1 {
+  letter-spacing: 0.015em;
+}
+
+.md-tabs__link,
+.md-nav__link,
+.md-header__title {
+  font-family: Arial, "Helvetica Neue", sans-serif;
+}
+
+.md-typeset a:focus,
+.md-typeset a:hover {
+  color: var(--voyager-purple-accent);
+}
 
 /* Centered images when using class="center" */
 img.center {
