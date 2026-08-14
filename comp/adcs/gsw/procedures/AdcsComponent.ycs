@@ -1,0 +1,127 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_ENABLE_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_RST_COUNTERS_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_NOOP_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/CMD_COUNT",
+          "operator": "gte",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/ADCS/SUN_X"
+        },
+        {
+          "parameter": "/ADCS/SUN_Y"
+        },
+        {
+          "parameter": "/ADCS/SUN_Z"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/SVB_1"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/SVB_2"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/SVB_3"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "SUNSAFE"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/SUN_X",
+          "operator": "gt",
+          "value": "0.98"
+        },
+        {
+          "parameter": "/ADCS/SUN_Y",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/SUN_Y",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/SUN_Z",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/SUN_Z",
+          "operator": "gt",
+          "value": "-0.02"
+        }
+      ]
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ADCS" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
+
+  <!-- Top-level telemetry metadata: define shared types and parameter sets once -->
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+      <!-- 8-bit counters -->
+      <xtce:IntegerParameterType name="UINT8_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 16-bit values used by the device (matches adcs_device.h) -->
+      <xtce:IntegerParameterType name="UINT16_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 16-bit values used by the device (matches adcs_device.h) -->
+      <xtce:IntegerParameterType name="UINT16_BE_Type" signed="false">
+        <!-- Yamcs requires 'mostSignificantByteFirst' (shorthand 'BE' not accepted) -->
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 32-bit values big-endian (device raw frame) -->
+      <xtce:IntegerParameterType name="UINT32_BE_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="mostSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 32-bit values little-endian (as emitted by cFE HK packet host order) -->
+      <xtce:IntegerParameterType name="UINT32_LE_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 32-bit IEEE-754 floats big-endian (device raw frame) -->
+      <xtce:FloatParameterType name="FLOAT32_BE_Type">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" byteOrder="mostSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+
+      <!-- 32-bit IEEE-754 floats little-endian (cFE HK packet) -->
+      <xtce:FloatParameterType name="FLOAT32_LE_Type">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+
+      <!-- Device enabled enumerated -->
+      <xtce:EnumeratedParameterType name="DEVICE_ENABLED_Type" shortDescription="Device Enable Status">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DISABLED"/>
+          <xtce:Enumeration value="1" label="ENABLED"/>
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+    </xtce:ParameterTypeSet>
+
+    <xtce:ParameterSet>
+      <!-- Top-level housekeeping counters (match ADCS_Hk_tlm_t header) -->
+      <xtce:Parameter name="CMD_ERR_COUNT" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="CMD_COUNT" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="DEVICE_ERR_COUNT" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="DEVICE_COUNT" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="DEVICE_ENABLED" parameterTypeRef="UINT8_Type"/>
+
+      <!-- Device HK fields (matches ADCS_Device_HK_tlm_t struct layout) -->
+      <!-- NOTE: In the cFE HK packet, multi-byte fields are in host (little-endian) order -->
+      <xtce:Parameter name="DEVICE_COUNTER" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="TARGET" parameterTypeRef="UINT16_Type"/>
+          <xtce:Parameter name="MODE" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="GPS_SECONDS" parameterTypeRef="UINT32_LE_Type"/>
+      <xtce:Parameter name="GPS_SUBSECONDS" parameterTypeRef="UINT32_LE_Type"/>
+      <xtce:Parameter name="GPS_POS_X" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="GPS_POS_Y" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="GPS_POS_Z" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="VEL_X" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="VEL_Y" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="VEL_Z" parameterTypeRef="FLOAT32_LE_Type"/>
+          <xtce:Parameter name="ATTITUDE_SOURCE" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="ANGRATE_X" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="ANGRATE_Y" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="ANGRATE_Z" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="QUAT_0" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="QUAT_1" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="QUAT_2" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="QUAT_3" parameterTypeRef="FLOAT32_LE_Type"/>
+          <xtce:Parameter name="ECLIPSE" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="SUN_X" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="SUN_Y" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="SUN_Z" parameterTypeRef="FLOAT32_LE_Type"/>
+    </xtce:ParameterSet>
+
+    <xtce:ContainerSet>
+      <!-- Device data telemetry container -->
+      <xtce:SequenceContainer name="ADCS_DATA_TLM" shortDescription="ADCS_Device_tlm_t">
+        <xtce:EntryList>
+          <!-- If the device telemetry actually starts with a device header/trailer, map only payload fields here -->
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="/CCSDS/CCSDS_STREAMID" value="0x08D5"/>
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- Housekeeping telemetry container: matches adcs_msg.h ordering -->
+      <xtce:SequenceContainer name="ADCS_HK_TLM" shortDescription="ADCS_Hk_tlm_t">
+        <xtce:EntryList>
+          <!-- Top-level housekeeping counters (match ADCS_Hk_tlm_t header) -->
+          <xtce:ParameterRefEntry parameterRef="CMD_ERR_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="CMD_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_ERR_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_ENABLED"/>
+
+          <!-- Device HK struct fields (match ParameterSet order) -->
+          <xtce:ParameterRefEntry parameterRef="DEVICE_COUNTER"/>
+          <xtce:ParameterRefEntry parameterRef="TARGET"/>
+          <xtce:ParameterRefEntry parameterRef="MODE"/>
+          <xtce:ParameterRefEntry parameterRef="GPS_SECONDS"/>
+          <xtce:ParameterRefEntry parameterRef="GPS_SUBSECONDS"/>
+          <xtce:ParameterRefEntry parameterRef="GPS_POS_X"/>
+          <xtce:ParameterRefEntry parameterRef="GPS_POS_Y"/>
+          <xtce:ParameterRefEntry parameterRef="GPS_POS_Z"/>
+          <xtce:ParameterRefEntry parameterRef="VEL_X"/>
+          <xtce:ParameterRefEntry parameterRef="VEL_Y"/>
+          <xtce:ParameterRefEntry parameterRef="VEL_Z"/>
+          <xtce:ParameterRefEntry parameterRef="ATTITUDE_SOURCE"/>
+          <xtce:ParameterRefEntry parameterRef="ANGRATE_X"/>
+          <xtce:ParameterRefEntry parameterRef="ANGRATE_Y"/>
+          <xtce:ParameterRefEntry parameterRef="ANGRATE_Z"/>
+          <xtce:ParameterRefEntry parameterRef="QUAT_0"/>
+          <xtce:ParameterRefEntry parameterRef="QUAT_1"/>
+          <xtce:ParameterRefEntry parameterRef="QUAT_2"/>
+          <xtce:ParameterRefEntry parameterRef="QUAT_3"/>
+          <xtce:ParameterRefEntry parameterRef="ECLIPSE"/>
+          <xtce:ParameterRefEntry parameterRef="SUN_X"/>
+          <xtce:ParameterRefEntry parameterRef="SUN_Y"/>
+          <xtce:ParameterRefEntry parameterRef="SUN_Z"/>
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="/CCSDS/CCSDS_STREAMID" value="0x08D4"/>
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+
+  <xtce:CommandMetaData>
+    <xtce:ArgumentTypeSet>
+      <xtce:IntegerArgumentType name="ARG_UINT8_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="ARG_UINT16_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerArgumentType>
+      <!-- ADCS mode argument: 16-bit enumerated so Yamcs shows labels in the command UI -->
+      <xtce:EnumeratedArgumentType name="ARG_ADCS_MODE_Type" signed="false" shortDescription="ADCS Mode">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="PASSIVE"/>
+          <xtce:Enumeration value="1" label="BDOT"/>
+          <xtce:Enumeration value="2" label="SUNSAFE"/>
+          <xtce:Enumeration value="3" label="NADIR"/>
+          <xtce:Enumeration value="4" label="TARGET"/>
+          <xtce:Enumeration value="5" label="INERTIAL"/>
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+    </xtce:ArgumentTypeSet>
+    <xtce:MetaCommandSet>
+      <xtce:MetaCommand name="ADCS_GET_CSS_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="7"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_GET_CSS_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      
+      <xtce:MetaCommand name="ADCS_REQ_DATA">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="1"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_REQ_DATA_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_REQ_HK">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="0"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_REQ_HK_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_SET_MODE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="5"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <!-- Mode is a uint16 in FSW; use ARG_ADCS_MODE_Type so Yamcs shows labels -->
+          <xtce:Argument name="MODE" argumentTypeRef="ARG_ADCS_MODE_Type"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_ADCS_SET_MODE_CommandContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="MODE"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_SET_TARGET_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="6"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="TARGET" argumentTypeRef="ARG_UINT16_Type"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_ADCS_SET_TARGET_CommandContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="TARGET"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_DISABLE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="3"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_DISABLE_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_ENABLE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="2"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_ENABLE_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_RST_COUNTERS_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="1"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_RST_COUNTERS_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_NOOP_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="0"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_NOOP_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+    </xtce:MetaCommandSet>
+  </xtce:CommandMetaData>
+
+</xtce:SpaceSystem>

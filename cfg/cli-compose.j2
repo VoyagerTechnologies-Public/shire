@@ -1,0 +1,79 @@
+# Jinja2 template for dynamic CLI Compose file
+# Usage: Render with orchestrator using active CLI component
+services:
+  shire-42:
+    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    container_name: shire-42-{{ spacecraft | default('default') }}
+    networks:
+      - shire-net-{{ spacecraft | default('default') }}
+    attach: false
+    ports:
+      - "5801:80"  # VNC web interface for 42 graphics visualization
+    cpus: "2.0"
+    mem_limit: 1g
+    volumes:
+      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=500m
+
+  shire-server:
+    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    container_name: shire-server-{{ spacecraft | default('default') }}
+    networks:
+      - shire-net-{{ spacecraft | default('default') }}
+    stdin_open: true
+    tty: true
+    environment:
+      - NUM_CLIENTS=${NUM_CLIENTS:-1}
+      - SIMULITH_LOG_MODE=stdout
+    command: ["/bin/sh", "-c", "/app/simulith_server_standalone $${NUM_CLIENTS}"]
+    cpus: "4.0"
+    mem_limit: 2g
+    volumes:
+      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=1g
+    privileged: false
+
+  shire-director:
+    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    container_name: shire-director-{{ spacecraft | default('default') }}
+    networks:
+      - shire-net-{{ spacecraft | default('default') }}
+    stdin_open: true
+    tty: true
+    depends_on:
+      - shire-42
+      - shire-server
+    environment:
+      - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
+    cpus: "1.0"
+    mem_limit: 512m
+    volumes:
+      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=100m
+
+  shire-comp-{{ cli_component }}-cli:
+    image: shire-comp-{{ cli_component }}-cli:latest
+    container_name: shire-comp-{{ cli_component }}-cli
+    networks:
+      - shire-net-{{ spacecraft | default('default') }}
+    stdin_open: true
+    tty: true
+    depends_on:
+      - shire-server
+      - shire-director
+    volumes:
+      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=100m
+
+networks:
+  shire-net-{{ spacecraft | default('default') }}:
+    driver: bridge
+
+volumes:
+  simulith_ipc_{{ spacecraft | default('default') }}:
+    driver: local

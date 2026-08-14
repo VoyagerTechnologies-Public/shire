@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="DEMO" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
+
+  <!-- Top-level telemetry metadata: define shared types and parameter sets once -->
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+      <!-- 8-bit counters -->
+      <xtce:IntegerParameterType name="UINT8_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 16-bit values used by the device (matches demo_device.h) -->
+      <xtce:IntegerParameterType name="UINT16_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+
+      <!-- 32-bit values when needed -->
+      <xtce:IntegerParameterType name="UINT32_Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+
+      <!-- Device enabled enumerated -->
+      <xtce:EnumeratedParameterType name="DEVICE_ENABLED_Type" shortDescription="Device Enable Status">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DISABLED"/>
+          <xtce:Enumeration value="1" label="ENABLED"/>
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+    </xtce:ParameterTypeSet>
+
+    <xtce:ParameterSet>
+      <!-- Housekeeping parameters (names match demo_msg.h fields) -->
+      <xtce:Parameter name="CMD_ERR_COUNT" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="CMD_COUNT" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="DEVICE_ERR_COUNT" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="DEVICE_COUNT" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="DEVICE_ENABLED" parameterTypeRef="DEVICE_ENABLED_Type"/>
+
+      <!-- Device HK (matches DEMO_Device_HK_tlm_t: two uint16 fields) -->
+      <xtce:Parameter name="DEVICE_COUNTER" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="DEVICE_CONFIG" parameterTypeRef="UINT16_Type"/>
+
+      <!-- Device data parameters (three 16-bit channels) -->
+      <xtce:Parameter name="CHAN1" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="CHAN2" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="CHAN3" parameterTypeRef="UINT16_Type"/>
+    </xtce:ParameterSet>
+
+    <xtce:ContainerSet>
+      <!-- Device data telemetry container -->
+      <xtce:SequenceContainer name="DEMO_DATA_TLM" shortDescription="DEMO_Device_tlm_t">
+        <xtce:EntryList>
+          <!-- If the device telemetry actually starts with a device header/trailer, map only payload fields here -->
+          <xtce:ParameterRefEntry parameterRef="CHAN1"/>
+          <xtce:ParameterRefEntry parameterRef="CHAN2"/>
+          <xtce:ParameterRefEntry parameterRef="CHAN3"/>
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="/CCSDS/CCSDS_STREAMID" value="0x08FB"/>
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- Housekeeping telemetry container: matches demo_msg.h ordering -->
+      <xtce:SequenceContainer name="DEMO_HK_TLM" shortDescription="DEMO_Hk_tlm_t">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="CMD_ERR_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="CMD_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_ERR_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_ENABLED"/>
+
+          <!-- Device HK struct: two uint16 fields (counter, config) -->
+          <xtce:ParameterRefEntry parameterRef="DEVICE_COUNTER"/>
+          <xtce:ParameterRefEntry parameterRef="DEVICE_CONFIG"/>
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="/CCSDS/CCSDS_STREAMID" value="0x08FA"/>
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+
+  <!-- Commands: reuse CCSDS TC base where possible and set DEVICE_CONFIG arg to 16-bit to match C header -->
+  <xtce:CommandMetaData>
+    <xtce:ArgumentTypeSet>
+      <xtce:IntegerArgumentType name="DEVICE_CONFIG_ArgType" shortDescription="Device Configuration (16-bit)" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+        <xtce:ValidRange minInclusive="0" maxInclusive="65535"/>
+      </xtce:IntegerArgumentType>
+      
+      <!-- Backdoor argument types -->
+      <xtce:IntegerArgumentType name="BACKDOOR_CONFIG_ArgType" shortDescription="Backdoor Configuration Value (16-bit, big-endian)" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst"/>
+        <xtce:ValidRange minInclusive="0" maxInclusive="65535"/>
+      </xtce:IntegerArgumentType>
+      
+      <xtce:EnumeratedArgumentType name="BACKDOOR_ENABLE_ArgType" shortDescription="Backdoor Enable/Disable Flag">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DISABLE"/>
+          <xtce:Enumeration value="1" label="ENABLE"/>
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+    </xtce:ArgumentTypeSet>
+
+    <xtce:MetaCommandSet>
+      <xtce:MetaCommand name="DEMO_REQ_DATA">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FB"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="1"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="DEMO_DEMO_REQ_DATA_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="DEMO_REQ_HK">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FB"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="0"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="DEMO_DEMO_REQ_HK_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="DEMO_CONFIG_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FA"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="4"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="DEVICE_CONFIG" argumentTypeRef="DEVICE_CONFIG_ArgType"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="DEMO_DEMO_CONFIG_CC_CommandContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="DEVICE_CONFIG"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="DEMO_DISABLE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FA"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="3"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="DEMO_DEMO_DISABLE_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="DEMO_ENABLE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FA"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="2"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="DEMO_DEMO_ENABLE_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="DEMO_RST_COUNTERS_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FA"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="1"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="DEMO_DEMO_RST_COUNTERS_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="DEMO_NOOP_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18FA"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="0"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="DEMO_DEMO_NOOP_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- Backdoor Commands (raw format for sim-backdoor datalink) -->
+      <xtce:MetaCommand name="BACKDOOR_DEMO_SET_CONFIG" shortDescription="Backdoor: Set Demo Config">
+        <xtce:LongDescription>Directly sets the demo simulator configuration via backdoor interface. This bypasses normal command processing and immediately updates the simulator state.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="CONFIG_VALUE" argumentTypeRef="BACKDOOR_CONFIG_ArgType"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_DEMO_SET_CONFIG_Container">
+          <xtce:EntryList>
+            <!-- Magic "BACKDOOR" (8 bytes) -->
+            <xtce:FixedValueEntry name="MAGIC_B" binaryValue="42" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_A" binaryValue="41" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_C" binaryValue="43" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_K" binaryValue="4B" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_D" binaryValue="44" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O1" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O2" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_R" binaryValue="52" sizeInBits="8"/>
+            <!-- Target length and name -->
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="08" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="64656D6F5F73696D" sizeInBits="64"/> <!-- "demo_sim" -->
+            <!-- Command ID 0x0001 -->
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0001" sizeInBits="16"/>
+            <!-- Payload length 2 bytes -->
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0002" sizeInBits="16"/>
+            <!-- Config value payload -->
+            <xtce:ArgumentRefEntry argumentRef="CONFIG_VALUE"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="BACKDOOR_DEMO_RAND_HK" shortDescription="Backdoor: Toggle Random HK">
+        <xtce:LongDescription>Enables or disables random housekeeping data generation in the simulator. When enabled, HK counter values become random instead of sequential.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="ENABLE" argumentTypeRef="BACKDOOR_ENABLE_ArgType"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_DEMO_RAND_HK_Container">
+          <xtce:EntryList>
+            <!-- Magic "BACKDOOR" (8 bytes) -->
+            <xtce:FixedValueEntry name="MAGIC_B" binaryValue="42" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_A" binaryValue="41" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_C" binaryValue="43" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_K" binaryValue="4B" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_D" binaryValue="44" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O1" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O2" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_R" binaryValue="52" sizeInBits="8"/>
+            <!-- Target length and name -->
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="08" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="64656D6F5F73696D" sizeInBits="64"/> <!-- "demo_sim" -->
+            <!-- Command ID 0x0002 -->
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0002" sizeInBits="16"/>
+            <!-- Payload length 1 byte -->
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0001" sizeInBits="16"/>
+            <!-- Enable/disable flag -->
+            <xtce:ArgumentRefEntry argumentRef="ENABLE"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="BACKDOOR_DEMO_RAND_DATA" shortDescription="Backdoor: Toggle Random Data">
+        <xtce:LongDescription>Enables or disables random channel data generation in the simulator. When enabled, CHAN1/2/3 become random instead of 42 SVB-derived values.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="ENABLE" argumentTypeRef="BACKDOOR_ENABLE_ArgType"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_DEMO_RAND_DATA_Container">
+          <xtce:EntryList>
+            <!-- Magic "BACKDOOR" (8 bytes) -->
+            <xtce:FixedValueEntry name="MAGIC_B" binaryValue="42" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_A" binaryValue="41" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_C" binaryValue="43" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_K" binaryValue="4B" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_D" binaryValue="44" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O1" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O2" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_R" binaryValue="52" sizeInBits="8"/>
+            <!-- Target length and name -->
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="08" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="64656D6F5F73696D" sizeInBits="64"/> <!-- "demo_sim" -->
+            <!-- Command ID 0x0003 -->
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0003" sizeInBits="16"/>
+            <!-- Payload length 1 byte -->
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0001" sizeInBits="16"/>
+            <!-- Enable/disable flag -->
+            <xtce:ArgumentRefEntry argumentRef="ENABLE"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+    </xtce:MetaCommandSet>
+  </xtce:CommandMetaData>
+
+</xtce:SpaceSystem>

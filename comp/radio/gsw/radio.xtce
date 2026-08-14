@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="RADIO" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+      <xtce:IntegerParameterType name="DEVICE_COUNTER_Type" shortDescription="Reported Device Command Counter" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <!-- Housekeeping basic types -->
+      <xtce:IntegerParameterType name="HK_UINT8_Type" shortDescription="8-bit unsigned" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="HK_UINT16_Type" shortDescription="16-bit unsigned" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="HK_UINT32_Type" shortDescription="32-bit unsigned" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+    </xtce:ParameterTypeSet>
+    <xtce:ParameterSet>
+      <xtce:Parameter name="DEVICE_COUNTER" parameterTypeRef="DEVICE_COUNTER_Type"/>
+      <!-- Housekeeping parameters (RADIO_Hk_tlm_t) -->
+      <xtce:Parameter name="RADIO_HK_CommandErrorCount" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_HK_CommandCount" parameterTypeRef="HK_UINT16_Type"/>
+      <xtce:Parameter name="RADIO_HK_DeviceErrorCount" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_HK_DeviceCount" parameterTypeRef="HK_UINT16_Type"/>
+      <xtce:Parameter name="RADIO_HK_DeviceEnabled" parameterTypeRef="HK_UINT8_Type"/>
+      <!-- Device HK nested fields (RADIO_Device_HK_tlm_t) -->
+      <xtce:Parameter name="RADIO_DEVICE_CommandCounter" parameterTypeRef="HK_UINT16_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_Mode" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_GroundLock" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_RxSpeedSetting" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_RxWavelengthSetting" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_TxSpeedSetting" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_TxWavelengthSetting" parameterTypeRef="HK_UINT8_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_BytesInRxBuffer" parameterTypeRef="HK_UINT32_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_BytesReceived" parameterTypeRef="HK_UINT32_Type"/>
+      <xtce:Parameter name="RADIO_DEVICE_BytesSent" parameterTypeRef="HK_UINT32_Type"/>
+    </xtce:ParameterSet>
+    <xtce:ContainerSet>
+      <!-- Housekeeping sequence container matching RADIO_Hk_tlm_t -->
+      <xtce:SequenceContainer name="RADIO_HK_TLM" shortDescription="RADIO_Hk_tlm_t">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="RADIO_HK_CommandErrorCount"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_HK_CommandCount"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_HK_DeviceErrorCount"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_HK_DeviceCount"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_HK_DeviceEnabled"/>
+          <!-- Device HK fields -->
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_CommandCounter"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_Mode"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_GroundLock"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_RxSpeedSetting"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_RxWavelengthSetting"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_TxSpeedSetting"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_TxWavelengthSetting"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_BytesInRxBuffer"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_BytesReceived"/>
+          <xtce:ParameterRefEntry parameterRef="RADIO_DEVICE_BytesSent"/>
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <!-- Stream ID for housekeeping TM; adjust if your system uses a different one -->
+              <xtce:Comparison parameterRef="/CCSDS/CCSDS_STREAMID" value="0x08D2"/>
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+  <xtce:CommandMetaData>
+    <xtce:ArgumentTypeSet>
+      <xtce:EnumeratedArgumentType name="MODE_Type" initialValue="Duplex Mode" shortDescription="Radio Mode (0=Sleep,1=TX,2=RX,3=Duplex)" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="Sleep Mode"/>
+          <xtce:Enumeration value="1" label="Transmit Only Mode"/>
+          <xtce:Enumeration value="2" label="Receive Only Mode"/>
+          <xtce:Enumeration value="3" label="Duplex Mode"/>
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:IntegerArgumentType name="RX_SPEED_Type" initialValue="0" shortDescription="RX Speed Setting" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="RX_WAVE_Type" initialValue="0" shortDescription="RX Wavelength Setting" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="TX_SPEED_Type" initialValue="0" shortDescription="TX Speed Setting" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="TX_WAVE_Type" initialValue="0" shortDescription="TX Wavelength Setting" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="RECEIVE_LENGTH_Type" initialValue="1" shortDescription="Receive Data Length" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+        <xtce:ValidRange minInclusive="1" maxInclusive="255"/>
+      </xtce:IntegerArgumentType>
+      <xtce:BinaryArgumentType name="SEND_DATA_Type" initialValue="" shortDescription="Send Data (variable length)">
+        <xtce:BinaryDataEncoding sizeInBits="0" encoding="none"/>
+      </xtce:BinaryArgumentType>
+    </xtce:ArgumentTypeSet>
+    <xtce:MetaCommandSet>
+      <xtce:MetaCommand name="RADIO_NOOP_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D2"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="0"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="RADIO_RADIO_NOOP_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="RADIO_REQ_HK">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D3"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="0"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="RADIO_RADIO_REQ_HK_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="RADIO_RST_COUNTERS_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D2"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="1"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="RADIO_RADIO_RST_COUNTERS_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="RADIO_ENABLE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D2"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="2"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="RADIO_RADIO_ENABLE_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="RADIO_DISABLE_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D2"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="3"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="RADIO_RADIO_DISABLE_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="RADIO_CONFIG_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D2"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="4"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="MODE" argumentTypeRef="MODE_Type"/>
+          <xtce:Argument name="RX_SPEED" argumentTypeRef="RX_SPEED_Type"/>
+          <xtce:Argument name="RX_WAVE" argumentTypeRef="RX_WAVE_Type"/>
+          <xtce:Argument name="TX_SPEED" argumentTypeRef="TX_SPEED_Type"/>
+          <xtce:Argument name="TX_WAVE" argumentTypeRef="TX_WAVE_Type"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="RADIO_RADIO_CONFIG_CC_CommandContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="MODE"/>
+            <xtce:ArgumentRefEntry argumentRef="RX_SPEED"/>
+            <xtce:ArgumentRefEntry argumentRef="RX_WAVE"/>
+            <xtce:ArgumentRefEntry argumentRef="TX_SPEED"/>
+            <xtce:ArgumentRefEntry argumentRef="TX_WAVE"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+    </xtce:MetaCommandSet>
+  </xtce:CommandMetaData>
+</xtce:SpaceSystem>

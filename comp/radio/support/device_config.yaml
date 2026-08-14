@@ -1,0 +1,14 @@
+radio:
+  spi_bus: 1
+  spi_cs: 0
+  gpio_power_pin: 10
+  gpio_interrupt_pin: 11
+  udp_ground_rx_port: 12343
+  udp_ground_tx_port: 12344
+  buffer_size: 65536
+  interrupt_threshold: 32768
+  ms_timeout: 250
+  max_rx_msgs_per_poll: 10
+  max_tx_msgs_per_poll: 50
+  max_subscriptions: 128
+  debug: true

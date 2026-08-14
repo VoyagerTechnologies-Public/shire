@@ -1,0 +1,12 @@
+{
+  "$schema": "https://yamcs.org/schema/parameter-table.schema.json",
+  "scroll": false,
+  "bufferSize": 10,
+  "parameters": [
+    "/ADCS/MODE",
+    "/ADCS/TARGET",
+    "/ADCS/SUN_X",
+    "/ADCS/SUN_Y",
+    "/ADCS/SUN_Z"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://yamcs.org/schema/parameter-table.schema.json",
+  "scroll": false,
+  "bufferSize": 10,
+  "parameters": [
+    "/DEMO/DEMO_DATA_TLM/RAW_DEMO_X",
+    "/DEMO/DEMO_DATA_TLM/RAW_DEMO_Y",
+    "/DEMO/DEMO_DATA_TLM/RAW_DEMO_Z"
+  ]
+}

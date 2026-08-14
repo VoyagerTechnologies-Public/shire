@@ -22,10 +22,12 @@ Once you have those installed you can:
 * Run
   * `make start`
 * Use
-  * Attach to containers
-    * `docker attach shire-server`
   * Open GSW
     * `firefox localhost:8090`
+  * Open 42
+    * `firefox localhost:5801/vnc_auto.html`
+  * Attach to containers to pause / play time
+    * `docker attach shire-server`
 * Stop
   * CTRL+C
   * Inspect volumes and logs as desired
@@ -39,7 +41,7 @@ The repository will not be deleted, it will be archived on GitHub (read-only) to
 
 ## Software Bill of Materials (SBOM)
 
-A full inventory of system components, third-party dependencies, container images, and build tooling is in [SBOM.md](SBOM.md).
+A source-level inventory of system components, declared third-party dependencies, container images, build tooling, and known coverage gaps is in [SBOM.md](SBOM.md).
 The machine-readable SBOM is available as [sbom.cdx.json](sbom.cdx.json) (CycloneDX 1.6 JSON).
 
 ## Disclaimer
