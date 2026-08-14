@@ -33,6 +33,17 @@ Once you have those installed you can:
   * Inspect volumes and logs as desired
   * `make stop`
 
+## Documentation
+
+The SHIRE Atlas is maintained as a self-contained project in [atlas](atlas) and configured by [atlas/mkdocs.yml](atlas/mkdocs.yml).
+To preview it locally:
+```sh
+python3 -m pip install mkdocs-material
+cd atlas
+mkdocs serve
+```
+From `./atlas`, run `mkdocs build --strict` to verify the documentation before submitting a change.
+
 ## Project Status
 
 SHIRE is actively maintained by Voyager Technologies.

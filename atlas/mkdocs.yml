@@ -1,0 +1,64 @@
+site_name: SHIRE Atlas
+site_url: https://voyagertechnologies-public.github.io/shire/
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  logo: assets/Voyager.svg
+  favicon: assets/Favicon_64x64.svg
+
+extra_css:
+  - assets/css/custom.css
+
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - About: about.md
+  - Contact: https://voyagertechnologies.com/contact/
+  - Lab Manual:
+    - Handbook:
+      - Getting Started: manual/handbook/getting-started.md
+      - Installation: manual/handbook/installation.md
+      - Component Lifecycle: manual/handbook/component-lifecycle.md
+      - FAQ: manual/handbook/faq.md
+    - Core Concepts:
+      - Space Systems: manual/core-concepts/space-systems.md
+      - Architecture: manual/core-concepts/architecture.md
+      - Development Workflow: manual/core-concepts/development-workflow.md
+      - Flight Software: manual/core-concepts/flight-software.md
+      - Ground Software: manual/core-concepts/ground-software.md
+      - Simulations: manual/core-concepts/simulations.md
+    - How-To Guides:
+      - Components: manual/how-to/components.md
+      - Component Mold: manual/how-to/component-mold.md
+      - Configuration: manual/how-to/configuration.md
+      - Development Board: manual/how-to/development-board.md
+      - Docker: manual/how-to/docker.md
+  - Design Reference Mission:
+    - Concept of Operations: drm/concept-of-operations.md
+    - Mission Requirements: drm/mission-requirements.md
+    - Verification and Validation: drm/verification-and-validation.md
+  - Scenarios:
+    - Overview: scenarios/overview.md
+    - Commissioning: scenarios/commissioning.md
+    - Nominal Operations: scenarios/nominal-operations.md
+    - Fault Detection, Isolation, and Recovery: scenarios/fdir.md
+    - Security Incident Response: scenarios/security-incident-response.md
