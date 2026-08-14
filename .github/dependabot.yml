@@ -1,0 +1,45 @@
+version: 2
+
+multi-ecosystem-groups:
+  all-dependencies:
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: docker
+    directory: /cfg
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: docker
+    directory: /simulith/docker
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: docker
+    directory: /yamcs
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: pip
+    directory: /cfg
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: maven
+    directory: /yamcs
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies

@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: "true"
+
+jobs:
+  build-simulith:
+    name: Build Simulith
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configure SHIRE
+        working-directory: cfg
+        run: python3 shire-orchestrator.py
+
+      - name: Build component simulators
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for directory in comp/*/sim; do
+            if [[ -f "$directory/Makefile" ]]; then
+              make -C "$directory" build-sim
+            fi
+          done
+
+      - name: Build Simulith
+        run: make -C simulith build-sim
+
+      - name: Upload Simulith artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: simulith-build
+          path: |
+            simulith/build/
+            comp/*/sim/build/
+          retention-days: 1
+          if-no-files-found: error
+
+  build-fsw:
+    name: Build flight software
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configure SHIRE
+        working-directory: cfg
+        run: python3 shire-orchestrator.py
+
+      - name: Build flight software
+        shell: bash
+        run: |
+          MISSION=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['mission'])")
+          SPACECRAFT=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['spacecraft'])")
+          FSW_DIR=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml')).get('fsw_dir', 'cfs'))")
+          make -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-fsw
+
+      - name: Upload flight software artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: fsw-build
+          path: |
+            cfs/build/
+            build/
+          retention-days: 1
+          if-no-files-found: error
+
+  test-fsw:
+    name: Test flight software
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    container:
+      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure SHIRE
+        working-directory: cfg
+        run: python3 shire-orchestrator.py
+
+      - name: Build and test flight software
+        shell: bash
+        run: |
+          MISSION=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['mission'])")
+          SPACECRAFT=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['spacecraft'])")
+          FSW_DIR=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml')).get('fsw_dir', 'cfs'))")
+          make -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: cfs/build/amd64-linux/default_cpu1/coverage_filtered.info
+          flags: fsw
+          fail_ci_if_error: true
+          use_oidc: true
+
+  test-simulith:
+    name: Test component simulators
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    container:
+      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure SHIRE
+        working-directory: cfg
+        run: python3 shire-orchestrator.py
+
+      - name: Build and test component simulators
+        run: make -C simulith build-comp-test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: build/sim-coverage/coverage.info
+          flags: sim
+          fail_ci_if_error: true
+          use_oidc: true
+
+  build-cli:
+    name: Build command-line interfaces
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configure SHIRE
+        working-directory: cfg
+        run: python3 shire-orchestrator.py
+
+      - name: Build command-line interfaces
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for directory in comp/*/cli; do
+            if [[ -f "$directory/Makefile" ]]; then
+              make -C "$directory" build-cli
+            fi
+          done
