@@ -37,6 +37,7 @@ The earlier serial/ZMODEM steps are therefore not presented as a generally valid
 A successful target build demonstrates only that the source built for the selected toolchain.
 It does not establish board compatibility or flight readiness.
 Record the exact toolchain, sysroot, SHIRE revision, board revision, boot image, and test results for any hardware qualification work.
+Use the staged [Component Hardware Development](../../scenarios/component-hardware-development.md) scenario before attempting board cFS with a physical component.
 
-----
+***
 Last reviewed: 14 August 2026

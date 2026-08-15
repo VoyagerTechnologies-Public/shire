@@ -15,7 +15,8 @@ This page separates verification mechanisms present in the repository from verif
 | Operator procedures | `comp/*/gsw/procedures/*.ycs` | Repeatable YAMCS steps when the procedure version, configuration, inputs, and results are retained |
 | Repository CI | `.github/workflows/ci.yml` | On pull requests and pushes to `main` or `dev`, defines Simulith, FSW, and CLI builds plus FSW and component simulator test jobs |
 
-The CI test jobs upload FSW and simulator coverage to Codecov, while `.github/workflows/docs.yml` builds and publishes the Atlas on pushes to `main` or `dev`.
+The CI test jobs upload FSW and simulator coverage to Codecov.
+`.github/workflows/docs.yml` validates the Atlas on pull requests and pushes to `main` or `dev`, then publishes only a successful `main` build.
 A workflow definition is not itself evidence that a particular revision passed.
 Retain the GitHub Actions run, job logs, coverage result, and exact revision when using CI as verification evidence.
 The current CI does not run the YAMCS submodule test target or a complete integrated lab scenario.

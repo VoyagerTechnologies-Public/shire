@@ -42,6 +42,34 @@ flowchart LR
     DIRECTOR --> GSW
 ```
 
+## Startup and registration
+
+Compose starts services according to the dependencies in the generated file, but a started container is not necessarily ready to exchange data.
+The Director must connect to 42 and register with the Simulith Server.
+The cFS PSP also registers FSW with the Server.
+The full lab Server waits for both clients before advancing simulation time.
+
+```mermaid
+sequenceDiagram
+    participant Compose
+    participant FortyTwo as 42
+    participant Server
+    participant Director
+    participant FSW as cFS FSW
+
+    Compose->>FortyTwo: Start dynamics service
+    Compose->>Server: Start time service with two clients
+    Compose->>Director: Start after dependencies
+    Director->>FortyTwo: Connect through 42 IPC socket
+    Director->>Server: Register as shire director
+    Compose->>FSW: Start after Director and Server
+    FSW->>Server: Register as shire fsw
+    Server->>Server: Begin ticks after both clients register
+```
+
+If the Server appears idle, inspect the FSW and Director logs before changing the client count.
+Reducing `NUM_CLIENTS` can hide a failed service and is not a normal fix for the full lab.
+
 ## One simulation clock
 
 The Simulith server broadcasts a tick and waits for each configured client to acknowledge completion before it advances time.
@@ -54,6 +82,36 @@ On each Director tick, the current implementation:
 3. sends queued actuator commands, or an empty command message, to 42
 4. services one pending simulator backdoor datagram
 5. periodically publishes 42 truth telemetry to YAMCS.
+
+The complete tick includes work by both registered clients:
+
+```mermaid
+sequenceDiagram
+    participant Server
+    participant FSW as cFS FSW
+    participant Director
+    participant Components
+    participant FortyTwo as 42
+    participant YAMCS
+
+    Server->>FSW: Broadcast simulation tick
+    Server->>Director: Broadcast simulation tick
+    par Flight software work
+        FSW->>FSW: Run scheduled cFS work
+        FSW-->>Server: Acknowledge tick
+    and Director work
+        Director->>FortyTwo: Request current state
+        FortyTwo-->>Director: Return dynamics and environment state
+        Director->>Components: Tick loaded simulators in parallel
+        Components-->>Director: Return component results and queued commands
+        Director->>FortyTwo: Send queued actuator commands
+        Director-->>Server: Acknowledge tick
+    end
+    opt Every 100 Director ticks
+        Director->>YAMCS: Publish selected 42 truth telemetry
+    end
+    Server->>Server: Advance after both acknowledgements
+```
 
 The server console accepts `p` to pause or resume, `+` to increase the attempted rate, and `-` to decrease it.
 These are requested rates, not performance guarantees: achievable speed depends on the host and workload.
@@ -83,6 +141,32 @@ The included YAMCS instance defines these lab links:
 
 The debug path is useful for lab checkout.
 The radio path exercises the simulated radio and CryptoLib pipeline and is the representative space link path in the DRM.
+
+```mermaid
+sequenceDiagram
+    participant Operator
+    participant YAMCS
+    participant CryptoLib
+    participant Radio
+    participant FSW
+
+    alt Direct debug path
+        Operator->>YAMCS: Issue command
+        YAMCS->>FSW: UDP command on 1234
+        FSW-->>YAMCS: UDP telemetry on 1235
+    else Representative radio path
+        Operator->>YAMCS: Issue command
+        YAMCS->>CryptoLib: UDP command on 12345
+        CryptoLib->>Radio: Secured command on UDP 12343
+        Radio->>FSW: Command through simulated device interface
+        FSW-->>Radio: Telemetry through simulated device interface
+        Radio-->>CryptoLib: Telemetry on UDP 12344
+        CryptoLib-->>YAMCS: Processed telemetry on UDP 12346
+    end
+```
+
+Both YAMCS command links currently consume `tc_realtime` when enabled.
+A command may therefore leave YAMCS on both the debug and radio paths during a lab run.
 
 ## Build time architecture
 

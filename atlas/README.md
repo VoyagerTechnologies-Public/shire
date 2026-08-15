@@ -22,4 +22,4 @@ python3 -m pip install --requirement requirements.txt
 python3 -m zensical serve
 ```
 
-Run `python3 -m zensical build --clean --strict` to validate a production build.
+From the repository root, run `make docs-check` to validate Atlas style, links, assets, commands, procedures, selected repository facts, and the production build.

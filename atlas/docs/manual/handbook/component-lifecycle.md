@@ -60,5 +60,5 @@ Consumers still need to validate wire protocols, message IDs, timing, device dri
 | Repository extraction | Separate repository referenced as a submodule | Optional future maintenance choice |
 | External adoption | Consumer fork or pinned release | Ecosystem goal with target validation required |
 
-----
+***
 Last reviewed: 14 August 2026

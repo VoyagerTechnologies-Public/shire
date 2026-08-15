@@ -47,6 +47,8 @@ cd atlas
 python3 -m pip install --requirement requirements.txt
 python3 -m zensical serve
 ```
+
+From the repository root, run `make docs-check` to validate documentation style, links, assets, commands, procedures, selected repository facts, and the production build.
 From `./atlas`, run `python3 -m zensical build --clean --strict` to verify the documentation before submitting a change.
 
 ## Project Status

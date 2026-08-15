@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cfg cfg-cli cli cli-start container debug fsw gsw help mold sim start stop test-fsw test-sim uninstall
+.PHONY: 42 build clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold sim start stop test-fsw test-sim uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -93,6 +93,13 @@ container: .container.stamp
 
 debug: cfg
 	docker run --rm -it -v $(CURDIR):$(CURDIR) --name "shire_fsw_debug" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice $(BUILD_IMAGE) /bin/bash
+
+docs-check:
+	python3 atlas/scripts/check_docs.py
+	cd atlas && python3 -m zensical build --clean --strict
+
+docs-serve:
+	cd atlas && python3 -m zensical serve
 	
 fsw: cfg
 	python3 cfg/shire-build.py fsw
@@ -127,6 +134,8 @@ help:
 	@echo "  clean-sim     - Clean simulation components"
 	@echo "  container     - Build the Docker container"
 	@echo "  debug         - Start a debug shell in the container"
+	@echo "  docs-check    - Validate and build the Atlas"
+	@echo "  docs-serve    - Preview the Atlas locally"
 	@echo "  fsw           - Build FSW (includes Docker image)"
 	@echo "  gsw           - Build GSW (includes Docker image)"
 	@echo "  list          - List enabled components from configuration"

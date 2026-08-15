@@ -2,7 +2,8 @@
 
 > **Scope:** This page describes the intended operational model for the DRM.
 > The checked in applications, tables, procedures, and simulators implement portions of it, but not every autonomous transition, quantitative threshold, failure response, or mission phase below has executed verification evidence.
-> SHIRE does not currently include a top level mission mode manager for the Do No Harm, Safe, and Science states below.
+> The current startup configuration boots into the Do No Harm configuration through application defaults, SC, LC, and RTS tables.
+> SHIRE does not currently include a top level mission mode manager or one telemetry parameter that identifies the spacecraft wide mode.
 > Treat unreferenced operational behavior as a design objective until it is linked from the [V&V plan](verification-and-validation.md).
 
 ## System Overview
@@ -78,6 +79,24 @@ stateDiagram-v2
 * Execution of commissioning RTS sequences
 
 **Rationale:** This mode ensures the spacecraft cannot inadvertently harm itself through uncontrolled actuator commands, power drain, or thermal issues while awaiting ground contact and operator assessment.
+
+#### Current boot implementation
+
+The checked in DRM establishes the Do No Harm configuration through several cooperating mechanisms.
+It does not rely on a single command that sets a named mode.
+
+| Do No Harm behavior | Current implementation |
+| --- | --- |
+| Flight applications start | The cFE startup script launches the selected cFS applications. |
+| Component activity remains conservative | ADCS, Demo, and Radio devices initialize disabled while the EPS simulator initializes all eight switches off. |
+| Startup actions run automatically | SC is configured to start RTS 1 after a power on reset. |
+| Data and monitoring services become active | RTS 1 enables DS, the TO_LAB debug output, and LC. |
+| Stored commands become available | RTS 1 enables RTS 1 through 15 and starts initialization RTS 3. |
+| The radio listens without transmitting | Active LC action point 5 detects the disabled Radio and starts RTS 5, which enables the Radio and configures Receive mode. |
+
+This distributed configuration is the implemented Do No Harm boot path.
+Operators must verify its observable parts through application housekeeping, events, SC execution state, LC state, EPS switch state, and Radio mode.
+The absence of one mode parameter means that a future mission mode manager would improve commanding and observability without changing the present boot intent.
 
 ### Safe Mode
 

@@ -32,6 +32,11 @@ nav = [
       { "Docker" = "manual/how-to/docker.md" },
     ] },
   ] },
+  { "Reference" = [
+    { "Quick Reference" = "reference/quick-reference.md" },
+    { "Glossary" = "reference/glossary.md" },
+    { "Documentation Versions" = "reference/versioning.md" },
+  ] },
   { "Design Reference Mission" = [
     { "Concept of Operations" = "drm/concept-of-operations.md" },
     { "Mission Requirements" = "drm/mission-requirements.md" },
@@ -43,6 +48,12 @@ nav = [
     { "Nominal Operations" = "scenarios/nominal-operations.md" },
     { "Fault Detection, Isolation, and Recovery" = "scenarios/fdir.md" },
     { "Security Incident Response" = "scenarios/security-incident-response.md" },
+    { "Data Lifecycle" = "scenarios/data-lifecycle.md" },
+    { "Debug and Radio Path Comparison" = "scenarios/link-path-comparison.md" },
+    { "EPS Load Switching" = "scenarios/eps-load-switching.md" },
+    { "ADCS Truth Comparison" = "scenarios/adcs-truth-comparison.md" },
+    { "Component Hardware Development" = "scenarios/component-hardware-development.md" },
+    { "Recommended Scenarios" = "scenarios/recommended.md" },
   ] },
 ]
 

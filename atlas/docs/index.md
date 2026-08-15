@@ -23,6 +23,7 @@ Start with [Installation](manual/handbook/installation.md), then follow [Getting
 | Review mission intent and requirements | [Design Reference Mission](drm/concept-of-operations.md) |
 | Find available verification evidence | [Verification and Validation](drm/verification-and-validation.md) |
 | Diagnose a common problem | [FAQ](manual/handbook/faq.md) |
+| Look up a term or command | [Glossary](reference/glossary.md) and [Quick Reference](reference/quick-reference.md) |
 
 ## Begin the journey
 
@@ -44,6 +45,7 @@ Read [Getting Started](manual/handbook/getting-started.md) before commanding the
 * **Lab Manual** covers installation, architecture, flight and ground software, simulation, configuration, components, and development workflows.
 * **Design Reference Mission** describes the example mission concept, proposed requirements, and verification approach.
 * **Scenarios** provides operator exercises and clearly identifies which flows are implemented or still proposed.
+* **Reference** collects terminology, commands, source locations, documentation versions, and contribution guidance.
 
 ## Join the fellowship
 

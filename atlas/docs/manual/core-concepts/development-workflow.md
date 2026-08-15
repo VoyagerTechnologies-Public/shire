@@ -56,6 +56,33 @@ The component layout is intended to keep protocol handling useful across simulat
 This is a workflow, not a guarantee of seamless portability.
 Electrical behavior, driver semantics, concurrency, timing, endianness, alignment, and target resource limits must be verified on hardware.
 
+### What stays and what changes
+
+| Layer | Expected transition |
+| --- | --- |
+| Device packet and register contract | Keep the shared contract when it matches the physical device and revise it when the simulator simplified real behavior. |
+| Component cFS application | Reuse application logic where possible and verify timing, concurrency, error handling, and resource use on the target. |
+| Component simulator | Keep it for development and regression testing but do not include it as flight hardware evidence. |
+| HWLIB transport | Replace the simulation transport with the implementation for the target bus and operating environment. |
+| PSP, BSP, and OSAL selection | Select implementations appropriate for the processor, board, and operating system. |
+| Generated device configuration | Replace simulated endpoints with reviewed bus, address, pin, rate, timeout, and device settings. |
+| XTCE and procedures | Keep command and telemetry definitions synchronized with the deployed application and verify procedures against target telemetry. |
+
+### Hardware transition checklist
+
+1. Identify every behavior that the simulator simplifies or omits.
+2. Freeze or revise the device interface contract against the hardware specification.
+3. Exercise the physical device with a focused CLI and the intended transport implementation.
+4. Verify startup, reset, nominal traffic, invalid traffic, timeout, and recovery behavior.
+5. Measure latency, throughput, jitter, and resource use on the target.
+6. Build cFS with the intended PSP, BSP, OSAL, HWLIB, and startup configuration.
+7. Repeat component and system procedures with recorded target evidence.
+8. Keep simulator regression tests for behaviors shared by simulation and hardware.
+
+The [Development Board](../how-to/development-board.md) page describes the ARM scaffolding currently present in the repository.
+It is integration guidance rather than evidence of a validated board deployment.
+The [Component Hardware Development](../../scenarios/component-hardware-development.md) scenario organizes the complete mold, simulation, CLI, cFS, and hardware progression into review gates.
+
 ## Automation status
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main` or `dev`.
