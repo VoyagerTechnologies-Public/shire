@@ -1,63 +1,74 @@
 # Component Mold
 
-The component mold is the repo-supported shortcut for creating a new component based on the demo component. 
-Use it to scaffold a new `comp/<name>` tree that follows the repository conventions for CLI, FSW, simulation, tests and ground artifacts described in [Components](./components.md).
+The component mold copies an existing reference component and applies mechanical name and identifier substitutions.
+It creates a starting point, not a fully integrated or flight ready component.
 
-At the top-level run:
+From the repository root:
+
 ```bash
 make mold COMP=new_sensor
 ```
 
-If a target component directory already exists the script will ask before overwriting it.
+Component names must start with a letter and contain only letters, numbers, and underscores.
+The script normalizes the name to lowercase.
+If the target already exists, the script asks before deleting and replacing it.
 
-This runs `cfg/shire-comp-mold.py` which performs the following high-level steps:
+## What the mold changes
 
-* Copies the `comp/demo` directory to `comp/<component>` (skips `.git`, `build/` and common temporary files).
-* Replaces strings in text files to map `demo` to `<component>` (various case styles: `demo`, `Demo`, `DEMO`).
-* Applies safe defaults and small protocol changes to avoid conflicts (device path and handle, and message IDs — see details below).
-* Rename files and directories whose names contain `demo` to use the new component name.
+By default, `cfg/shire-comp-mold.py`:
 
-What the mold changes for you (details from `cfg/shire-comp-mold.py`):
+* copies `comp/demo/` to `comp/<name>/`
+* omits Git metadata, build directories, generated `device_cfg.h`, and common temporary files
+* replaces `demo`, `Demo`, and `DEMO` in supported text files
+* renames files and directories containing those name forms
+* changes the Demo UART path and handle from 5 to 9
+* remaps Demo's four cFS message IDs from `0x18FA`, `0x18FB`, `0x08FA`, and `0x08FB` to `0x18FC`, `0x18FD`, `0x08FC`, and `0x08FD`
 
-* Name normalization: the supplied component name is validated and normalized; replacements include three casing variants:
-	* `{{lower}}` to lower-case replacement (e.g., `demo` to `my_sensor`)
-	* `{{first}}` to capitalized (e.g., `Demo` to `My_sensor`)
-	* `{{upper}}` to upper-case (e.g., `DEMO` to `MY_SENSOR`)
-* Text replacements: the mold updates file contents for many common tokens. Notable automated replacements in the default mold:
-	* `/dev/usart_5` to `/dev/usart_9`
-	* `handle: 5` to `handle: 9`
-	* Message ID remapping to reduce clashes:
-		* `0x18FA` to `0x18FC`
-		* `0x18FB` to `0x18FD`
-		* `0x08FA` to `0x08FC`
-		* `0x08FB` to `0x08FD`
+The alternate source option is:
 
-These are safe defaults to make new components avoid conflict with the demo IDs so you can run and verify them immediately along side the demo component.
-You **MUST** review and choose new message IDs before creating other components to avoid clashes.
-
-Post-creation steps (what the script prints and what you should do next):
-
-1. Review the generated component in ./comp/{component_name}
-2. Add the component to your active mission, default is ./cfg/drm/drm.yaml
-3. Add the component to the FSW definitions:
-    * ./fsw/shire_defs/cpu1_cfe_es_startup.scr
-    * ./fsw/shire_defs/tables/sch_def_msgtbl.c
-    * ./fsw/shire_defs/tables/sch_def_schtbl.c
-    * ./fsw/shire_defs/tables/to_lab_sub.c
-    * ./fsw/shire_defs/targets.cmake
-4. Add the component to the GSW definitions:
-    * ./gsw/src/main/yamcs/etc/yamcs.shire.yaml
-5. Build like you would normally and confirm new component runs
-6. Customize the component for your specific needs
-
-## Advanced Options
-
-The mold script accepts a `--source` flag to copy from a different source component instead of `demo`. 
-
-Example:
 ```bash
-python3 cfg/shire-comp-mold.py my_sensor --source=some_other_component
+python3 cfg/shire-comp-mold.py new_sensor --source other_component
 ```
 
-----
-Last updated: 20251203
+The mechanical substitutions are tailored to Demo.
+Review every change when another source component is used.
+
+## Required integration review
+
+After generation, review and update at least:
+
+1. **Device model and protocol**
+   * `comp/<name>/shared/`, `src/`, `cli/`, and `sim/`
+   * `support/device_config.yaml` and `support/device_config.j2`
+   * unique UART/I2C/SPI/GPIO endpoint selection
+2. **cFS identity and build**
+   * unique command, request, telemetry, and performance IDs
+   * `cfg/shire_defs/targets.cmake`
+   * `cfg/shire_defs/cpu1_cfe_es_startup.scr` and any target specific startup scripts
+3. **Mission tables**
+   * applicable scheduler, TO_LAB, DS, LC, SC, Radio, or CF tables under `cfg/shire_defs/tables/`
+4. **Mission selection**
+   * add the component to the intended spacecraft file under `cfg/drm/spacecraft/`, or to the mission fallback list when appropriate
+5. **Ground definitions**
+   * update `comp/<name>/gsw/` XTCE, displays, and procedures
+   * add the component XTCE entry to `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`
+6. **Tests and evidence**
+   * replace copied Demo expectations in `test-fsw/` and `test-sim/`
+   * run focused CLI, simulator tests, FSW tests, and full lab checks
+
+The generated UART handle and message IDs are merely less likely to collide with Demo.
+They are not allocated from a registry and do not prove uniqueness.
+Search the entire repository before accepting any identifier.
+
+## Validate the result
+
+```bash
+make cfg
+make list
+make cli
+make test-sim
+make test-fsw
+make
+```
+
+Inspect `build/build.yaml`, the rendered `device_cfg.h`, the generated CPU1 startup script, and the YAMCS mission database before treating the component as integrated.

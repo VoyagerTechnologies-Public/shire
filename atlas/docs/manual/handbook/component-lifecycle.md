@@ -1,88 +1,64 @@
 # Component Lifecycle
 
-SHIRE uses a three-stage lifecycle for hardware component implementations. Understanding this model helps you know where to put new code, how to graduate a component for community reuse, and what the long-term maintenance path looks like.
+SHIRE currently develops its first party hardware models in this repository under `comp/`.
+The extraction stages below are a recommended lifecycle for reusable components, not a statement that the current ADCS, Demo, EPS, or Radio components have already moved to separate repositories.
 
----
+## Stage 1: Development in this repository
 
-## Stage 1 — In-Monorepo Development
+This is the implemented model today.
+Keeping a component in the SHIRE repository allows one change to update its simulator, cFS app, ground definitions, command line client, and tests together.
 
-New components are developed inside the main SHIRE repository under `comp/`. This keeps the component tightly coupled to the current FSW and simulator interfaces during active development, and means a single pull request can change the component, its cFS app, its XTCE definition, and its simulator all at once.
-
-**How to start:**
+Start from the component mold:
 
 ```bash
-python3 cfg/shire-comp-mold.py --name my-comp
+python3 cfg/shire-comp-mold.py my-comp
 ```
 
-This scaffolds `comp/my-comp/` with the standard layout:
+The scaffold follows this layout:
 
-```
+```text
 comp/my-comp/
-  cli/        # Checkout command-line tool (built natively)
-  fsw/        # cFS flight software application
-  gsw/        # XTCE telemetry/command definitions + YAMCS displays
-  sim/        # Simulation library loaded by Simulith
-  test-fsw/   # FSW unit tests (lcov coverage)
-  test-sim/   # Simulator unit tests
+  cli/        # Native command line client
+  gsw/        # XTCE definitions, displays, and procedures
+  sim/        # Simulith component model
+  test-fsw/   # cFS application tests
+  test-sim/   # Simulator tests
+  src/        # cFS application implementation
+  shared/     # Shared wire protocol and device interface
 ```
 
-Register the component in `cfg/shire-config.yaml` to include it in builds.
+The mold deliberately does not register the new component.
+Complete the integration steps in [Component Mold](../how-to/component-mold.md), including configuration, message IDs, ground definitions, and tests.
 
-**When to stay in Stage 1:** During initial prototyping, interface churn, or any time the component needs atomic changes alongside the core FSW or simulator.
+Keep a component in this stage while its interfaces change frequently or while changes need to remain atomic with the rest of SHIRE.
 
----
+## Stage 2: Optional repository extraction
 
-## Stage 2 — Submodule Extraction
+Once interfaces and ownership are stable, maintainers may choose to extract a component into its own repository and reference it as a Git submodule.
+That decision should define:
 
-Once a component reaches interface stability — its XTCE definitions, cFS app message IDs, and simulator API are unlikely to change structurally — it can be extracted to its own repository and wired back into SHIRE as a git submodule.
+* a public repository and release policy
+* maintainers and an issue tracker
+* compatibility expectations for SHIRE revisions
+* continuous integration that tests both the standalone component and its SHIRE integration
+* a documented submodule update process
 
-**Why extract?**
+Extraction is not transparent to contributors: clones must initialize the new submodule, repository pointers must be updated deliberately, and changes spanning repositories require coordinated reviews.
+Validate the build and public clone workflow before adopting this model.
 
-- Other missions can adopt the component without cloning the full SHIRE stack.
-- The component gets its own issue tracker, release cycle, and changelog.
-- Teams working only on the component don't need to check out FSW or simulator sources.
+## Stage 3: External adoption
 
-**How to extract:**
+A separately released component can be forked and adapted for another mission.
+This remains an ecosystem goal rather than a guarantee that the component is portable to arbitrary hardware.
+Consumers still need to validate wire protocols, message IDs, timing, device drivers, cFS configuration, and ground definitions for their target.
 
-1. Create a new public repository, e.g., `VoyagerTechnologies-Public/shire-comp-adcs`.
-2. Push the `comp/adcs/` directory as the initial commit of the new repo.
-3. In the SHIRE monorepo, remove the directory and add it back as a submodule:
+## Status summary
 
-```bash
-git rm -r comp/adcs
-git submodule add https://github.com/VoyagerTechnologies-Public/shire-comp-adcs comp/adcs
-git commit -m "extract adcs to submodule"
-```
-
-4. The `comp/adcs/` path in the SHIRE repo now points to a commit in `shire-comp-adcs`. Builds and CI are unchanged — submodules are transparent to Makefiles.
-
-**Submodule update workflow:** When the component repo publishes a new release, bump the pointer in SHIRE:
-
-```bash
-git submodule update --remote comp/adcs
-git add comp/adcs
-git commit -m "bump shire-comp-adcs to vX.Y.Z"
-```
-
----
-
-## Stage 3 — Community Adoption
-
-With the component as a standalone repository, external teams can fork it and adapt it to their own hardware. The `comp/demo/` template in the SHIRE monorepo always reflects the current expected Stage 1 structure, so new contributors can scaffold against it.
-
-**Naming convention for extracted components:** `VoyagerTechnologies-Public/shire-comp-<name>` (e.g., `shire-comp-adcs`, `shire-comp-eps`).
-
-**What stays in the monorepo:** The `comp/demo/` template, `comp/cryptolib/` (external dependency, not Voyager-authored), and any component still in Stage 1.
-
----
-
-## Summary
-
-| Stage | Location | When to use |
-|-------|----------|-------------|
-| 1 — Active development | `comp/<name>/` in `VoyagerTechnologies-Public/shire` | New components, unstable interfaces |
-| 2 — Stable submodule | `VoyagerTechnologies-Public/shire-comp-<name>`, referenced as a submodule | Stable interface, ready for reuse |
-| 3 — Community fork | Forked from Stage 2 repo | External mission adopting the component |
+| Stage | Location | Repository status |
+| --- | --- | --- |
+| Development in this repository | `comp/<name>/` | Implemented for ADCS, Demo, EPS, and Radio |
+| Repository extraction | Separate repository referenced as a submodule | Optional future maintenance choice |
+| External adoption | Consumer fork or pinned release | Ecosystem goal with target validation required |
 
 ----
-Last updated: 20260728
+Last reviewed: 14 August 2026

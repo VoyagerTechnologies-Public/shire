@@ -1,98 +1,66 @@
 # Development Workflow
 
-SHIRE enables the entire lifecycle of mission development by providing simulators, templates, and CI-ready build flows so teams can begin meaningful mission work from day one, before hardware arrives.
+SHIRE supports two concrete development loops in the current repository: a focused component loop and a full mission lab loop.
 
-## Missions
+## Component loop
 
-SHIRE is built to accelerate mission development across assembly, integration, test, and operations.
-The key is that a design reference mission, simulators, and templates let teams start on software, system integration, and test automation immediately.
+Use the component loop while developing a device protocol, simulator, or shared library:
 
-* Assembly 
-    * Teams can begin integration and software development before hardware is available.
-    * This shortens risk discovery and reduces idle time when hardware is delayed.
-* Integration
-    * End-to-end testing with a simulator enables iterative workflows and earlier discovery of integration issues (interfaces, timing, data formats).
-* Test
-    * Simulators allow exploration of failure modes and recovery strategies that are impractical or unsafe on real hardware.
-* Operations
-    * Long duration runs, automation tuning, and operator familiarization can be done using the same software stack used for flight.
+1. Select a mission, spacecraft, scenario, and CLI component in `build/active.yaml`.
+2. Run `make cfg` to render the selected component configuration.
+3. Run `make cli` to build 42, Simulith, the selected simulator, and the component CLI image.
+4. Run `make cli-start` to start the CLI compose environment.
+5. Exercise commands and telemetry through the component CLI.
+6. Run `make test-sim` and the relevant component tests after changes.
 
-## Development timeline (visual)
+The CLI and cFS application should share device framing and interpretation code from the component's `shared/` directory where practical.
+This reduces drift between direct checkout and integrated operation.
 
-The diagram below emphasizes the difference in timeline and schedule shift left caused by SHIRE.
-You can start development on day one and have a tool useful throughout the mission.
-Traditionally the team must wait until hardware is available and requires hardware time to confirm development is functional.
+## Full mission loop
 
-```mermaid
-gantt
-    title SHIRE (immediate start) vs Traditional (hardware-first)
-    dateFormat  YYYY-MM-DD
-    axisFormat  %b %d
+Use the full lab to verify integration across cFS, YAMCS, CryptoLib, the Radio simulator, component simulators, and 42:
 
-    section SHIRE
-    Start (day 1)            :s_start, 2026-01-01, 1d
-    Simulators & Development :s_work, after s_start, 120d
-
-    section Traditional
-    Wait for hardware        :t_wait, 2026-01-01, 60d
-    Hardware receipt         :t_hw, 2026-03-02, 1d
-    Development after HW     :t_dev, after t_hw, 120d
+```bash
+make cfg
+make
+make start
 ```
 
-SHIRE enables productive simulator-driven work from day one.
+Inspect YAMCS links and FSW/Director logs before running procedures.
+Stop with `Ctrl+C`, then use `make stop` if Compose did not shut down cleanly.
 
-## Build Types
+## Supported build targets
 
-SHIRE supports an iterative set of build types so that teams can develop, test, and validate at the right fidelity for each phase:
+| Command | Current behavior |
+| --- | --- |
+| `make cfg` | Resolves configuration and writes generated artifacts. |
+| `make list` | Reports the resolved target and enabled component build features. |
+| `make sim` | Builds 42, Simulith, selected component simulators, Director, and Server images. |
+| `make fsw` | Builds the configured cFS target and FSW runtime image. |
+| `make gsw` | Builds CryptoLib and the YAMCS runtime image. |
+| `make` | Runs configuration, then builds simulation, FSW, and GSW. |
+| `make cli` | Builds the selected component CLI environment. |
+| `make test-sim` | Builds Simulith, runs the selected component simulator tests, and produces combined simulator coverage. |
+| `make test-fsw` | Builds and runs cFS/application tests and produces coverage output. |
 
-* Command Line Interface (CLI)
-    * The start of a library to be re-used directly by the FSW application.
-    * Used for initial checkout of the hardware and any quick checks without need for a complete FSW solution.
-* Continuous Integration (CI)
-    * Automated pipelines that run unit, integration, and system tests on each change.
-    * CI can include simulator-driven system tests that mimic operational scenarios.
-* SHIRE Simulations
-    * Fast iteration builds that produce simulator artifacts and mock interfaces.
-    * Ideal for developer feedback loops and system integration testing without hardware.
-* Processor In Loop (PIL) SHIRE Simulations
-    * Prove your processor can run the desired algorithms.
-    * Get a baseline for performance without additional I/O interface overheads.
-* Flight
-    * Create your flight binaries you'd deploy on the space vehicle.
-    
-## Git workflow and conventions
+## Moving toward hardware
 
-A consistent Git workflow improves review speed and traceability.
-The following conventions are recommended and already present across the repository:
+The component layout is intended to keep protocol handling useful across simulation and hardware checkout:
 
-* Branching
-    * All feature work branches should be created from `dev` (development branch).
-    * Branch names should include the issue number or short identifier, e.g. `#52-telemetry-improvements`.
-* Commits
-    * Commit messages should begin with the issue reference: `[#52] Short description`.
-    * Make incremental commits with clear messages; squash at merge time if needed.
-* Pull / Merge Requests
-    * File a Merge Request / Pull Request for review before merging into `dev`.
-    * Prefer squashing feature branch commits when merging to keep `dev` history clean.
-* Releases
-    * Periodically merge `dev` into `main` for formal releases; create annotated tags (e.g. `v1.2.0`).
+* Start with the CLI and simulator.
+* Use the CLI with a physical device when an appropriate transport implementation exists.
+* Integrate the shared protocol code into the cFS application.
+* Select target specific HWLIB and PSP implementations.
+* Repeat interface, timing, failure, and system tests on the actual target.
 
-```mermaid
-gitGraph
-   commit id: "Release 0.0.0"
-   commit id: "Release 0.1.0"
-   branch dev
-   commit id: "[#27] Merged pull request #30 from 30-feature"
-   branch "52-feature"
-   commit id: "[#52] Initial feature"
-   commit id: "[#52] Resolve bug found during testing"
-   commit id: "[#52] Updates after PR review"
-   checkout dev
-   merge "52-feature"
-   checkout main
-   merge dev
-   commit id: "Release 0.1.1"
-```
+This is a workflow, not a guarantee of seamless portability.
+Electrical behavior, driver semantics, concurrency, timing, endianness, alignment, and target resource limits must be verified on hardware.
 
-----
-Last updated: 20251202
+## Automation status
+
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main` or `dev`.
+It defines separate Simulith, FSW, and CLI build jobs, runs the FSW and component simulator test builds, and uploads their coverage to Codecov.
+`.github/workflows/docs.yml` separately builds and publishes the Atlas on pushes to `main` or `dev`.
+
+These jobs do not currently run the YAMCS submodule tests or a complete full lab scenario.
+When a CI result is used as evidence, retain the workflow run, logs, coverage, resolved configuration, container image, and revision identifiers rather than treating the presence of the workflow file as a passing result.

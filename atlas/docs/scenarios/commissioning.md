@@ -1,9 +1,13 @@
 # Commissioning
 
+> **Scenario status:** This walkthrough uses commands, tables, links, and component procedures present in the current repository.
+> The launch and Do No Harm context is an operator narrative.
+> SHIRE does not currently implement a top level mission mode manager that tracks a spacecraft wide Do No Harm state.
+
 ## Objective
 
-In this scenario, you will perform the initial "on-orbit" checkout of the Design Reference Mission (DRM) spacecraft.
-As the flight controller, your job is to make first contact, verify the health and status of the spacecraft's core systems, and transition it from its post-launch "safe mode" into a fully operational state, ready for nominal operations.
+In this scenario, you will perform a simulated initial checkout of the Design Reference Mission (DRM) spacecraft in orbit.
+As the flight controller, your job is to make first contact, verify the health and status of the spacecraft's core systems, and begin transitioning it from its **Do No Harm** configuration after launch toward nominal operations.
 
 ## Prerequisites
 
@@ -16,160 +20,139 @@ Before you begin, please ensure you have:
 
 ## Overview
 
-The DRM spacecraft has just been deployed from its launch vehicle.
-It is currently in a power-saving and stable "safe mode".
-In this state, only essential components (C&DH and radio) are active, and it is saving basic health telemetry to file while awaiting its first commands from the ground.
+The exercise assumes that the DRM spacecraft has just been deployed from its launch vehicle and is in the **Do No Harm** configuration defined by the DRM concept of operations.
+In the implemented startup path, SC automatically starts RTS 1.
+RTS 1 enables DS, TO_LAB, and LC, enables RTS 1 through 15, and starts initialization RTS 3.
+LC action point 5 can start RTS 5 to enable the Radio and place it in Receive mode.
 Your task is to walk through the commissioning checklist to bring it to full functionality.
 
 We will follow these phases:
 
-* Startup: launch shire and verifying execution.
-* First contact: establish the space link to the vehicle.
-* Health assessment: verify the spacecraft is healthy.
-* Subsystem checkout: power on and configure the core subsystems.
-* Downlink data: inspect onboard files and download.
+* Startup: launch SHIRE and verify execution.
+* First contact: establish the simulated space link.
+* Health assessment: verify basic command handling.
+* Subsystem checkout: enable and configure ADCS and Demo.
+* Download data: inspect stored files and request a transfer.
 
 ## Startup
 
-Launch SHIRE:
+From the repository root, build and launch SHIRE:
 
-* Open a terminal
-* Navigate to your shire repository - `cd shire`
-* Build - `make`
-* Launch - `make start`
+```bash
+make
+make start
+```
 
+Open the [42 dynamics display](http://localhost:5801/vnc_auto.html).
+Open the [YAMCS ground interface](http://localhost:8090).
 
-Open the 42 dynamics environment: [localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html)
-
-
-Open the YAMCS ground software: [localhost:8090](http://localhost:8090)
-
-
-Verify everything is running.  
-Confirm time is incrementing in the primary terminal window.  
-You'll want to make sure the startup RTSs have completed prior to sending commands anytime you run.  
-This includes RTS5 which ensures the radio is enabled and properly configured to receive ground commands.
-
-
-Verify everything is running - packets are being received by clicking into the SHIRE instance.
-
-
-Ensure data is flowing through the YAMCS debug interface by selecting the Links button on the left side.
+Confirm that simulation time is advancing in the Compose output.
+Wait for the startup RTS events to complete before commanding.
+In YAMCS, open the SHIRE instance and select **Links**.
+Confirm that `debug-in`, `debug-out`, `radio-in`, `radio-out`, `sim-backdoor`, and `truth42-in` show the expected state for the running lab.
 
 
 ## First Contact
 
-Command relative time sequence (RTS) 6 "Start Pass" - `/SC/SC_START_RTS with RTSID 6`.  
-Note that you can use the search bar to find commands and telemetry quickly.
+Send `/SC/SC_COMMANDS/SC_START_RTS` with `RTSID` set to 6.
+RTS 6 places the Radio in Duplex mode, waits 480 SC wakeups, and returns it to Receive mode.
+You should see the command and RTS events in the FSW output.
 
+Confirm that `radio-in` is receiving telemetry.
+Both `debug-out` and `radio-out` consume the `tc_realtime` command stream in the checked in YAMCS configuration, so the command can be emitted by both links when both are enabled.
 
-
-This enables the radio for 8 minutes simulating a long pass if the space vehicle was in a Low Earth Orbit (LEO).  
-You should see FSW print receipt of the command.
-
-
-The radio-in link should also be receiving data in YAMCS.
-Note that the command we sent went out via `radio-out` as well by default.
-
-
-You've now successfully commanded and are receiving telemetry from your DRM spacecraft!
-Note that as this pass completes you will stop receiving telemetry from the radio and see the `RTS 006 Execution Completed` message from FSW.
-The telemetry from the debug interface will continue to flow after this so even if you take longer than the pass period you can complete this exercise.
+When RTS 6 completes, radio telemetry stops because Receive mode does not transmit to the ground.
+The debug telemetry path remains available.
 
 ## Health Assessment
 
-Test the command link with a `/CFE_ES/CFE_ES_COMMANDS/CFS_ES_NOOP`, the "hello world" of the cFS Flight Software.
+Test the command link with `/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP`, the "hello world" of the cFS flight software.
 
 
-Ensure the command counter incremented. - `CFS/CFE_ES_HKPACKET`.
-As another NOOP is sent by the current spacecraft RTS, it should read as 2.
+Ensure `/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER` increments.
+RTS 3 also sends an ES NOOP during initialization, so a fresh run will normally show 2 after this command.
 
 
 ## Subsystem Checkout
 
 ### ADCS
 
-Initialize ADCS and confirm health - `Procedures / Stacks / AdcsComponent.ysc`
+Initialize ADCS and confirm health with `Procedures / Stacks / AdcsComponent.ycs`.
 
 * Enables ADCS application.
-* Confirms commanding by resetting counters and then sending a no operation (NOOP) command and confirming count increments.
+* Resets counters, sends a NOOP, and checks that the command count increments.
 * Displays current parameters.
 * Sets mode to SUNSAFE.
-* Verifies successful sun pointing (X+ pointed at the sun or nearly a value of +1.0) over 60 seconds.
+* Checks that `SUN_X` is above 0.98 and that `SUN_Y` and `SUN_Z` are between negative 0.02 and positive 0.02.
 
-Select first step then clock the `Run all from selected step` button.
-
-
-Confirm successful execution.
-This may take a little bit for the spacecraft to rotate and then stabilize within the desired margins.
+Select the first step, then click the **Run all from selected step** button.
 
 
-The B1, or body frame X+, vector as shown in 42 should now align with the yellow sun vector S.
+Confirm that every stack step succeeds.
+The B1 body frame X axis shown in 42 should align with the yellow sun vector after ADCS settles.
 
 
 ### Demo Instrument
 
-Initialize demonstration instrument and confirm health - `Procedures / Stacks / DemoComponent.ysc`
+Initialize the demonstration instrument and confirm health with `Procedures / Stacks / DemoComponent.ycs`.
 
 * Enables DEMO application.
 * Confirms commanding by resetting counters and then doing an application NOOP.
 * Verifies command count increments.
 
-Select first step then clock the `Run all from selected step` button.
+Select the first step, then click the **Run all from selected step** button.
 
 
 Confirm successful execution.
 
 
 
-Now let's manually set the device configuration - `Commanding / Send a command / DEMO / DEMO_CONFIG_CC with DEVICE_CONFIG 10`
-
-
-You may open a new tab for viewing the configuration parameter and leave another for commanding if you'd like.  
-Note you may have to wait for the parameter to update in telemetry (~10 seconds).
+Send `/DEMO/DEMO_CONFIG_CC` with `DEVICE_CONFIG` set to 10.
+Wait for the next Demo telemetry packet and confirm the reported configuration value.
 
 
 ## Download Data
 
-Let's stop RTS6 "start pass" and control the radio directly - `/SC/SC_STOP_RTS with RTSID 6`
+Stop RTS 6 with `/SC/SC_COMMANDS/SC_STOP_RTS` and `RTSID` set to 6.
 
 
-Manually set the radio mode to DUPLEX so that we can send and receive data without the time constraint of RTS6 - `/RADIO/RADIO_CONFIG_CC with MODE 3 (DUPLEX)`.  
-The radio will need to be in DUPLEX mode (both transmit and receive) in order to do reliable or Class 2 file transfers.
+Send `/RADIO/RADIO_CONFIG_CC` with `MODE` set to `DUPLEX`.
+Class 2 CFDP needs traffic in both directions, so keep the Radio in Duplex mode during the transfer.
 
 
 
-Close the current file set that the Data Storage (DS) application is using so we can download it - `/DS/DS_CLOSE_ALL`
+Close the current Data Storage file set with `/DS/DS_COMMANDS/DS_CLOSE_ALL`.
 
 
-Check what data exists on the space vehicle using the File Manager (FM) application in cFS - `/FM/FM_GET_DIR_PKT with DIRECTORY /d`
+Request the `/d` directory listing with `/FM/FM_COMMANDS/FM_GET_DIR_PKT` and `DIRECTORY` set to `/d`.
 
 
-Wait for this data to be collected and sent to the ground in the `/FM/FM_DIRLIST_PKT`
+Wait for the response in `/FM/FM_DIRLISTPKT`.
 
 
-Copy the FILENAME2 you receive, for example - `sv1980012132531.ds`, as it's older (lower time stamp in filename).
-Use the CCSDS File Delivery Protocol (CFDP) application to download the file older - `/CF/CF_TX_FILE with SRCFILENAME /d/sv1980012132531.ds and DSTFILENAME sv1980012132531.ds`
+Choose a completed file from the listing.
+Use the actual returned filename rather than assuming an example file exists.
+Send `/CF/CF_COMMANDS/CF_TX_FILE` with `SRCFILENAME` set to `/d/<returned-file>` and `DSTFILENAME` set to `<returned-file>`.
+Review the default Class 2, channel, destination, and preservation values before sending the command.
 
 
-Watch the file downlink and confirm it's receipt - `File transfer`.
+Watch the file downlink and confirm its receipt under **File transfer**.
 
 
 
 
 ## Review
 
-Congratulations!
-Commissioning of the DRM spacecraft is complete.
+The simulated commissioning walkthrough is complete.
 
 You have:
 
-* Established a stable command and telemetry link.
-* Verified the health of the spacecraft's core systems.
-* Powered on and configured the ACS and primary payload.
-* Transitioned the vehicle from a post-launch safe state to being fully mission-ready.
+* Observed command and telemetry traffic on the configured links.
+* Verified basic cFE command handling.
+* Enabled and configured the ADCS and demonstration payload.
+* Completed the documented commissioning exercise from its Do No Harm narrative premise.
 
-Next steps include performing day-to-day [nominal operations](./nominal-operations.md).
+Next steps include performing [nominal operations](./nominal-operations.md) each day.
 
-----
-Last updated: 20260512
+***
+Last reviewed: 14 August 2026

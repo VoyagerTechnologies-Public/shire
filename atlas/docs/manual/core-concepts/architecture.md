@@ -1,103 +1,91 @@
 # System Architecture
 
-SHIRE is designed as a high-fidelity software "digital twin" of a complete spacecraft mission.
-It is not just one piece of software, but an integrated ecosystem of multiple open-source components working together to replicate the relationship between a spacecraft, its environment, and mission control.
+SHIRE connects flight software, spacecraft dynamics, simulated components, security processing, and ground software inside a synchronized Docker environment.
+The default full lab topology is generated from `cfg/shire-compose.j2` after a mission, spacecraft, and scenario are selected.
 
-We use actual flight software (FSW) and ground software (GSW) connected through a realistic simulation environment or middleware.
-The FSW selected for use is the [core Flight System (cFS)](https://etd.gsfc.nasa.gov/capabilities/core-flight-system/) developed by NASA and open source.
-The GSW selected is [Yet Another Mission Control System (YAMCS)](https://yamcs.org/) which is an open source framework for command and control.
-This allows you to develop, test, and "fly" your mission in a software-only environment that closely mirrors the real world.
+## Runtime services
 
-## High-level Architecture
+The generated full lab compose file currently defines six services:
 
-In SHIRE you'll note five containers running in docker prefaced with `shire-`:
+| Service | Current responsibility |
+| --- | --- |
+| `shire-42` | Runs the 42 dynamics and environment model with its VNC web interface exposed on port 5801 by default. |
+| `shire-director` | Loads configured component simulator `.so` files, exchanges state and actuator commands with 42, ticks component simulators in parallel, services simulator backdoor commands, and publishes 42 truth data. |
+| `shire-server` | Owns Simulith simulation time and waits for acknowledgements from the Director and FSW before advancing the 10 ms simulation tick in the full lab. |
+| `shire-fsw` | Runs the cFS mission build, including reusable cFS applications and the component applications selected for the spacecraft. |
+| `shire-cryptolib` | Applies security processing in the simulated radio command and telemetry path. |
+| `shire-gsw` | Runs YAMCS for commanding, telemetry, archives, procedures, displays, and CFDP file transfer with its web interface exposed on port 8090. |
 
-* CryptoLib: Utilized to provide command authenticated encryption to the uplinked data.
-* Director: Runs the 42 dynamics and component simulators.
-* FSW: cFS with a standard application suite and SHIRE specific component applications.
-* GSW: YAMCS with database support for cFS and SHIRE specific applications.
-* Server: Drives and synchronizes time between Director and FSW so they are in lock step.
+Service and container names include mission or spacecraft values in several places.
+Use the generated compose file and `docker compose ps` rather than assuming a fixed container name.
 
-``` mermaid
-graph TD
-    subgraph A[GSW]
-        CryptoLib
-        YAMCS
-    end
-    A <--> B[Director]
-    C[FSW] <--> B[Director]
-    C <--> A
-    E[Server] <--> B
-    E <--> C
+```mermaid
+flowchart LR
+    GSW[YAMCS GSW]
+    CRYPTO[CryptoLib]
+    RADIO[Radio simulator]
+    FSW[cFS FSW]
+    SERVER[Simulith server]
+    DIRECTOR[Simulith Director]
+    DYNAMICS[42 dynamics]
+    COMPONENTS[Component simulators]
+
+    GSW <--> CRYPTO
+    CRYPTO <--> RADIO
+    RADIO <--> FSW
+    GSW <--> FSW
+    SERVER <--> DIRECTOR
+    SERVER <--> FSW
+    DIRECTOR <--> DYNAMICS
+    DIRECTOR --> COMPONENTS
+    COMPONENTS <--> FSW
+    DIRECTOR --> GSW
 ```
 
-## Communications
+## One simulation clock
 
-CryptoLib is running internal to the space vehicle as a library to the radio component in addition to running in the ground pipeline as its own container.
-Remember that in an actual scenario involving the space link there would be a translation to radio frequency (RF) at the radio and ground station which has been omitted.
+The Simulith server broadcasts a tick and waits for each configured client to acknowledge completion before it advances time.
+The full lab compose template sets `NUM_CLIENTS=2`: the cFS PSP registers `shire-fsw`, and the Director registers `shire-director`.
 
-``` mermaid
-graph LR
-    C[FSW] <--> |DEBUG| D
-    C <--> A[CryptoLib] <--> |RADIO| B[Director] <--> D[GSW]
-```
+On each Director tick, the current implementation:
 
-Network transports of both UDP and IPC are used in SHIRE:
-``` mermaid
-graph LR
-    C[FSW] <--> |IPC| B
-    A[CryptoLib] --> |UDP:12346| D
-    B[Director] --> |UDP:12344| A
-    A --> |UDP:12343| B
-    D[GSW] --> |UDP:12345| A
-    E[Server] <--> |IPC| C
-    E <--> |IPC| B
-```
+1. requests the latest state from 42
+2. wakes one worker thread per loaded component simulator and waits for all component ticks
+3. sends queued actuator commands, or an empty command message, to 42
+4. services one pending simulator backdoor datagram
+5. periodically publishes 42 truth telemetry to YAMCS.
 
-Additionally specific data formats are used at various points.
-The Consultative Committed for Space Data Systems (CCSDS) captures a number of the standards leveraged for space communications.
-Each layer encapsulates or augments the prior:
+The server console accepts `p` to pause or resume, `+` to increase the attempted rate, and `-` to decrease it.
+These are requested rates, not performance guarantees: achievable speed depends on the host and workload.
 
-* Space Packets or CCSDS packets are they are sometimes referred to are the base.
-* Telecommands or TCs contain a number of command space packets that would go to the space vehicle.
-* Telemetry or TMs contain a number of telemetry space packets.
-* Space Data Link Security (SDLS) and its extended procedures (SDLS-EP) augment these to enable authenticated encryption.
-* CryptoLib standalone handles the TC framing from the GSW while the cFS IO_Lib called within the radio application interprets those frames and provides space packets that are placed on the software bus.
+## Component and hardware interfaces
 
-``` mermaid
-graph TD
-    B[Director] --> |Space Packet Telemetry| A
-    A[CryptoLib] --> |TC Frame| B
-    C[FSW] <--> |HWLIB| B
-    C <--> |Space Packets| D
-    D[GSW] --> |Space Packet Commands| A
-    E[Server] <--> |Simulith ZMQ| B
-    E <--> |Simulith ZMQ| C
-```
+Component applications use HWLIB interfaces supplied by the cFS Platform Support Package.
+The simulation implementations are under `cfs/psp/fsw/hwlib/src/sim/`.
+Linux device implementations are under `cfs/psp/fsw/hwlib/src/linux/`.
 
-It should be noted that the cFS Hardware Library (HWLIB) is leveraging Simulith transport, ZMQ under the hood, to communicate in the SHIRE environment.
-HWLIB enables swapping of drivers between simulation and flight to ease the transition to the physical space vehicle.
+Simulated UART, I2C, SPI, and GPIO interfaces use ZeroMQ pair sockets on IPC endpoints in the shared `/tmp` volume.
+A component simulator binds the endpoint for its configured device address, while the FSW side HWLIB implementation connects to the same endpoint.
+This keeps the component protocol above HWLIB usable across simulated and physical targets, but hardware transition still requires target specific drivers, configuration, and validation.
 
-## Time Synchronization
+## Ground links
 
-It was alluded to in the previous section that Simulith is driving time synchronization.
-Simulith requires a number of connections to expect passed as an argument to it.
-In the SHIRE environment this is always two per spacecraft as the FSW and Director are required for each.
-This is possible because each of these distribute the received time tic to the various processes running within them.
-Each tic also sends a toc response that is received by the server to know that processing has completed and the next tic may be called after any necessary time delays.
+The included YAMCS instance defines these lab links:
 
-``` mermaid
-graph LR
-    A[CryptoLib]
-    subgraph B[Director]
-        42
-        Sims
-    end
-    B[Director] <--> E
-    C[FSW] <--> E
-    D[GSW]
-    E[Server]
-```
+| Link | Direction and endpoint |
+| --- | --- |
+| Debug command | YAMCS to FSW on UDP 1234 |
+| Debug telemetry | FSW to YAMCS on UDP 1235 |
+| Radio command | YAMCS to CryptoLib on UDP 12345, then to the radio simulator on UDP 12343 |
+| Radio telemetry | Radio simulator to CryptoLib on UDP 12344, then to YAMCS on UDP 12346 |
+| Simulator backdoor | YAMCS to Director on UDP 50060 |
+| 42 truth | Director to YAMCS on UDP 50042 |
 
-----
-Last updated: 20251202
+The debug path is useful for lab checkout.
+The radio path exercises the simulated radio and CryptoLib pipeline and is the representative space link path in the DRM.
+
+## Build time architecture
+
+`cfg/shire-orchestrator.py` resolves the active mission, spacecraft, and scenario.
+`cfg/shire-build.py` then builds only the component simulators selected by the spacecraft, builds the cFS/YAMCS runtime images, and assembles the Director and Server images.
+See [Configuration](../how-to/configuration.md) for the exact inputs and generated outputs.

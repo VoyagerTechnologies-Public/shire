@@ -4,11 +4,12 @@ The Software & Hardware Integration Runtime Environment (SHIRE) Atlas is a compr
 
 ## Purpose
 
-The Atlas serves as a single source of truth for all things related to SHIRE, ensuring clarity and consistency across the project.
+The Atlas is the public guide to SHIRE usage, architecture, configuration, and the Design Reference Mission.
+Implemented behavior claims should remain traceable to the repository source, configuration, tests, or generated artifacts.
 
 ## Licensing
 
-The SHIRE Atlas is licensed under the repository's [Permissive Open-Source License](LICENSE).
+The SHIRE Atlas is licensed under the repository's [Permissive Open Source License](LICENSE).
 By contributing, you agree that your contributions will be licensed under those terms unless explicitly noted otherwise.
 
 ## Development

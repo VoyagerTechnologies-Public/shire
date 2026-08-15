@@ -1,54 +1,62 @@
-# Verification & Validation
+# Verification and Validation
 
-## Overview
+This page separates verification mechanisms present in the repository from verification work that a mission still needs to define and execute.
 
-This short Verification and Validation (V&V) plan identifies the activities that will establish compliance with the requirements (verification) and to establish that the system will meet the customers’ expectations (validation) for the SHIRE Design Reference Mission (DRM).
-It summarizes how a DRM can leverage SHIRE and standard engineering practices (unit testing, CI/CD, coverage, simulation, and hardware-in-the-loop) to verify requirements and validate mission behavior.
+## Current evidence entry points
 
-## Verification Activities
+| Area | Repository evidence or command | What it can establish |
+| --- | --- | --- |
+| Simulith core | `simulith/test/` with `cd simulith && make test` | Unit behavior for Server, client, time, transport, and 42 adapter code included by the test build |
+| Component simulators | `comp/<name>/test-sim/` with `make test-sim` | Simulator lifecycle, protocol, selected dynamics behavior, and combined simulator coverage for configured components |
+| cFS and component apps | cFS and app unit tests with `make test-fsw` | Unit behavior and LCOV coverage for the configured cFS test build |
+| YAMCS | `cd yamcs && make test` | Tests supplied by the YAMCS submodule build |
+| Focused integration | `make cli`, then `make cli-start` | Manual component protocol and simulator checkout without cFS/GSW |
+| Full integration | `make`, then `make start` | Manual observation of the configured flight, ground, security, dynamics, and simulation stack |
+| Operator procedures | `comp/*/gsw/procedures/*.ycs` | Repeatable YAMCS steps when the procedure version, configuration, inputs, and results are retained |
+| Repository CI | `.github/workflows/ci.yml` | On pull requests and pushes to `main` or `dev`, defines Simulith, FSW, and CLI builds plus FSW and component simulator test jobs |
 
-- Requirements traceability: maintain a VCRM linking each DRM requirement to at least one verification artifact (test, analysis, or inspection).
-- Unit testing & code quality: per-application cFS unit tests (ut-assert), static analysis, and code coverage reporting to ensure implementation correctness and measurable coverage targets.
-- CI/CD automation: run unit tests, linting, and a subset of integration checks on pull requests; run nightly or scheduled full regressions in the CI pipeline.
-- CLI + simulator checks: repeatable command-line driven component checkouts using SHIRE simulators to validate interfaces, telemetry, and functional behavior without hardware.
-- Hardware-in-the-loop (HITL): targeted CLI tests run against physical devices (IMU, wheels, PDB, RF modules) to verify timing, currents, and I/O interactions when hardware is available.
-- Integration & system scripts: compact end-to-end FSW scenarios (commissioning, nominal day, science ops, CFDP transfers, fault responses) executed in the full SHIRE stack to validate operational behavior.
-- FDIR verification: scenario-based fault injection and monitoring to verify fault detection, isolation, and recovery behaviors.
-- Performance and resource testing: power, CPU, memory, and timing stress tests under realistic simulated profiles.
-- Security verification: exercise CryptoLib and security-related behaviors (key management, authorized command enforcement) using simulated and hardware-assisted checks where applicable.
+The CI test jobs upload FSW and simulator coverage to Codecov, while `.github/workflows/docs.yml` builds and publishes the Atlas on pushes to `main` or `dev`.
+A workflow definition is not itself evidence that a particular revision passed.
+Retain the GitHub Actions run, job logs, coverage result, and exact revision when using CI as verification evidence.
+The current CI does not run the YAMCS submodule test target or a complete integrated lab scenario.
 
-## Validation Activities
+## Evidence requirements
 
-- Operational scenario validation: run representative mission scenarios in SHIRE to demonstrate operator procedures, expected operator-in-the-loop actions, and mission outcomes.
-- End-user acceptance: provide demonstration runs (recordings, telemetry extracts) for stakeholders to validate that the DRM meets customer expectations.
-- Data integrity validation: verify CFDP and file management flows for end-to-end data integrity (checksums, file locations, and archival behaviors).
+For a result to support a DRM requirement, retain at least:
 
-## Test artifacts & locations
+* the requirement ID and verification method
+* repository and submodule revisions
+* `build/active.yaml` and the relevant merged and generated configuration
+* host and container image information that can affect the result
+* exact test command or procedure revision
+* inputs, expected result, actual result, and pass or fail decision
+* logs, telemetry, coverage, analysis, or inspection output needed to reproduce the decision.
 
-- Tests and scripts: atlas/tests/ (unit | cli | hardware | fsw)
-- Coverage reports: build/coverage/ (per-app)
-- Logs and telemetry: build/test-logs/ or CI artifacts
+Coverage is useful development evidence but does not prove requirements compliance.
+A successful commissioning walkthrough demonstrates one configured path but does not verify every fault case, performance limit, or hardware target.
 
-## Acceptance criteria (summary)
+## DRM verification status
 
-- Tier 1: unit tests pass and per-app coverage meets targets.
-- Tier 2: CLI+simulator suites pass for all simulated components.
-- Tier 3: applicable hardware tests pass when devices are available.
-- Tier 4: core FSW scenarios (commissioning, nominal, science, fault response) execute successfully in SHIRE.
-- VCRM: every DRM requirement has at least one verification entry or a documented rationale for exception.
+The [Mission Requirements](mission-requirements.md) page is currently a proposed requirements baseline.
+It does not yet contain a verification cross reference matrix with executed evidence for every requirement.
+Until that matrix exists, a listed verification method (`T`, `A`, `I`, or `D`) describes the intended method, not a completed result.
 
-## How missions should use SHIRE for V&V
+Several requirements need particular care:
 
-- Start with unit tests and static analysis locally and in CI.
-- Run CLI+simulator checks for interface verification and developer debugging.
-- Add hardware tests as devices arrive, focusing on timing and I/O.
-- Use compact FSW scenario scripts to validate operator procedures and mission-level behavior.
+* physical launch survival, lifetime, storage, radio rate, and processor performance require defined hardware, configuration, and analysis or test evidence
+* pointing, autonomy, and fault management requirements require controlled scenarios and quantitative acceptance limits
+* cryptographic requirements require an explicit security configuration and test scope
+* claims involving physical hardware require physical interfaces and recorded target results
+* claims about speeds above real time require a benchmark definition, host description, workload, and observed achieved rate.
 
-## Roles & responsibilities (brief)
+## Recommended progression
 
-- Developers: unit-tests, component CLI tests, and coverage targets.
-- Integration leads: manage simulators, system tests, and VCRM updates.
-- Operations/QA: run scenario validations, accept results, and log issues.
+1. Test protocol and application logic at the unit level.
+2. Test each component simulator and its 42 coupling where applicable.
+3. Use the CLI environment for focused interface checkout.
+4. Run the full stack and retain command/telemetry evidence.
+5. Add nominal and contingency automated procedures with explicit assertions.
+6. Repeat applicable tests on target processors and physical hardware.
+7. Populate a verification cross reference matrix linking every requirement to executed evidence or an approved rationale.
 
----
-Last updated: 20251218
+Validation should then use representative operator workflows to show that the configured DRM satisfies its intended use, not merely that individual requirements passed in isolation.

@@ -1,59 +1,59 @@
 # About SHIRE
 
-Software & Hardware Integration Runtime Environment (SHIRE) is an open-source design reference mission developed by Voyager Technologies to ease the barrier of entry to space system development. 
+## Why SHIRE exists
 
-SHIRE is not a replacement for hardware testing — it complements and amplifies it. 
-Use SHIRE to discover problems earlier, shorten the hardware validation window, and increase the number of safe test iterations you can run.
+Satellite software is often developed by several disciplines that depend on interfaces, hardware, and operational tools owned by other teams.
+Waiting for every physical component to become available can move integration problems late into a mission schedule.
 
-## Mission & Philosophy
+The Software & Hardware Integration Runtime Environment (SHIRE) provides a shared software lab for that integration work.
+It connects flight software, simulated devices, vehicle dynamics, security processing, and ground software before the complete physical system is available.
 
-Voyager is pioneering transformative, **mission ready** solutions that redefine possibilities for space, defense and national security.
-SHIRE has been released in an effort to democratize access to high-quality space system development tools through pragmatic, open-source, software-first infrastructure that scales from CubeSats to interplanetary missions.
+SHIRE is intended to move interface discovery, software testing, procedure development, and operator familiarization earlier in the mission lifecycle.
+It does not replace qualification or testing with representative hardware.
 
-<img src="assets/Voyager-Mission-Ready-scaled.webp" alt="voyager-mission-ready" class="center"/>
+## Design approach
 
-## Relevant Research Papers
+SHIRE follows several practical ideas that are visible in the current repository:
 
-* [Bailey et al., "Advancement In Space Cybersecurity" (2025).](https://aerospace.org/sites/default/files/2025-05/AdvancementInSpaceCybersecurity_Bailey_20250506.pdf)
-    * **“All spacecraft developments should include digital twin development as a default approach when developing or acquiring a spacecraft.”**
-* [Grubb, Matthew D., "Increasing the Reliability of Software Systems on Small Satellites Using Software-Based Simulation of the Embedded System" (2021). Graduate Theses, Dissertations, and Problem Reports.](https://researchrepository.wvu.edu/etd/8062)
-    * “NOS3 was able to increase the STF-1 development team’s control of the software development schedule and to demonstrate how future software development effort schedules can be shifted ahead of the receipt of hardware components.”
-* [Spolaor et al., "NOS3: The STF-1 CubeSat Case Study" (2019).](https://jossonline.com/storage/2021/08/Final-Spolaor-NASA-Operational-Simulator-for-Small-Satellites-NOS3-The-STF-1-CubeSat-Case-Study.pdf)
-    * “The NOS3 environment contributed to the success of the STF-1 mission in several ways, such as reducing the mission’s reliance on hardware, increasing available test resources, and supporting training and risk reduction targeted testing of critical software behaviors on the simulated platform.”
+* **Keep component artifacts together.**
+  Each reference component owns its cFS application, simulated device, developer CLI, tests, configuration template, and YAMCS artifacts under `comp/`.
+* **Use one coordinated simulation clock.**
+  Simulith coordinates flight software and the Director while the Director advances component simulators and exchanges state with 42.
+* **Generate a repeatable lab from configuration.**
+  Mission, spacecraft, and scenario selections produce the compose files, component settings, 42 input, and cFS mission definitions used by a run.
+* **Exercise focused interfaces before the complete stack.**
+  A component CLI can work directly with one simulator before the component is exercised through cFS and YAMCS.
+* **Keep implementation claims traceable.**
+  The Atlas links behavior to source, configuration, tests, generated artifacts, or recorded verification evidence.
 
-## Why use digital-twin tools like SHIRE?
+## Who SHIRE serves
 
-Digital-twin and simulator-first approaches are increasingly recommended in aerospace and defense because they let teams develop, test, and validate complex systems earlier, more safely, and at lower cost.
-The references above highlight recurring benefits: reduced hardware dependency, earlier discovery of integration issues, improved test coverage, and accelerated schedules. In practice, SHIRE provides:
+| Discipline | How SHIRE can help |
+| --- | --- |
+| Software development | Develop cFS applications and device protocols against repeatable component simulators before hardware is generally available. |
+| Integration and test | Exercise command, telemetry, CCSDS, CFDP, timing, and device interface boundaries across the stack. |
+| Mission operations | Develop and rehearse YAMCS procedures against live simulated telemetry and flight software. |
+| Verification and validation | Run unit, component simulator, and integrated scenario tests without consuming scarce hardware time. |
+| Training | Give new personnel a resettable environment in which they can observe system behavior and practice procedures. |
+| Research | Integrate algorithms or payload concepts into a representative flight, ground, and simulation stack and inspect system effects. |
+| Cybersecurity | Exercise isolated command paths, CryptoLib integration, simulator fault injection, and recovery procedures without connecting flight hardware. |
 
-* Early, parallel development: teams can write and validate FSW and GSW before hardware availability.
-* Risk reduction and fault injection: repeatable fault scenarios allow teams to validate recovery and safety logic without endangering hardware.
-* Training and procedures rehearsal: operators can rehearse sequences and handovers with realistic telemetry and timing.
-* Reproducible CI and regression testing: deterministic time control and scripted scenarios enable automated system tests.
+## Current boundaries
 
-## Which disciplines benefit?
+The current SHIRE baseline is a development and integration environment.
+It does not, by itself, establish flight qualification, hardware compatibility, requirements compliance, performance on a particular host, or suitability for a specific mission.
 
-* Developers
-    * Rapid feedback loops: run unit, component, and integrated tests locally against component simulators. Debug algorithms with realistic inputs from 42 and other sims.
-* Integration & Test (I&T)
-    * End-to-end validation: exercise interfaces (CCSDS, command/telemetry), exercise file transfers (CF), and validate timing across links before hardware arrives.
-* Operations
-    * Procedures and ops training: build and run mission procedures (stacks) to exercise nominal and off-nominal flows; develop runbooks with confidence.
-* Verification & Validation (V&V)
-    * Increase test coverage: run fuzzing, long-duration tests, and regression suites that would be expensive or risky on hardware.
-* New personnel / Training
-    * Onboard new engineers and operators with a safe, resettable environment where mistakes don't break hardware or mission timelines.
-* Researchers and Academia
-    * Rapid experimentation: integrate new control laws, autonomy modules, or payload algorithms into a realistic mission stack and evaluate system-level impacts.
-* Cybersecurity
-    * Attack surface testing: simulate networked interactions and practice incident response and recovery on a realistic but isolated system.
+Component simulators model software interfaces and selected behavior rather than every electrical, radio frequency, thermal, mechanical, or radiation effect.
+The ARM and CPU2 files provide development scaffolding, but the default tested path uses the Linux simulation target.
+Host resources, networking, and Docker behavior can affect observed timing and transfer performance.
 
-## Common use cases
+Claims about simulation rate, pointing accuracy, transfer rate, fault response, or hardware portability need a defined configuration and recorded evidence.
+See [Space Systems](manual/core-concepts/space-systems.md) for the modeled hardware boundary and [Verification and Validation](drm/verification-and-validation.md) for current evidence entry points.
 
-* Day-one integration: start software and test harness development immediately using simulators and templates.
-* CI-driven system tests: run scenario tests on each change to catch regressions early.
-* Procedure development & acceptance testing: operators and engineers validate checklists and procedures against a predictable simulated vehicle.
-* Fault injection campaigns: validate failure detection and recovery across multiple subsystems.
+## Reading the Atlas
 
-New uses and users are reported regularly!
-Can you think of any?
+Pages describing the current implementation are checked against the public repository.
+The Design Reference Mission also includes intended behavior and proposed requirements that have not all been implemented or verified.
+Status notes identify that distinction where it matters.
+
+When documentation and the current checkout disagree, the source, configuration, generated artifacts, and tests take precedence.

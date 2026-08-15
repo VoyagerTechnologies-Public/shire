@@ -1,56 +1,76 @@
-# Getting Started with SHIRE
+# Getting Started
 
-A short quick-start to get a up and running with SHIRE.
+This walkthrough starts the default DRM `sat-1` lab.
 
-## Walkthrough
+## Clone
 
-Note that the speed at which you can install is subject to your internet connection and the performance of your computer.
-Gigabytes of data are required to be downloaded during this process.
-
-* Ensure Docker, Docker Compose (v2+), Git, Make, and Python3 are installed (see [Installation](installation.md)).
-* Clone the repository to your computer:
 ```bash
 git clone --recurse-submodules https://github.com/VoyagerTechnologies-Public/shire.git
 cd shire
 ```
 
+If the repository was cloned without submodules:
 
-* Prepare environment and build: `make`
+```bash
+git submodule update --init --recursive
+```
 
+## Configure and build
 
-* Start the lab: `make start`
+```bash
+make cfg
+make list
+make
+```
 
+The first run pulls or builds several container images and compiles cFS, YAMCS, Simulith, 42, CryptoLib, and the selected component simulators.
+It can take substantial time and disk space.
 
-* The various services will take a few seconds to stabilize.
-* Flight software takes approximately 30 seconds to finish its initialization currently.
+`make cfg` creates `build/active.yaml`.
+`make list` should report mission `drm`, spacecraft `sat-1`, scenario `nominal`, and ADCS, Demo, EPS, and Radio components for the default selection.
 
+## Start
 
-* Access GSW (YAMCS): http://localhost:8090
+```bash
+make start
+```
 
+Wait for cFS, YAMCS, the Director, and the Server to finish their startup handshakes.
+Then open:
 
-* You'll be able to send commands, view the current links, etc. in YAMCS so poke around!
+* YAMCS: [http://localhost:8090](http://localhost:8090)
+* 42 VNC: [http://localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html)
 
+In YAMCS, select the SHIRE instance and inspect **Links**.
+Confirm telemetry is arriving before sending commands.
 
-* Attach to consoles in a new tab: `docker attach shire-server-sat-1`
+The default Server container is named `shire-server-drm`.
+Attach to its console to control simulation time:
 
+```bash
+docker attach shire-server-drm
+```
 
-* Stop (preserves data): CTRL+C in primary console
+Use `p` to pause or resume, `+` to request a faster rate, and `-` to request a slower rate.
+Detach without stopping the container with `Ctrl+P`, then `Ctrl+Q`.
 
+## Stop and resume
 
-* If you did CTRL+C twice to stop quickly, you may need to `make stop` prior to running again.
+Press `Ctrl+C` in the Compose terminal.
+Then ensure all services are stopped:
 
+```bash
+make stop
+```
 
-* Clean (removes data): `make clean`
+YAMCS data is stored in a named volume and normally survives `make stop`.
+A later `make start` reuses the generated configuration and images.
+Run `make` again after source or configuration changes.
 
+Use cleanup targets deliberately:
 
-* Looking to reclaim some data? `make clean-cache`
+* `make clean` removes the active mission build artifacts and stops the stack.
+* `make clean-cache` prunes the Docker builder cache and attempts to remove the legacy unsuffixed `gsw-data` and `simulith_ipc` volumes.
+* `make uninstall` removes SHIRE build artifacts, containers, images, volumes, and networks.
 
-
-* Want to uninstall? `make uninstall`
-
-
-Have trouble with any of the above?
-Checkout the [Frequently Asked Questions](faq.md).
-
-----
-Last updated: 20251202
+Continue with the [Commissioning scenario](../../scenarios/commissioning.md), or see [Troubleshooting](faq.md) if startup fails.

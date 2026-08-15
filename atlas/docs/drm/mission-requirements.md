@@ -1,38 +1,44 @@
 # Mission Requirements
 
+> **Status:** This is a proposed requirements baseline for the Design Reference Mission.
+> A `shall` statement describes intended DRM behavior and does not claim that the current implementation has passed verification.
+> Verification letters identify planned methods only.
+> See [Verification and Validation](verification-and-validation.md) for the evidence currently available and the work still required.
+
 ## Introduction
 
 ### Purpose
 
-This document establishes the mission requirements for the SHIRE Design Reference Mission (DRM), a representative small satellite mission in Low Earth Orbit (LEO).
-These requirements are derived from the mission objectives and concept of operations and serve as the baseline for system design, implementation, and verification.
+This document proposes mission requirements for the SHIRE Design Reference Mission (DRM), a representative small satellite mission in Low Earth Orbit (LEO).
+They are derived from the mission objectives and concept of operations and are intended to guide system design, implementation, and verification.
 
 ### Scope
 
 This document defines requirements across all mission segments including:
 
-- Space segment (spacecraft bus and payload)
-- Ground segment (command and control systems)
-- Mission operations
-- Data management and processing
+* Space segment (spacecraft bus and payload)
+* Ground segment (command and control systems)
+* Mission operations
+* Data management and processing
 
 ### Requirement Levels
 
-Requirements are organized following NASA NPR 7123.1 (NASA Systems Engineering Processes and Requirements) and the NASA Systems Engineering Handbook (NASA/SP-2016-6105 Rev2):
+Requirements are grouped using level terminology associated with NASA systems engineering guidance.
+This organization does not establish compliance with a NASA process or standard:
 
-- **Level 0:** Mission objectives and top-level goals
-- **Level 1:** System-level requirements derived from mission objectives
-- **Level 2:** Subsystem and segment requirements
-- **Level 3:** Component and detailed requirements (not included in this document)
+* **Level 0:** Mission objectives and top level goals
+* **Level 1:** System level requirements derived from mission objectives
+* **Level 2:** Subsystem and segment requirements
+* **Level 3:** Component and detailed requirements (not included in this document)
 
 ### Requirement Verification Methods
 
 Each requirement includes a verification method:
 
-- **T** = Test
-- **A** = Analysis
-- **I** = Inspection
-- **D** = Demonstration
+* **T** = Test
+* **A** = Analysis
+* **I** = Inspection
+* **D** = Demonstration
 
 ## Mission Objectives (Level 0)
 
@@ -41,7 +47,7 @@ Each requirement includes a verification method:
 | MO-001 | The mission shall demonstrate a representative small satellite platform for technology demonstration and constellation development. | D |
 | MO-002 | The mission shall provide a reference implementation for integrated flight software, ground software, and simulation capabilities. | D |
 | MO-003 | The mission shall demonstrate command and control operations across all mission phases. | D |
-| MO-004 | The mission shall demonstrate on-board data collection, storage, and downlink capabilities. | D |
+| MO-004 | The mission shall demonstrate onboard data collection, storage, and downlink capabilities. | D |
 | MO-005 | The mission shall demonstrate fault detection, isolation, and recovery procedures. | D |
 | MO-006 | The mission shall utilize a generic payload interface design to support multiple payload types and enable payload substitution for different mission profiles. | D |
 
@@ -72,10 +78,10 @@ Each requirement includes a verification method:
 |----|-------------|--------------|
 | SYS-020 | The system shall receive, validate, and execute ground commands. | T, D |
 | SYS-021 | The system shall generate and downlink telemetry data. | T, D |
-| SYS-022 | The system shall store telemetry and science data on-board until successful downlink. | T, D |
+| SYS-022 | The system shall store telemetry and science data onboard until successful downlink. | T, D |
 | SYS-023 | The system shall support Consultative Committee for Space Data Systems (CCSDS) standard protocols. | T, I |
 | SYS-024 | The system shall support CCSDS File Delivery Protocol (CFDP) for file transfers. | T, D |
-| SYS-025 | The system shall log all event messages and critical telemetry to non-volatile storage. | T, D |
+| SYS-025 | The system shall log all event messages and critical telemetry to persistent storage. | T, D |
 
 ### Software Architecture
 
@@ -84,7 +90,7 @@ Each requirement includes a verification method:
 | SYS-030 | The system shall implement flight software using the core Flight System (cFS) framework. | I, D |
 | SYS-031 | The system shall provide modular, reusable flight software applications. | I, D |
 | SYS-032 | The system shall support relative time sequence (RTS) execution for automated operations. | T, D |
-| SYS-033 | The system shall support stored command sequences for time-tagged and conditional commanding. | T, D |
+| SYS-033 | The system shall support stored command sequences for time tagged and conditional commanding. | T, D |
 
 ### Fault Management
 
@@ -102,9 +108,9 @@ Each requirement includes a verification method:
 
 | ID | Requirement | Verification |
 |----|-------------|--------------|
-| ADCS-001 | The ADCS shall provide three-axis attitude determination and control. | T, D |
+| ADCS-001 | The ADCS shall provide three axis attitude determination and control. | T, D |
 | ADCS-002 | The ADCS shall support the following operational modes: SUNSAFE, DETUMBLE, and TRACK. | T, D |
-| ADCS-003 | The ADCS shall provide sun-pointing capability in SUNSAFE mode. | T, D |
+| ADCS-003 | The ADCS shall provide Sun pointing capability in SUNSAFE mode. | T, D |
 | ADCS-004 | The ADCS shall reduce tumble rates below 1 deg/sec in DETUMBLE mode. | T, A |
 | ADCS-005 | The ADCS shall maintain pointing within 5 degrees of commanded attitude in TRACK mode. | T, A |
 | ADCS-006 | The ADCS shall publish attitude quaternion telemetry at minimum 1 Hz. | T, D |
@@ -122,7 +128,7 @@ Each requirement includes a verification method:
 | CRYPTO-003 | The system shall support encrypt/decrypt operations for data protection. | T |
 | CRYPTO-004 | The system shall provide key management capabilities. | T, D |
 | CRYPTO-005 | The system shall log security events. | T, D |
-| CRYPTO-006 | The system shall support cryptographic self-tests. | T |
+| CRYPTO-006 | The system shall support cryptographic self tests. | T |
 | CRYPTO-007 | The system shall support multiple Security Association (SA) configurations. | T, D |
 | CRYPTO-008 | The system shall allow operators to enable/disable/configure crypto services. | T, D |
 
@@ -132,7 +138,7 @@ Each requirement includes a verification method:
 |----|-------------|--------------|
 | PAYLOAD-001 | The payload shall collect representative science or technology demonstration data. | T, D |
 | PAYLOAD-002 | The payload shall accept configuration commands for integration time, gain, and operational mode. | T, D |
-| PAYLOAD-003 | The payload shall generate science data files for on-board storage. | T, D |
+| PAYLOAD-003 | The payload shall generate science data files for onboard storage. | T, D |
 | PAYLOAD-004 | The payload shall interface with the File Manager (FM) application for data product management. | T, D |
 | PAYLOAD-005 | The payload shall support start/stop acquisition commands. | T, D |
 | PAYLOAD-006 | The payload shall report operational status and health telemetry. | T, D |
@@ -150,14 +156,14 @@ Each requirement includes a verification method:
 | EPS-006 | The EPS shall report solar panel output currents and voltages. | T, D |
 | EPS-007 | The EPS shall accept commands to enable/disable individual loads. | T, D |
 | EPS-008 | The EPS shall support multiple power modes. | T, D |
-| EPS-009 | The EPS shall automatically shed non-essential loads when bus voltage drops below threshold. | T, D |
-| EPS-010 | The EPS shall prevent battery over-charging and over-discharging. | T, D |
+| EPS-009 | The EPS shall automatically shed nonessential loads when bus voltage drops below threshold. | T, D |
+| EPS-010 | The EPS shall prevent battery overcharging and overdischarging. | T, D |
 
 ### Radio Communication System
 
 | ID | Requirement | Verification |
 |----|-------------|--------------|
-| COM-001 | The radio shall provide duplex and half-duplex communication modes. | T, D |
+| COM-001 | The radio shall provide duplex and half duplex communication modes. | T, D |
 | COM-002 | The radio shall support command uplink from ground stations. | T, D |
 | COM-003 | The radio shall support telemetry downlink to ground stations. | T, D |
 | COM-004 | The radio shall accept mode configuration commands (DUPLEX/RECEIVE/TRANSMIT). | T, D |
@@ -173,9 +179,9 @@ Each requirement includes a verification method:
 | ID | Requirement | Verification |
 |----|-------------|--------------|
 | GND-001 | The ground segment shall provide command and control capabilities. | D |
-| GND-002 | The ground segment shall display real-time and historical telemetry. | T, D |
+| GND-002 | The ground segment shall display real time and historical telemetry. | T, D |
 | GND-003 | The ground segment shall support commanding via graphical user interface. | T, D |
-| GND-004 | The ground segment shall support procedure-based automation (stacks). | T, D |
+| GND-004 | The ground segment shall support procedure based automation through stacks. | T, D |
 | GND-005 | The ground segment shall log all commands sent to the spacecraft. | T, I |
 | GND-006 | The ground segment shall provide telemetry limit monitoring and alerting. | T, D |
 
@@ -205,7 +211,7 @@ Each requirement includes a verification method:
 | ID | Requirement | Verification |
 |----|-------------|--------------|
 | OPS-010 | The system shall operate autonomously between ground contacts. | T, D |
-| OPS-011 | The system shall execute scheduled activities using on-board stored commands. | T, D |
+| OPS-011 | The system shall execute scheduled activities using onboard stored commands. | T, D |
 | OPS-012 | The system shall perform automated housekeeping functions. | T, D |
 | OPS-013 | The system shall execute automated fault response when configured. | T, D |
 
@@ -216,16 +222,16 @@ Each requirement includes a verification method:
 | PERF-001 | The system shall process commands within 1 second of receipt (excluding intentional delays). | T, A |
 | PERF-002 | The system shall generate telemetry packets at rates sufficient for subsystem monitoring (minimum 0.1 Hz per critical parameter). | T, A |
 | PERF-003 | The system shall support CFDP file transfer rates of at least 100 kbps during ground contacts. | T, A |
-| PERF-004 | The system shall store at least 1 GB of science and telemetry data on-board. | T, I |
-| PERF-005 | The system shall support ground pass durations of 5-15 minutes. | A, D |
+| PERF-004 | The system shall store at least 1 GB of science and telemetry data onboard. | T, I |
+| PERF-005 | The system shall support ground pass durations from 5 to 15 minutes. | A, D |
 
 ## Interface Requirements
 
 | ID | Requirement | Verification |
 |----|-------------|--------------|
-| ICD-001 | All inter-application interfaces shall use cFS Software Bus messaging. | I, T |
+| ICD-001 | All interfaces between applications shall use cFS Software Bus messaging. | I, T |
 | ICD-002 | All command and telemetry definitions shall conform to CCSDS standards. | I, A |
-| ICD-003 | All ground-to-space communications shall use protocols defined in the Interface Control Document. | I, D |
+| ICD-003 | All communications between ground and space shall use protocols defined in the Interface Control Document. | I, D |
 | ICD-004 | All file transfers shall use CCSDS File Delivery Protocol (CFDP) Class 2 (reliable). | T, D |
 | ICD-005 | All subsystem simulators shall interface with flight software via defined message topics. | I, T |
 
@@ -234,7 +240,7 @@ Each requirement includes a verification method:
 | ID | Requirement | Verification |
 |----|-------------|--------------|
 | SIM-001 | The system shall support integrated simulation of all subsystems. | D |
-| SIM-002 | The simulation shall provide high-fidelity command/telemetry flows. | T, D |
+| SIM-002 | The simulation shall provide representative command and telemetry flows. | T, D |
 | SIM-003 | The simulation shall support fault injection for testing fault response procedures. | T, D |
 | SIM-004 | The simulation shall support reproducible scenario execution. | D |
 | SIM-005 | The simulation shall operate in containerized environments for portability. | T, D |
@@ -243,22 +249,23 @@ Each requirement includes a verification method:
 
 ### Constraints
 
-- The system is implemented using SHIRE framework components and cFS architecture
-- Simulations run in Docker containers with host-dependent resource constraints
-- Real orbital dynamics calculations are performed but simplified for pass scheduling
-- Hardware-level effects are modeled at software abstraction level
+* The system is implemented using SHIRE framework components and cFS architecture
+* Simulations run in Docker containers with resource constraints that depend on the host
+* 42 calculates orbital and vehicle dynamics, while the current RTS pass window is fixed rather than derived from ground station visibility
+* Hardware effects are modeled at the software abstraction level
 
 ### Assumptions
 
-- Ground station availability for at least one pass per day
-- Docker host provides sufficient CPU and memory resources for containerized operations
-- Operators have training in cFS, YAMCS, and SHIRE operations
-- Network connectivity between simulation containers is reliable
+* Ground station availability for at least one pass per day
+* Docker host provides sufficient CPU and memory resources for containerized operations
+* Operators have training in cFS, YAMCS, and SHIRE operations
+* Network connectivity between simulation containers is reliable
 
 ## Compliance Matrix
 
-A full verification cross reference matrix (VCRM) should be developed and tracked throughout the lifetime of the mission to confirm verification status, methods, and test references for each requirement.
-The [verification and validation document](./verification-and-validation.md) captures additional details about the DRM and how SHIRE is used to confirm it meets the above requirements.
+A verification cross reference matrix (VCRM) has not yet been published for this baseline.
+It should be developed and tracked to record verification status, methods, configurations, and evidence for each requirement.
+The [verification and validation document](./verification-and-validation.md) describes the evidence mechanisms currently present and the remaining verification gaps.
 
----
-Last updated: 20251218
+***
+Last reviewed: 14 August 2026

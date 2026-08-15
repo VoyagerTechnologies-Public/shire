@@ -1,41 +1,96 @@
-# Troubleshooting & FAQ
+# Troubleshooting and FAQ
 
-Short troubleshooting checklist and common issues.
+Commands below use the default DRM path.
+Substitute the active mission when `build/active.yaml` selects another mission.
 
-## Checklist
-* Are containers running? `docker ps`
-* Are logs showing errors? `docker compose -f ./cfg/lab-compose.yaml logs --tail 200`
-* Are ports free? `ss -ltnp | grep 8090`
-* Are volumes filling up? `docker system df --volumes`
-
-## Common issues
-* Data keeps growing across runs
-  * Reason: Named Docker volumes persist. To reset, run `docker compose -f ./cfg/lab-compose.yaml down --volumes`.
-
-* Port conflicts (e.g., 8090)
-  * Fix: Stop the conflicting service or modify `cfg/lab-compose.yaml` to use a different host port.
-
-* Container crashes on startup
-  * Inspect logs and raise an issue with the output if you need help. Useful commands:
+## First checks
 
 ```bash
-# show recent logs for a service
-docker compose -f ./cfg/lab-compose.yaml logs --tail 200 shire-server
-# inspect container exit code
-docker inspect --format='{{.State.ExitCode}}' shire-server
-# copy files from container
- docker cp shire-fsw:/tmp/radio_sim_cf_9.bin .
+make cfg
+make list
+docker info
+docker compose -f build/drm/shire-compose.yaml config --quiet
+docker compose -f build/drm/shire-compose.yaml ps
+docker compose -f build/drm/shire-compose.yaml logs --tail 200
 ```
 
-## When to open an issue
-* Reproducible crashes with logs and steps to reproduce
-* Misbehavior in orchestrator merges (include `cfg/build.yaml` snapshot)
-* Unexpected data corruption in persistent volumes
+## A generated file is missing
 
-## Reporting checklist for issues
-* `git rev-parse --abbrev-ref HEAD` (branch)
-* `git rev-parse --short HEAD` (commit)
-* `docker compose -f ./cfg/lab-compose.yaml ps` output
-* Relevant logs (attach `docker compose -f ./cfg/lab-compose.yaml logs --tail 500`)
-* `cfg/build.yaml` (after running orchestrator)
-* `cfg/active.yaml`
+Run `make cfg`, then inspect:
+
+* `build/active.yaml`
+* `build/build.yaml`
+* `build/drm/shire-compose.yaml`
+* `build/drm/sat-1/shire_defs/` for the default target
+* `comp/<selected-component>/shared/device_cfg.h`
+
+The old `cfg/active.yaml`, `cfg/build.yaml`, and `cfg/lab-compose.yaml` paths are not used by the current orchestrator.
+
+## A submodule is empty or marked with `-`
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+git submodule status --recursive
+```
+
+Run `sync` after `.gitmodules` URLs change.
+
+## A service exits during startup
+
+```bash
+docker compose -f build/drm/shire-compose.yaml ps --all
+docker compose -f build/drm/shire-compose.yaml logs --tail 300 shire-server
+docker compose -f build/drm/shire-compose.yaml logs --tail 300 shire-director
+docker compose -f build/drm/shire-compose.yaml logs --tail 300 shire-fsw
+```
+
+The Server waits for the configured number of Simulith clients.
+In the full lab, both FSW and the Director must handshake before time advances.
+The Director also exits if it cannot connect to 42.
+
+## YAMCS has no telemetry
+
+1. Open YAMCS **Links** and identify whether `debug-in`, `radio-in`, or `truth42-in` is unavailable.
+2. Inspect the FSW, Director, CryptoLib, and GSW logs.
+3. Confirm UDP ports 1235, 12346, and 50042 match `yamcs/src/main/yamcs/etc/yamcs.shire.yaml` and the corresponding source configuration.
+4. Confirm the radio mode permits the intended direction when testing the radio link.
+
+## Port 8090 or 5801 is already in use
+
+Stop the conflicting process or change the host mapping in `cfg/shire-compose.j2`, then rerun `make cfg`.
+Editing only the generated compose file is temporary and will be overwritten.
+
+## Build artifacts have the wrong owner
+
+Most build-container commands pass the host UID/GID.
+If files were created by an older command or a manually run root container, inspect ownership in `build/` before changing it.
+Do not recursively change ownership outside this repository.
+
+## Docker storage is growing
+
+Inspect before deleting:
+
+```bash
+docker system df --verbose
+docker volume ls
+```
+
+`make clean-cache` prunes the Docker builder cache and attempts to remove volumes named exactly `gsw-data` and `simulith_ipc`.
+The generated Compose files use suffixed volume keys, so inspect `docker volume ls` rather than assuming this target removed every SHIRE volume.
+`make clean` and `make uninstall` remove broader sets of SHIRE artifacts and volumes.
+These targets are destructive, so preserve needed YAMCS data first.
+
+## Reporting an issue
+
+Include:
+
+* `git rev-parse --short HEAD`
+* `git status --short`
+* `git submodule status --recursive`
+* the relevant portion of `build/active.yaml` and `build/build.yaml` that contains no secrets
+* `docker compose ... ps --all`
+* relevant service logs
+* exact commands and expected versus observed behavior
+
+Remove credentials, keys, proprietary mission data, and other secrets before attaching files.

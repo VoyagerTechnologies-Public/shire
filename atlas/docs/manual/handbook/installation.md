@@ -1,41 +1,53 @@
 # Installation
 
-This page lists prerequisites and OS-specific tips for installing SHIRE dependencies.
+SHIRE builds and runs through Docker.
+The host needs only the orchestration tools because compilers and most project dependencies are supplied by container images.
 
 ## Prerequisites
-* Docker Engine
-* Docker Compose v2 (CLI plugin) or newer
-* Make
-* Git
-* Python3
 
-## Windows notes
-For optimal performance on Windows we'd recommend WSL2 and Docker Engine installed.
-You can simply follow your specific Linux OS install for docker and docker compose for WSL2.
+* A supported Linux environment, or Windows 11 with WSL 2
+* Docker Engine with the Docker Compose v2 plugin
+* GNU Make
+* Git with submodule support
+* Python 3 with the PyYAML package used by `cfg/shire-build.py`
+* Enough memory and disk space for multiple runtime/build images and the generated mission tree
 
-If you prefer to work in a Virtual Machine, ensure you have Hyper-V disabled for VirtualBox (to avoid the green turtle) by using the official Windows DG Readiness Tool which completely disables Hyper-V and enables the other settings required.
+Linux is the primary execution environment.
+On Windows, keep the repository inside the WSL filesystem rather than a mounted Windows directory for better file and Docker performance.
 
-## Linux / WSL 2.0 notes
-From a fresh Ubuntu 26.04 installation (WSL2):
-* sudo apt update
-* sudo apt upgrade
-* sudo apt install docker-compose-v2
-* sudo apt install make
-* sudo usermod -aG docker $USER
-* sudo reboot now
-* Manually added personal .ssh key to environment and update .bashrc
-  * sudo chmod 600 ~/.ssh
+Install Docker from the documentation for your operating system.
+If using Docker Engine without Docker Desktop, configure Docker access for your user according to Docker's installation guidance, then start a new login session before building.
 
-## Verifying installation
+## Verify the host
+
 ```bash
 docker --version
 docker compose version
+docker run --rm hello-world
 make --version
 git --version
 python3 --version
-groups
+python3 -c "import yaml"
 ```
 
+All commands must succeed from the same shell used to run SHIRE.
+`docker run` is important: a working client binary is insufficient if the daemon is unavailable or the user lacks permission.
 
-----
-Last updated: 20260511
+## Git submodules
+
+SHIRE uses submodules for cFE, OSAL, PSP, reusable cFS applications, 42, YAMCS, and CryptoLib.
+Clone recursively, or initialize them after cloning:
+
+```bash
+git submodule update --init --recursive
+git submodule status --recursive
+```
+
+Every initialized line in `git submodule status --recursive` should begin with a commit ID rather than `-`.
+
+## Network access
+
+The first build requires access to GitHub, GitHub Container Registry, and upstream package repositories used while building images.
+Corporate proxies, registry authentication, DNS filtering, or rate limits can prevent an otherwise correct installation.
+
+After the host checks pass, continue to [Getting Started](getting-started.md).
