@@ -34,7 +34,7 @@ nav = [
   { "Reference" = [
     { "Quick Reference" = "reference/quick-reference.md" },
     { "Glossary" = "reference/glossary.md" },
-    { "Documentation Versions" = "reference/versioning.md" },
+    { "Versions" = "reference/versioning.md" },
   ] },
   { "Design Reference Mission" = [
     { "Concept of Operations" = "drm/concept-of-operations.md" },
