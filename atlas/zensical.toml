@@ -11,9 +11,8 @@ nav = [
   { "Contact" = "https://voyagertechnologies.com/contact/" },
   { "Lab Manual" = [
     { "Handbook" = [
-      { "Getting Started" = "manual/handbook/getting-started.md" },
       { "Installation" = "manual/handbook/installation.md" },
-      { "Component Lifecycle" = "manual/handbook/component-lifecycle.md" },
+      { "Getting Started" = "manual/handbook/getting-started.md" },
       { "FAQ" = "manual/handbook/faq.md" },
     ] },
     { "Core Concepts" = [

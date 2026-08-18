@@ -35,8 +35,6 @@ Run `make cfg`, then inspect:
 * `build/drm/sat-1/shire_defs/` for the default target
 * `comp/<selected-component>/shared/device_cfg.h`
 
-The old `cfg/active.yaml`, `cfg/build.yaml`, and `cfg/lab-compose.yaml` paths are not used by the current orchestrator.
-
 ## A submodule is empty or marked with `-`
 
 ```bash
@@ -161,3 +159,6 @@ Include:
 * exact commands and expected versus observed behavior
 
 Remove credentials, keys, proprietary mission data, and other secrets before attaching files.
+
+***
+Last reviewed: 20260817

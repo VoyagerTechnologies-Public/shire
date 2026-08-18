@@ -51,3 +51,6 @@ The first build requires access to GitHub, GitHub Container Registry, and upstre
 Corporate proxies, registry authentication, DNS filtering, or rate limits can prevent an otherwise correct installation.
 
 After the host checks pass, continue to [Getting Started](getting-started.md).
+
+***
+Last reviewed: 20260817

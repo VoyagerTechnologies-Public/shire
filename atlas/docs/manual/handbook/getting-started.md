@@ -36,13 +36,36 @@ make start
 ```
 
 Wait for cFS, YAMCS, the Director, and the Server to finish their startup handshakes.
+
+The Compose output should show the automatic SC, LC, TO_LAB, Radio, and cFE startup activity before simulation time continues to advance.
+
+![Compose output showing completed automatic flight software startup events](../../assets/manual/getting-started/automatic-startup-events.png)
+
 Then open:
 
 * YAMCS: [http://localhost:8090](http://localhost:8090)
 * 42 VNC: [http://localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html)
 
-In YAMCS, select the SHIRE instance and inspect **Links**.
+YAMCS opens on the Instances page.
+Select the running `shire` instance.
+
+![YAMCS Instances page with the running shire instance](../../assets/manual/getting-started/yamcs-instances.png)
+
+The YAMCS Home page should begin showing recently received packets.
+
+![YAMCS Home page showing current SHIRE telemetry packets](../../assets/manual/getting-started/yamcs-home-telemetry.png)
+
+Select **Links** in the left navigation.
 Confirm telemetry is arriving before sending commands.
+
+The 42 page can initially show the noVNC connection screen.
+Select **Connect** to open the dynamics display.
+
+![noVNC connection screen for the 42 dynamics display](../../assets/manual/getting-started/42-novnc-connect.png)
+
+Confirm that the spacecraft view and map appear and that simulation time advances.
+
+![Connected 42 dynamics display showing the spacecraft and ground track](../../assets/manual/getting-started/42-dynamics-display.png)
 
 The default Server container is named `shire-server-drm`.
 Attach to its console to control simulation time:
@@ -74,3 +97,6 @@ Use cleanup targets deliberately:
 * `make uninstall` removes SHIRE build artifacts, containers, images, volumes, and networks.
 
 Continue with the [Commissioning scenario](../../scenarios/commissioning.md), or see [Troubleshooting](faq.md) if startup fails.
+
+***
+Last reviewed: 20260817

@@ -18,11 +18,11 @@ SHIRE follows several practical ideas that are visible in the current repository
 * **Keep component artifacts together.**
   Each reference component owns its cFS application, simulated device, developer CLI, tests, configuration template, and YAMCS artifacts under `comp/`.
 * **Use one coordinated simulation clock.**
-  Simulith coordinates flight software and the Director while the Director advances component simulators and exchanges state with 42.
+  Simulith coordinates flight software and the Director while simulator libraries loaded inside the Director advance with 42 state.
 * **Generate a repeatable lab from configuration.**
   Mission, spacecraft, and scenario selections produce the compose files, component settings, 42 input, and cFS mission definitions used by a run.
 * **Exercise focused interfaces before the complete stack.**
-  A component CLI can work directly with one simulator before the component is exercised through cFS and YAMCS.
+  A component CLI can work with one simulator library loaded by the Director before the component is exercised through cFS and YAMCS.
 * **Keep implementation claims traceable.**
   The Atlas links behavior to source, configuration, tests, generated artifacts, or recorded verification evidence.
 
@@ -33,7 +33,7 @@ SHIRE follows several practical ideas that are visible in the current repository
 | Software development | Develop cFS applications and device protocols against repeatable component simulators before hardware is generally available. |
 | Integration and test | Exercise command, telemetry, CCSDS, CFDP, timing, and device interface boundaries across the stack. |
 | Mission operations | Develop and rehearse YAMCS procedures against live simulated telemetry and flight software. |
-| Verification and validation | Run unit, component simulator, and integrated scenario tests without consuming scarce hardware time. |
+| Verification and Validation | Run unit, component simulator, and integrated scenario tests without consuming scarce hardware time. |
 | Training | Give new personnel a resettable environment in which they can observe system behavior and practice procedures. |
 | Research | Integrate algorithms or payload concepts into a representative flight, ground, and simulation stack and inspect system effects. |
 | Cybersecurity | Exercise isolated command paths, CryptoLib integration, simulator fault injection, and recovery procedures without connecting flight hardware. |

@@ -13,7 +13,6 @@ Version numbers follow MAJOR.MINOR.PATCH:
 
 ### Added
 - Open-source release preparation: governance files (`CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CLAUDE.md`)
-- Component lifecycle guide (`atlas/docs/manual/handbook/component-lifecycle.md`)
 - Submodule workflow documentation in Getting Started guide
 - Dependabot configuration for automated dependency updates
 - CodeQL workflow for C/C++ and Java static analysis

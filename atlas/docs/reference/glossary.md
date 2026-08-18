@@ -15,7 +15,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | Component | A SHIRE subsystem package containing a flight application, simulated device, shared protocol code, tests, configuration, and ground artifacts as applicable. |
 | CryptoLib | NASA cryptographic library used in the representative radio command and telemetry path. |
 | Design Reference Mission | The example mission configuration, operating concept, requirements, and scenarios supplied with SHIRE. |
-| Director | Simulith process that loads component simulators, advances them on each tick, exchanges state with 42, handles backdoor traffic, and publishes truth telemetry. |
+| Director | Simulith process that loads component simulator shared libraries into its address space, runs their callbacks on each tick, exchanges state with 42, handles backdoor traffic, and publishes truth telemetry. |
 | DRM | Design Reference Mission. |
 | DS | cFS Data Storage application used to record selected packets to files. |
 | EPS | Electrical Power System reference component. |

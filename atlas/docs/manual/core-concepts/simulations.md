@@ -1,6 +1,6 @@
 # Simulations
 
-SHIRE's simulation layer consists of the Simulith Server, Simulith Director, 42, and the component simulator libraries selected for the active spacecraft.
+SHIRE's simulation layer consists of the Simulith Server, the Director process with its loaded component simulator libraries, and the separate 42 dynamics process.
 
 ## Simulith Server
 
@@ -30,6 +30,8 @@ A loadable simulator exports `get_component_interface`, which returns the lifecy
 
 The Director creates one worker thread per loaded component and ticks the active simulators in parallel.
 The build script copies only simulators selected for the active spacecraft into the Director image.
+At runtime the Director loads each library with `dlopen` and owns its component state.
+The loaded simulators are not separate processes or Simulith Server clients.
 
 ## 42 integration
 
@@ -47,7 +49,7 @@ The Director also publishes a 42 truth packet to YAMCS on UDP 50042 every 100 Di
 
 ## Simulated device transport
 
-HWLIB's simulation drivers and component simulators communicate over ZeroMQ IPC endpoints in the shared `/tmp` volume.
+HWLIB's simulation drivers communicate with the simulator libraries loaded inside the Director over ZeroMQ IPC endpoints in the shared `/tmp` volume.
 Endpoint families are reserved for UART, I2C, SPI, and GPIO.
 Each endpoint is derived from the configured device handle, bus, address, chip select, or pin.
 
@@ -75,3 +77,6 @@ make test-sim
 Run that suite with `cd simulith && make test`.
 A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
+
+***
+Last reviewed: 20260817
