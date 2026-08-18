@@ -19,7 +19,7 @@ The CI test jobs upload FSW and simulator coverage to Codecov.
 `.github/workflows/docs.yml` validates the Atlas on pull requests and pushes to `main` or `dev`, then publishes only a successful `main` build.
 A workflow definition is not itself evidence that a particular revision passed.
 Retain the GitHub Actions run, job logs, coverage result, and exact revision when using CI as verification evidence.
-The current CI does not run the YAMCS submodule test target or a complete integrated lab scenario.
+The current CI does not run the YAMCS submodule test target or a complete DRM scenario.
 
 ## Evidence requirements
 
@@ -55,7 +55,7 @@ Several requirements need particular care:
 1. Test protocol and application logic at the unit level.
 2. Test each component simulator and its 42 coupling where applicable.
 3. Use the CLI environment for focused interface checkout.
-4. Run the full stack and retain command/telemetry evidence.
+4. Run the DRM and retain command/telemetry evidence.
 5. Add nominal and contingency automated procedures with explicit assertions.
 6. Repeat applicable tests on target processors and physical hardware.
 7. Populate a verification cross reference matrix linking every requirement to executed evidence or an approved rationale.

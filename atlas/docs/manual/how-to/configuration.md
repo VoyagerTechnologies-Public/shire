@@ -6,26 +6,47 @@ The orchestrator writes derived state under `build/` and renders component heade
 
 ## Configuration hierarchy
 
-| Layer | Current location | Purpose |
+Configuration performs two related jobs.
+The active selection chooses which mission, spacecraft, and scenario files apply.
+The orchestrator then resolves the device settings for every selected component.
+
+### Select the configuration inputs
+
+| Source | Current location | Purpose |
 | --- | --- | --- |
-| Repository | `cfg/shire-config.yaml` | Lists available missions, the default spacecraft, the default CLI, FSW and GSW directories, and global component entries. |
-| Mission | `cfg/drm/drm.yaml` | Lists the DRM spacecraft and scenarios, plus mission level component fallbacks. |
-| Spacecraft | `cfg/drm/spacecraft/*.yaml` | Selects components and supplies spacecraft specific device settings. |
-| Scenario | `cfg/drm/scenarios/*.yaml` | Supplies scenario values and optional global component overrides. |
-| Component fallback | `comp/<name>/support/device_config.yaml` | Supplies default device settings for one component. |
-| Active selection | `build/active.yaml` | Selects the mission, spacecraft, scenario, CLI component, logging, graphics, and optional FSW or GSW directories and is created automatically when absent. |
+| Repository catalog | `cfg/shire-config.yaml` | Lists missions and supplies repository defaults for spacecraft, FSW, GSW, and the fallback component set. |
+| Active selection | `build/active.yaml` | Chooses the mission, spacecraft, scenario, CLI component, logging mode, graphics setting, and FSW and GSW directories for the next generated configuration. |
+| Selected mission | `cfg/drm/drm.yaml` | Identifies the spacecraft and scenario files available to the DRM. |
+| Selected spacecraft | `cfg/drm/spacecraft/*.yaml` | Selects the component set and supplies spacecraft specific device values. |
+| Selected scenario | `cfg/drm/scenarios/*.yaml` | Supplies scenario specific component values and values applied to every selected component. |
 
-For component configuration, later layers win:
+`build/active.yaml` selects these inputs but does not directly supply component device values.
+The orchestrator stores the selected inputs in `build/build.yaml` so later build steps can use the same configuration snapshot.
 
-```text
-component fallback
-  -> repository
-  -> mission
-  -> spacecraft
-  -> scenario component values
-  -> scenario overrides
-  -> CLI debug override, when make cfg-cli is used
-```
+### Resolve component device settings
+
+For each selected component, the orchestrator starts with that component's fallback settings and applies the following sources in order.
+Each source replaces a value only when it defines the same key.
+Values for keys that are not mentioned carry forward unchanged.
+
+| Step | Source | Effect |
+| --- | --- | --- |
+| 1 | `comp/<name>/support/device_config.yaml` | Establishes the component defaults. |
+| 2 | Component values in `cfg/shire-config.yaml` | Replaces matching defaults when repository values are present. |
+| 3 | Component values in the selected mission file | Replaces matching values when mission values are present. |
+| 4 | Component values in the selected spacecraft file | Applies the device values for that spacecraft. |
+| 5 | Component values in the selected scenario file | Applies values specific to that component and scenario. |
+| 6 | The scenario `overrides` mapping | Applies the same named values to every selected component. |
+| 7 | `make cfg-cli` | Forces `debug: true` for every selected component before rendering its device header. |
+
+The current `sat-2` nominal Radio configuration provides a concrete example:
+
+* The Radio fallback supplies the UDP ports, buffer limits, timeout, and initial SPI and GPIO values.
+* `sat-2.yaml` supplies the spacecraft SPI and GPIO values, including chip select 1 and GPIO pins 12 and 13.
+* The nominal scenario replaces `debug: true` with `debug: false` for every selected component.
+* `make cfg-cli` changes only `debug` back to `true` after the scenario is applied.
+
+The resolved Radio settings therefore combine values from several files rather than taking one complete configuration block from a single file.
 
 ## Generate configuration
 
@@ -43,7 +64,7 @@ The orchestrator currently produces:
 
 * `build/active.yaml`: editable active selection
 * `build/build.yaml`: merged configuration snapshot consumed by the build script
-* `build/<mission>/shire-compose.yaml`: full lab compose file
+* `build/<mission>/shire-compose.yaml`: DRM Compose file
 * `build/<mission>/cli-compose.yaml`: component CLI compose file
 * `build/<mission>/42_config/Inp_Sim.txt`: rendered 42 simulation input
 * `build/<mission>/<spacecraft>/shire_defs/`: copied cFS mission definitions, with the CPU1 startup script pruned for the selected spacecraft
@@ -111,3 +132,6 @@ Before a long build, verify:
 4. The generated CPU1 startup script contains only the intended component applications.
 5. Each rendered `device_cfg.h` contains the expected bus, handle, timeout, and debug values.
 6. The generated compose files reference the intended mission and spacecraft image tags.
+
+***
+Last reviewed: 20260817

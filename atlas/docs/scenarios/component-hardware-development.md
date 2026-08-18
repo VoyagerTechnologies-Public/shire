@@ -11,7 +11,8 @@ Each stage must pass before the next stage becomes meaningful.
 
 ```mermaid
 flowchart LR
-    Mold[Component mold] --> CliSim[CLI with Simulith]
+    Target[Target platform baseline] --> Mold[Component mold]
+    Mold --> CliSim[CLI with Simulith]
     CliSim --> CfsSim[cFS with Simulith]
     CfsSim --> CliHw[Board CLI with hardware]
     CliHw --> SimUpdate[Update simulator]
@@ -27,10 +28,11 @@ The shared device code should keep both paths consistent where their behavior tr
 
 | Stage | Repository support |
 | --- | --- |
+| Board target baseline | ARM and CPU2 scaffolding exists but remains disabled and unvalidated. |
 | Component mold | Implemented through `make mold COMP=<name>`. |
 | Host CLI with Simulith | Implemented through the selected CLI build and CLI Compose lab. |
-| Host cFS with Simulith | Implemented through the full SHIRE lab after component integration. |
-| Board CLI with hardware | Partial scaffolding through the CLI `cpu2` branch and Linux HWLIB UART. |
+| Host cFS with Simulith | Implemented through the DRM after component integration. |
+| Board CLI with hardware | Partial source selection exists for Linux HWLIB UART, I2C, SPI, and GPIO, but ARM CLI build and deployment are not implemented. |
 | Simulator reconciliation | Supported as source and test changes but requires developer judgment. |
 | Board cFS with hardware | CPU2 and ARM toolchain scaffolding exists but is disabled and unvalidated. |
 
@@ -38,7 +40,20 @@ The root `make cli` path selects `cpu1` and the Simulith UART implementation.
 It does not build or deploy a hardware CLI.
 The CLI Compose file also launches 42, the Simulith Server, and the Director, so it is a simulation checkout environment rather than a hardware launcher.
 
-## Before starting
+## Stage 0 Establish the target platform
+
+Complete the [Development Board target readiness gate](../manual/how-to/development-board.md#target-readiness-gate) before beginning component integration for the board.
+This program level work establishes the compiler, sysroot, boot environment, PSP, BSP, OSAL, minimal cFS target, bus access, permissions, deployment, recovery, and command and telemetry paths.
+
+The current repository does not pass this gate because CPU2 is disabled, the base image lacks the ARM toolchain and sysroot, the CLI Makefiles do not select an ARM toolchain, and CI does not build CPU2.
+Resolve these platform gaps without depending on an unreviewed mission component.
+
+### Stage 0 gate
+
+The board must run a minimal cFS target repeatably, support the required hardware buses through bounded platform checks, and have distinct reviewed host and board configurations.
+Retain the toolchain identity, target configuration, deployment record, command and telemetry evidence, and recovery result.
+
+## Before component work
 
 Define the device, bus, electrical constraints, power method, reset behavior, protocol reference, and development board.
 Identify which operations are safe before the complete driver is trusted.
@@ -144,7 +159,7 @@ Differences should be explained by cFS application behavior rather than protocol
 
 ### Stage 3 gate
 
-The component simulator tests, cFS tests, focused YAMCS procedure, and relevant full lab links must pass with retained results.
+The component simulator tests, cFS tests, focused YAMCS procedure, and relevant DRM links must pass with retained results.
 The CLI and cFS application must use the same reviewed device contract and shared implementation where practical.
 
 ## Stage 4 Run a board CLI with hardware
@@ -152,7 +167,9 @@ The CLI and cFS application must use the same reviewed device contract and share
 Move to physical hardware before assuming the simulator is complete.
 The goal is to validate the device interface without cFS scheduling, Software Bus traffic, or ground system behavior obscuring it.
 
-The component CLI has a conditional `cpu2` source path that selects the Linux UART HWLIB implementation.
+Each reference component CLI has a conditional `cpu2` source path that selects its Linux HWLIB implementation.
+ADCS and Demo select UART, EPS selects I2C, and Radio selects SPI and GPIO.
+A component created from the Demo mold begins with the UART selection until its transport is revised.
 The repository does not currently provide a validated root target that cross compiles, packages, deploys, grants device access, and starts that CLI on the board.
 
 Before this stage can run, implement and review:
@@ -202,7 +219,7 @@ make test-sim
 make test-fsw
 ```
 
-Repeat the focused cFS procedure in the host full lab after the CLI regression passes.
+Repeat the focused cFS procedure in the DRM environment on the host after the CLI regression passes.
 
 ### Stage 5 gate
 
@@ -259,4 +276,4 @@ The component is not hardware validated until both the focused board CLI and boa
 Host simulation remains required after that point because it provides the repeatable regression path for future changes.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20260817

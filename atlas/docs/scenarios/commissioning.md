@@ -6,7 +6,7 @@
 
 ## What you will learn
 
-This scenario introduces the full lab from an operator's perspective.
+This scenario introduces the DRM environment from an operator's perspective.
 You will learn how to:
 
 * recognize the implemented Do No Harm boot configuration
@@ -61,7 +61,7 @@ make start
 Open the [42 dynamics display](http://localhost:5801/vnc_auto.html).
 Open the [YAMCS ground interface](http://localhost:8090).
 
-Confirm that all six services in the full lab remain running.
+Confirm that all six DRM services remain running.
 Confirm that simulation time is advancing in the Compose output.
 Wait for the automatic RTS activity to settle before sending commands.
 

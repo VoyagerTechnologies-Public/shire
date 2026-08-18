@@ -17,12 +17,12 @@ If the target already exists, the script asks before deleting and replacing it.
 
 By default, `cfg/shire-comp-mold.py`:
 
-* copies `comp/demo/` to `comp/<name>/`
-* omits Git metadata, build directories, generated `device_cfg.h`, and common temporary files
-* replaces `demo`, `Demo`, and `DEMO` in supported text files
-* renames files and directories containing those name forms
-* changes the Demo UART path and handle from 5 to 9
-* remaps Demo's four cFS message IDs from `0x18FA`, `0x18FB`, `0x08FA`, and `0x08FB` to `0x18FC`, `0x18FD`, `0x08FC`, and `0x08FD`
+* Copies `comp/demo/` to `comp/<name>/`
+* Omits Git metadata, build directories, generated `device_cfg.h`, and common temporary files
+* Replaces `demo`, `Demo`, and `DEMO` in supported text files
+* Renames files and directories containing those name forms
+* Changes the Demo UART path and handle from 5 to 9
+* Remaps Demo's four cFS message IDs from `0x18FA`, `0x18FB`, `0x08FA`, and `0x08FB` to `0x18FC`, `0x18FD`, `0x08FC`, and `0x08FD`
 
 The alternate source option is:
 
@@ -40,21 +40,21 @@ After generation, review and update at least:
 1. **Device model and protocol**
    * `comp/<name>/shared/`, `src/`, `cli/`, and `sim/`
    * `support/device_config.yaml` and `support/device_config.j2`
-   * unique UART/I2C/SPI/GPIO endpoint selection
+   * Unique UART/I2C/SPI/GPIO endpoint selection
 2. **cFS identity and build**
-   * unique command, request, telemetry, and performance IDs
+   * Unique command, request, telemetry, and performance IDs
    * `cfg/shire_defs/targets.cmake`
    * `cfg/shire_defs/cpu1_cfe_es_startup.scr` and any target specific startup scripts
 3. **Mission tables**
-   * applicable scheduler, TO_LAB, DS, LC, SC, Radio, or CF tables under `cfg/shire_defs/tables/`
+   * Applicable scheduler, TO_LAB, DS, LC, SC, Radio, or CF tables under `cfg/shire_defs/tables/`
 4. **Mission selection**
-   * add the component to the intended spacecraft file under `cfg/drm/spacecraft/`, or to the mission fallback list when appropriate
+   * Add the component to the intended spacecraft file under `cfg/drm/spacecraft/`, or to the mission fallback list when appropriate
 5. **Ground definitions**
-   * update `comp/<name>/gsw/` XTCE, displays, and procedures
-   * add the component XTCE entry to `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`
+   * Update `comp/<name>/gsw/` XTCE, displays, and procedures
+   * Add the component XTCE entry to `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`
 6. **Tests and evidence**
-   * replace copied Demo expectations in `test-fsw/` and `test-sim/`
-   * run focused CLI, simulator tests, FSW tests, and full lab checks
+   * Replace copied Demo expectations in `test-fsw/` and `test-sim/`
+   * Run focused CLI, simulator tests, FSW tests, and DRM checks
 
 The generated UART handle and message IDs are merely less likely to collide with Demo.
 They are not allocated from a registry and do not prove uniqueness.
@@ -73,3 +73,6 @@ make
 
 Inspect `build/build.yaml`, the rendered `device_cfg.h`, the generated CPU1 startup script, and the YAMCS mission database before treating the component as integrated.
 Continue with [Component Hardware Development](../../scenarios/component-hardware-development.md) to move through CLI simulation, cFS simulation, focused hardware checkout, simulator reconciliation, and board cFS integration.
+
+***
+Last reviewed: 20260817

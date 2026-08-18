@@ -9,7 +9,7 @@ A SHIRE component keeps the artifacts needed to develop, exercise, integrate, an
 | ADCS | UART | Models an integrated attitude determination and control unit that consumes 42 truth state and can command simulated magnetorquers and reaction wheels. |
 | Demo | UART | Provides a minimal reference payload and source for the component mold that echoes commands and produces representative housekeeping and three channel data. |
 | EPS | I2C | Models solar generation, battery state, and eight switched loads using solar input derived from 42 sun and eclipse state. |
-| Radio | SPI, GPIO, and UDP | Models device commanding, buffered uplink/downlink, radio modes, and the ground radio path. |
+| Radio | SPI and GPIO | Models device commanding, buffered uplink/downlink, radio modes, and the ground radio path. |
 
 CryptoLib is also under `comp/`, but it is integrated as an external library and standalone security processing service rather than following the same reference component mold.
 
@@ -21,16 +21,16 @@ See [Configuration](configuration.md#change-the-active-target).
 
 | Path | Responsibility |
 | --- | --- |
-| `src/` | cFS application source and message handling |
-| `shared/` | Device protocol, framing, generated configuration, and code reusable by the app, CLI, or simulator |
 | `cli/` | Focused developer checkout program and build rules |
-| `sim/` | Director loadable component simulator |
-| `test-fsw/` | cFS application and shared code unit/coverage tests |
-| `test-sim/` | Simulator lifecycle, protocol, state, and dynamics tests |
 | `gsw/` | XTCE command/telemetry definitions, displays, and YAMCS procedures |
-| `support/` | Device configuration defaults/template and CLI container definition |
 | `mission_inc/` | Mission scoped identifiers such as performance IDs |
 | `platform_inc/` | Platform scoped identifiers such as cFS message IDs |
+| `src/` | cFS application source and message handling |
+| `shared/` | Device protocol, framing, generated configuration, and code reusable by the app, CLI, or simulator |
+| `sim/` | Director loadable component simulator |
+| `support/` | Device configuration defaults/template and CLI container definition |
+| `test-fsw/` | cFS application and shared code unit/coverage tests |
+| `test-sim/` | Simulator lifecycle, protocol, state, and dynamics tests |
 
 Not every component is required to implement every optional artifact, but the build expects a valid cFS CMake target, unique message/device identifiers, and a simulator interface when the component is selected for simulation.
 
@@ -89,3 +89,6 @@ When the snapshot is absent, the Simulith Makefile uses its fallback component l
 `make test-fsw` runs the cFS/app test build and writes coverage in the configured FSW build tree.
 
 When changing a component, keep its device protocol, cFS messages, XTCE, procedure arguments, simulator, CLI, configuration template, and tests synchronized.
+
+***
+Last reviewed: 20260817

@@ -32,7 +32,7 @@ The FDIR exercise is a good third scenario because it introduces controlled faul
 6. Inspect YAMCS **Links** before sending a command.
 7. Record the repository revision and generated configuration.
 
-The default full lab uses both a direct debug path and a representative radio path.
+The default DRM uses both a direct debug path and a representative radio path.
 A green link does not by itself prove that the path you intend to test carried a particular command or telemetry packet.
 Use command history, packet time, counters, events, and service logs together.
 

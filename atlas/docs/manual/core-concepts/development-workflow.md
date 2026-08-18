@@ -224,7 +224,7 @@ It defines separate Simulith, FSW, and CLI build jobs, runs the FSW and componen
 `.github/workflows/docs.yml` validates the Atlas on pull requests and pushes to `main` or `dev`.
 It publishes GitHub Pages only after a successful push build on `main`.
 
-These jobs do not currently run the YAMCS submodule tests or a complete full lab scenario.
+These jobs do not currently run the YAMCS submodule tests or a complete DRM scenario.
 When a CI result is used as evidence, retain the workflow run, logs, coverage, resolved configuration, container image, and revision identifiers rather than treating the presence of the workflow file as a passing result.
 
 ***

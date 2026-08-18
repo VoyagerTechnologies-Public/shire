@@ -10,8 +10,8 @@ Run `make cfg` and `make list` before relying on generated paths because `build/
 | `make cfg` | Resolve the active configuration and render generated artifacts. |
 | `make list` | Report the resolved mission, spacecraft, scenario, and component build features. |
 | `make` | Configure SHIRE and build the simulation, flight software, and ground software. |
-| `make start` | Start the generated full lab compose environment. |
-| `make stop` | Stop the generated full lab compose environment. |
+| `make start` | Start the generated DRM Compose environment. |
+| `make stop` | Stop the generated DRM and CLI Compose environments. |
 | `make cli` | Build the selected focused component CLI environment. |
 | `make cli-start` | Start the generated component CLI compose environment. |
 | `make test-sim` | Build Simulith and run the selected component simulator tests. |
@@ -63,7 +63,7 @@ The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nom
 | --- | --- |
 | `build/active.yaml` | Editable active selection. |
 | `build/build.yaml` | Merged configuration snapshot. |
-| `build/<mission>/shire-compose.yaml` | Full lab compose file. |
+| `build/<mission>/shire-compose.yaml` | DRM Compose file. |
 | `build/<mission>/cli-compose.yaml` | Focused component CLI compose file. |
 | `build/<mission>/42_config/Inp_Sim.txt` | Rendered 42 simulation input. |
 | `build/<mission>/<spacecraft>/shire_defs/` | Generated cFS mission definitions and pruned CPU1 startup script. |

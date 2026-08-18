@@ -18,7 +18,7 @@ The existing procedures command switch numbers 0 through 7.
 
 ## Prerequisites
 
-* start the default `sat-1` or `flatsat` full lab
+* start the default `sat-1` or `flatsat` DRM
 * wait for Do No Harm startup activity to settle
 * confirm EPS housekeeping is fresh
 * confirm the direct debug command and telemetry links are available

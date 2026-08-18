@@ -49,7 +49,7 @@ That missing control must be implemented safely before those conditions become o
 
 ## Establish the baseline
 
-Start the default full lab and wait for Do No Harm startup to complete.
+Start the default DRM and wait for Do No Harm startup to complete.
 Start RTS 6 so the Radio enters Duplex mode.
 
 Choose one harmless command with an observable counter or event.

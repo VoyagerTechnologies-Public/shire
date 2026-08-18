@@ -55,12 +55,12 @@ docker compose -f build/drm/shire-compose.yaml logs --tail 300 shire-fsw
 ```
 
 The Server waits for the configured number of Simulith clients.
-In the full lab, both FSW and the Director must handshake before time advances.
+In the DRM environment, both FSW and the Director must handshake before time advances.
 The Director also exits if it cannot connect to 42.
 
 ## Simulation time does not advance
 
-The full lab Server expects two clients.
+The DRM Server configuration expects two clients.
 The Director and FSW must both register and acknowledge every tick.
 
 Inspect the three services together:
@@ -70,7 +70,7 @@ docker compose -f build/drm/shire-compose.yaml logs --tail 300 shire-server shir
 ```
 
 Look for a failed Director connection to `/tmp/42_ipc.sock`, an FSW startup failure, or a client that registered but stopped acknowledging ticks.
-Do not reduce `NUM_CLIENTS` to one in the full lab unless you are deliberately changing its architecture.
+Do not reduce `NUM_CLIENTS` to one in the DRM unless you are deliberately changing its architecture.
 
 ## The 42 browser interface does not open
 

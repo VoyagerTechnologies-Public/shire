@@ -13,8 +13,8 @@ For every tick it:
 3. delays as needed for the requested speed
 4. advances simulated time by one interval.
 
-The full lab expects two clients: FSW and the Director.
-The component CLI lab expects one Director client.
+The DRM expects two clients: FSW and the Director.
+The focused CLI environment expects one Director client.
 From the attached Server console, use `p` to pause or resume, `+` to request a faster rate, and `-` to request a slower rate.
 The implementation accepts attempted rates from 1/64x through 1024x, but host performance determines the achieved rate.
 

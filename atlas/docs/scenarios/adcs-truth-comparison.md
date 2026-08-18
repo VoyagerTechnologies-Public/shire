@@ -26,7 +26,7 @@ Those checks validate the component vector limits but do not calculate error aga
 ## Prerequisites
 
 * use `sat-1`, which includes ADCS
-* start the full lab and confirm simulation time advances
+* start the DRM and confirm simulation time advances
 * confirm `truth42-in`, the debug links, and ADCS telemetry are fresh
 * open the 42 dynamics display
 * ensure no other procedure is changing ADCS mode or target
