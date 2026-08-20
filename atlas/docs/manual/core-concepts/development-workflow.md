@@ -112,7 +112,7 @@ This preserves SHIRE as the repeatable system development environment even when 
 
 After the focused board CLI passes, integrate the component with cFS on the development board and repeat the same component procedure through the intended flight stack.
 The repository contains ARM and CPU2 scaffolding, but board CLI and board cFS execution still require target specific implementation and validation.
-Use the [Component Hardware Development](../../scenarios/component-hardware-development.md) scenario for the detailed gates and evidence expected at each stage.
+Use the gates and evidence guidance in this workflow when moving from simulation to physical hardware.
 
 ## Supported build targets
 
@@ -153,7 +153,7 @@ Use the [Component Hardware Development](../../scenarios/component-hardware-deve
 
 The [Development Board](../how-to/development-board.md) page describes the ARM scaffolding currently present in the repository.
 It is integration guidance rather than evidence of a validated board deployment.
-The [Component Hardware Development](../../scenarios/component-hardware-development.md) scenario organizes the complete mold, simulation, CLI, cFS, and hardware progression into review gates.
+The progression on this page organizes mold, simulation, CLI, cFS, and hardware work into review gates.
 
 ## Component lifecycle
 

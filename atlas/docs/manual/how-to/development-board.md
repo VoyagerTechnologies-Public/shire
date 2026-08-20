@@ -119,7 +119,7 @@ Add a reviewed CLI target that selects the ARM toolchain, the board device confi
 
 After the board CLI passes, reconcile the simulator with the hardware evidence and rerun host regression tests.
 Then integrate the component application into the validated CPU2 cFS target and repeat the focused YAMCS procedure through the intended command and telemetry path.
-Use [Component Hardware Development](../../scenarios/component-hardware-development.md) for the component gates and evidence expected at each stage.
+Use the [Development Workflow](../core-concepts/development-workflow.md) for the component gates and evidence expected at each stage.
 
 ## Packaging a validated CPU2 build
 

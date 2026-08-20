@@ -69,8 +69,8 @@ Confirm the Radio enters Duplex mode and `radio-in` begins receiving telemetry.
 Treat the 480 wakeup duration as a configured simulation interval.
 Host load and scheduler behavior can affect wall clock observation, so use SC and Radio state rather than a desktop timer alone.
 
-Both command output links use `tc_realtime` in the current YAMCS configuration.
-Account for possible duplicate delivery when interpreting command counters.
+YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
+Confirm the selected interface when the transport path matters to the activity.
 
 ### Phase 3 Assess attitude and power
 

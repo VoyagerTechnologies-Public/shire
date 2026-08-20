@@ -129,7 +129,7 @@ The resulting `.ds` file is therefore not a Demo only science product.
 
 No current sequence checks power margin, payload readiness, or pointing performance before entering this configuration.
 No current YAMCS timeline schedules payload activities or pass commands.
-Use the [Nominal Operations](../scenarios/nominal-operations.md) scenario as a manual composition of the available mechanisms.
+A future nominal operations scenario can compose these available mechanisms into a reviewed operator flow.
 
 ## Current onboard automation
 
@@ -174,9 +174,8 @@ The debug path is a development convenience and is not evidence that the represe
 In `RX`, the Radio path can deliver commands but does not return radio telemetry.
 In `DUPLEX`, commands and telemetry can flow in both directions.
 
-Both YAMCS command output links currently consume `tc_realtime` when enabled.
-One operator command can therefore reach cFS through both paths and increment counters twice.
-Select and record the intended path before interpreting command history or counters.
+YAMCS uses `radio-out` as the preferred command interface and falls back to `debug-out` when the preferred interface is unavailable.
+Record the interface used when the transport path matters to the result.
 
 YAMCS also sends simulation backdoor packets to the Director and receives 42 truth telemetry from the Director.
 Backdoor commands are simulation controls and must not be treated as spacecraft commands.
@@ -249,7 +248,7 @@ Use these practices when operating or testing the DRM:
 
 The [Mission Requirements](mission-requirements.md) page defines the proposed traceable baseline and records candidate needs that are not ready to become requirements.
 The [Verification and Validation](verification-and-validation.md) page describes current evidence entry points and remaining verification work.
-Begin hands on review with the [Commissioning](../scenarios/commissioning.md) scenario, then continue with [Nominal Operations](../scenarios/nominal-operations.md).
+Begin hands on review with the [Commissioning](../scenarios/commissioning.md) scenario.
 
 ***
 Last reviewed: 20260819

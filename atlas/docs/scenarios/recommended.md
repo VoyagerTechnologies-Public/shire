@@ -8,7 +8,7 @@ The recommendations below separate documentation work from new implementation so
 | Scenario | Value and next work |
 | --- | --- |
 | [Data Lifecycle](data-lifecycle.md) | Connect Demo data, DS files, FM selection, CFDP delivery, and file integrity with file selection support, completion checks, and hash evidence. |
-| [Debug and Radio Path Comparison](link-path-comparison.md) | Explain both paths and duplicate `tc_realtime` delivery with reviewed link setup, one named command per path, packet evidence, and restoration. |
+| [Debug and Radio Path Comparison](link-path-comparison.md) | Explain preferred and fallback routing with reviewed link setup, one named command per path, packet evidence, and restoration. |
 | [EPS Load Switching](eps-load-switching.md) | Show commanded loads and telemetry response by wrapping the existing EPS stacks with initial state, timing, and cleanup assertions. |
 | [ADCS Truth Comparison](adcs-truth-comparison.md) | Connect component observations with 42 through mode, settling, pointing tolerance, truth comparison, and timeout assertions. |
 | [Component Hardware Development](component-hardware-development.md) | Carry a molded component from CLI and cFS simulation through focused board CLI and board cFS hardware gates. |

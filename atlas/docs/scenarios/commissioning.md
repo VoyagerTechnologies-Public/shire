@@ -1,222 +1,254 @@
 # Commissioning
 
-> **Scenario status:** The DRM boots into the Do No Harm configuration through implemented application defaults, SC startup behavior, LC tables, and RTS tables.
-> This walkthrough uses current commands, links, and component procedures.
-> The repository does not yet provide one end to end commissioning procedure or one spacecraft mode parameter.
+## Objective
 
-## What you will learn
-
-This scenario introduces the DRM environment from an operator's perspective.
-You will learn how to:
-
-* recognize the implemented Do No Harm boot configuration
-* distinguish the direct debug path from the simulated radio path
-* open a ground pass with an onboard stored command sequence
-* verify basic cFE and subsystem command handling
-* compare ADCS telemetry with 42 truth
-* prepare a Data Storage file and request a CFDP downlink
-* retain enough context to explain the result later
+In this scenario, you will perform the initial on orbit checkout of a Design Reference Mission spacecraft.
+As the flight controller, your job is to make first contact, verify the health and status of the spacecraft's core systems, and transition it from the Do No Harm configuration toward an operational state.
 
 ## Prerequisites
 
-Before you begin:
+Before you begin, ensure you have:
 
-* complete [Getting Started](../manual/handbook/getting-started.md)
-* use the default DRM `sat-1` configuration unless you have reviewed another selection
-* read the [DRM Concept of Operations](../drm/concept-of-operations.md)
-* review the command and telemetry paths in [System Architecture](../manual/core-concepts/architecture.md)
-* choose a directory outside the repository for run notes and exported evidence
+* Completed [Getting Started](../manual/handbook/getting-started.md)
+* Confirmed that SHIRE is installed and able to run
+* Read the [DRM Concept of Operations](../drm/concept-of-operations.md)
+* Reviewed [System Architecture](../manual/core-concepts/architecture.md)
+* Have the default DRM `sat-1` configuration
 
-Start with a newly launched lab when possible.
-A prior run can leave component state, YAMCS history, and stored files that make the observations harder to interpret.
+Use a freshly build DRM when possible.
+A previous run can leave component state, YAMCS history, and stored files that make the results harder to interpret.
 
-## Understand the starting state
+## Overview
 
-The spacecraft does not receive one command named Do No Harm.
-The configuration emerges from these startup actions:
+The DRM spacecraft has just been deployed from its launch vehicle.
+It boots into the implemented "Do No Harm" configuration.
+In this state, ADCS and Demo are disabled, the EPS switches are off, the Radio is enabled in Receive mode, and basic telemetry is being stored by Data Storage.
 
-| Startup behavior | Expected observation |
-| --- | --- |
-| cFE loads the selected applications | Startup events appear for cFS and component applications. |
-| ADCS, Demo, and Radio initialize with their devices disabled | Their initial housekeeping reports disabled before later automatic actions affect the Radio. |
-| The EPS simulator initializes all eight switches off | EPS switch telemetry reports `OFF`. |
-| SC starts RTS 1 after a power on reset | SC events or housekeeping show the automatic sequence. |
-| RTS 1 enables DS, TO_LAB, and LC | Data collection, direct debug telemetry, and limit checking become active. |
-| RTS 1 enables RTS 1 through 15 and starts RTS 3 | RTS 3 sends one ES NOOP as an initialization check. |
-| LC action point 5 starts RTS 5 | RTS 5 enables the Radio and configures Receive mode. |
+Your task is to walk through the commissioning checklist and bring the available systems into operation.
 
-The final item is important for new operators.
-Receive mode accepts the simulated command link but does not transmit radio telemetry.
-The direct TO_LAB debug telemetry remains available inside the lab.
+You will follow these phases:
 
-## Phase 1 Start the lab
+* Startup
+* First contact
+* Health assessment
+* Subsystem checkout
+* Download data
 
-From the repository root, build and launch SHIRE:
+## Startup
+
+Open a terminal and navigate to the SHIRE repository.
+Build and launch the DRM:
 
 ```bash
 make
 make start
 ```
 
-Open the [42 dynamics display](http://localhost:5801/vnc_auto.html).
-Open the [YAMCS ground interface](http://localhost:8090).
+`make start` runs Compose in the foreground.
+Leave this terminal open so you can watch service output and simulation time.
 
-Confirm that all six DRM services remain running.
-Confirm that simulation time is advancing in the Compose output.
-Wait for the automatic RTS activity to settle before sending commands.
+> **Capture 1:** Capture the terminal with all six services visible and running.
+> Save it as `01_services_running.png`.
 
-In YAMCS, open the SHIRE instance and select **Links**.
-Inspect `debug-in`, `debug-out`, `radio-in`, `radio-out`, `sim-backdoor`, and `truth42-in`.
-The receive only Radio will not provide a continuous radio downlink at this point, so use the debug path to inspect startup telemetry.
+Wait until the initialization of the vehicle is complete and a "Do No Harm" default start state has been reached.
 
-### Do No Harm checkpoint
 
-Confirm the observable startup state before commissioning changes it.
-Record:
+Open the [42 dynamics environment](http://localhost:5801/vnc_auto.html).
+Click `Connect` and confirm that simulation time is advancing and the spacecraft is visible.
 
-* DS and LC application state
-* SC events for RTS 1 and RTS 3
-* ADCS and Demo device state
-* all eight EPS switch states
-* Radio device state and Receive mode after RTS 5
-* advancing 42 truth and simulation time
+> **Capture 2:** Capture the initial 42 display with the spacecraft and advancing simulation time visible.
+> Save it as `02_42_initial_state.png`.
 
-Do not infer the spacecraft state from one parameter because there is no top level mode parameter today.
-The collection above is the current proof of the boot configuration.
+Open the [YAMCS ground software](http://localhost:8090).
+Select the SHIRE instance.
+Confirm that packets are being received and their generation times are updating.
 
-## Phase 2 Establish first contact
+> **Capture 3:** Capture the SHIRE instance with incoming packets and current generation times visible.
+> Save it as `03_yamcs_packet_flow.png`.
 
-Send `/SC/SC_COMMANDS/SC_START_RTS` with `RTSID` set to 6.
-RTS 6 configures the Radio for Duplex mode, waits 480 SC wakeups, and returns the Radio to Receive mode.
-The checked in table describes that wait as eight minutes at the expected scheduler rate.
+Select **Links** on the left side.
+Confirm that `debug-in`, `debug-out`, `radio-in`, `radio-out`, `sim-backdoor`, and `truth42-in` are present.
 
-Watch SC events, Radio housekeeping, and YAMCS link data counts.
-Confirm that the Radio reports Duplex mode during the pass and that `radio-in` begins receiving telemetry.
+YAMCS uses `radio-out` as the preferred command interface.
+If that interface is unavailable, YAMCS falls back to `debug-out`.
 
-Both `debug-out` and `radio-out` consume the `tc_realtime` command stream in the checked in YAMCS configuration.
-When both command links are enabled, one YAMCS command can reach cFS through both paths.
-Use command history and counters with that duplication in mind.
+> **Capture 4:** Capture the Links view with all six links and their current status visible.
+> Save it as `04_startup_links.png`.
 
-When RTS 6 completes, the Radio returns to Receive mode and radio telemetry stops.
-The direct debug telemetry path remains available.
+Wait for the startup relative time sequences to complete before sending commands.
+This includes RTS 5, which enables the Radio and configures it to receive ground commands.
 
-## Phase 3 Verify cFE health
+> **Capture 5:** Compose terminal output example to compare against.
+> Save it as `05_do_no_harm_state.png`.
 
-Record the current `/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER` and command error count.
+## First contact
+
+Use the search bar to find commands and telemetry quickly.
+Open `/SC/SC_COMMANDS/SC_START_RTS`.
+Set `RTSID` to `6`, set `PADDING` to `0`, then send the command.
+
+RTS 6 is the Start Pass sequence.
+It places the Radio in Duplex mode for 480 seconds or eight minutes, then returns the Radio to Receive mode.
+The checked in table describes this as an eight minute pass at the expected one hertz scheduler rate.
+The wall time can differ when the simulation is not running at real time.
+
+Confirm that Command History reports the command as accepted.
+Watch the flight software output or YAMCS Events for the RTS start event.
+
+> **Capture 6:** Capture the accepted RTS 6 command and its arguments in Command History.
+> Save it as `06_start_pass_command.png`.
+
+Open Radio housekeeping.
+Confirm `RADIO_DEVICE_Mode` is `3`, the receive settings are `1` and `2`, and the transmit settings are `3` and `4`.
+Mode `3` is Duplex mode.
+Return to **Links** and confirm that `radio-in` is receiving telemetry.
+
+> **Capture 7:** Capture the Links view with `radio-in` receiving data and `radio-out` showing command activity.
+> Save it as `07_radio_contact.png`.
+
+You have now commanded and received telemetry through the simulated radio path.
+
+When RTS 6 completes, the Radio returns to Receive mode and `radio-in` stops receiving telemetry.
+The `radio-out` uplink can still deliver commands in Receive mode.
+Telemetry from `debug-in` continues, so you can finish the exercise after the pass ends.
+
+## Health assessment
+
+Open `/CFE_ES/CFE_ES_HKPACKET` and record the current `CMDCOUNTER` and `ERRCOUNTER`.
 Send `/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP`.
-Confirm that the command counter increases and the error count does not increase.
+This NOOP is the basic command path check for cFE Executive Services.
 
-RTS 3 already sends one ES NOOP during startup.
-The two enabled command paths can also deliver the operator NOOP more than once.
-Judge the result from the observed increment and command history instead of expecting one absolute counter value.
+Wait for fresh housekeeping.
+Confirm that `CMDCOUNTER` increases by exactly one and `ERRCOUNTER` does not increase.
+Do not expect `CMDCOUNTER` to begin at zero because RTS 3 sends an ES NOOP during startup.
 
-If the counter does not move, check the YAMCS processor, command link state, FSW events, and container logs before proceeding.
+> **Capture 8:** Capture the accepted ES NOOP and fresh housekeeping showing the command counter increment without a new error.
+> Save it as `08_cfe_health_check.png`.
 
-## Phase 4 Check out subsystems
-
-### EPS
-
-Open `Procedures / Stacks / EpsComponent.ycs`.
-Run from the first step.
-The procedure resets EPS counters, requests housekeeping, sends a NOOP, and verifies that the command count increments.
-
-Confirm that every step succeeds.
-Retain the EPS switch state before changing any load because the all off state is part of the Do No Harm baseline.
+## Subsystem checkout
 
 ### ADCS
 
 Open `Procedures / Stacks / AdcsComponent.ycs`.
-Run from the first step.
+Select the first step, then select **Run all from selected step**.
 
 The procedure:
 
 * enables the ADCS device
-* resets counters and verifies a NOOP
+* resets its counters
+* sends an application NOOP
+* confirms that the command count increments
 * displays current parameters
 * sets the mode to `SUNSAFE`
-* checks that `SUN_X` is above 0.98
-* checks that `SUN_Y` and `SUN_Z` remain between negative 0.02 and positive 0.02
+* verifies Sun pointing over the procedure interval
 
-Confirm that every assertion succeeds.
-After ADCS settles, compare the component telemetry with 42.
-The B1 body frame X axis in 42 should align with the yellow Sun vector.
+The spacecraft may need time to rotate and settle within the required margins.
+Confirm that every procedure step succeeds.
+
+> **Capture 9:** Capture the completed ADCS stack with the successful Sun vector assertions visible.
+> Save it as `09_adcs_checkout.png`.
+
+Return to 42.
+The B1 body frame positive X axis should align with the yellow Sun vector.
+
+> **Capture 10:** Capture the 42 display with the B1 positive X axis aligned with the yellow Sun vector.
+> Save it as `10_adcs_sun_alignment.png`.
 
 ### Demo instrument
 
 Open `Procedures / Stacks / DemoComponent.ycs`.
-Run from the first step.
+Select the first step, then select **Run all from selected step**.
 
-The procedure enables Demo, resets its counters, sends a NOOP, and verifies that the command count increments.
-After it succeeds, send `/DEMO/DEMO_CONFIG_CC` with `DEVICE_CONFIG` set to 10.
-Wait for a new Demo telemetry packet and confirm that `DEVICE_CONFIG` reports 10.
+The procedure:
 
-## Phase 5 Prepare and download data
+* enables the Demo device
+* resets its counters
+* sends an application NOOP
+* confirms that the command count increments
 
-If RTS 6 is still running, stop it with `/SC/SC_COMMANDS/SC_STOP_RTS` and set `RTSID` to 6.
-Stopping it prevents the delayed second command from returning the Radio to Receive mode during the transfer.
+Confirm that every procedure step succeeds.
 
-Send `/RADIO/RADIO_CONFIG_CC` with `MODE` set to `DUPLEX`.
-Review the receive and transmit settings shown by YAMCS before sending.
-Class 2 CFDP requires traffic in both directions, so keep the Radio in Duplex mode during the transfer.
+> **Capture 11:** Capture the completed Demo stack with all steps successful.
+> Save it as `11_demo_checkout.png`.
+
+Open `/DEMO/DEMO_CONFIG_CC`.
+Send the command with `DEVICE_CONFIG` set to `10`.
+
+Open `/DEMO/DEVICE_CONFIG` in a separate parameter view.
+Wait for a fresh telemetry packet, which can take about ten seconds.
+Confirm that the value updates to `10`.
+
+> **Capture 12:** Capture fresh Demo telemetry showing `DEVICE_CONFIG` set to `10`.
+> Save it as `12_demo_configuration.png`.
+
+## Download data
+
+If RTS 6 is still executing, open `/SC/SC_COMMANDS/SC_STOP_RTS`.
+Set `RTSID` to `6`, set `PADDING` to `0`, then send the command.
+
+Stopping RTS 6 prevents it from returning the Radio to Receive mode during the file transfer.
+
+Open `/RADIO/RADIO_CONFIG_CC`.
+Set `MODE` to `Duplex Mode`, `RX_SPEED` to `1`, `RX_WAVE` to `2`, `TX_SPEED` to `3`, and `TX_WAVE` to `4`.
+Send the command.
+
+Confirm that fresh Radio housekeeping reports mode `3`.
+The Radio must remain in Duplex mode because reliable Class 2 CFDP transfers require traffic in both directions.
+
+> **Capture 13:** Capture the accepted Radio configuration command and fresh housekeeping showing Duplex mode.
+> Save it as `13_radio_duplex.png`.
 
 Close the current Data Storage file set with `/DS/DS_COMMANDS/DS_CLOSE_ALL`.
-Request the `/d` directory listing with `/FM/FM_COMMANDS/FM_GET_DIR_PKT` and set `DIRECTORY` to `/d`.
-Wait for `/FM/FM_DIRLISTPKT`.
+This makes the files available for transfer.
 
-Choose a completed file from the returned listing.
-Do not assume that a filename from an earlier run exists.
+Open `/FM/FM_COMMANDS/FM_GET_DIR_PKT`.
+Set `DIRECTORY` to `/d`, `DIRLISTOFFSET` to `0`, and `GETSIZETIMEMODE` to `1`.
+Send the command.
 
-Send `/CF/CF_COMMANDS/CF_TX_FILE` with `SRCFILENAME` set to `/d/<returned-file>` and `DSTFILENAME` set to `<returned-file>`.
-Review the default Class 2, channel, destination, and preservation values before sending.
-Watch **File transfer** and confirm that YAMCS records completion.
+Wait for fresh `/FM/FM_DIRLISTPKT` telemetry.
+Choose a `.ds` file with a nonzero size from the returned listing.
+Prefer an earlier file rather than the newest entry.
+Copy the exact filename shown in telemetry.
 
-If integrity is part of the run criteria, export the received file and compare its hash with the source file hash.
-A transfer completion record alone does not establish file content equality.
+> **Capture 14:** Capture the directory packet with the selected filename, size, and time visible.
+> Save it as `14_fm_directory_listing.png`.
 
-## Expected results
+Open `/CF/CF_COMMANDS/CF_TX_FILE`.
+Set `CLASS` to `CLASS 2 - WITH FEEDBACK`, `KEEP` to `KEEP`, `CHAN_NUM` to `CHAN 0`, `PRIORITY` to `0`, and `DEST_ID` to `23`.
+Set `SRCFILENAME` to `/d/<selected_file>` and `DSTFILENAME` to `<selected_file>` using the exact filename returned by FM.
+Send the command.
+Destination entity `23` is the YAMCS ground system entity in the checked in configuration.
 
-| Phase | Expected result |
-| --- | --- |
-| Startup | All six services remain running and simulation time advances. |
-| Do No Harm | The distributed startup observations match the implemented configuration. |
-| First contact | SC reports RTS 6 activity, the Radio enters Duplex mode, and radio telemetry reaches YAMCS. |
-| cFE health | The ES command counter increases without a new command error. |
-| EPS checkout | `EpsComponent.ycs` passes and the initial switch state is recorded. |
-| ADCS checkout | `AdcsComponent.ycs` passes and the measured Sun vector meets its limits. |
-| Demo checkout | `DemoComponent.ycs` passes and the requested configuration appears in telemetry. |
-| Data preparation | FM returns a completed file selected from the actual `/d` listing. |
-| File transfer | YAMCS reports CFDP completion and the received file is available. |
+Open **File transfer**.
+Watch the transfer and confirm that its state reaches completion.
+Confirm that the received filename matches the file selected from the FM listing.
 
-## Troubleshooting cues
+> **Capture 15:** Capture the completed File Transfer entry with the filename, source, destination, and completion state visible.
+> Save it as `15_cfdp_complete.png`.
 
-| Symptom | First checks |
-| --- | --- |
-| Debug telemetry is absent | Check `debug-in`, TO_LAB events, the YAMCS processor, and UDP port 1235. |
-| Radio telemetry is absent before first contact | This is expected in Receive mode, so start RTS 6 and confirm Duplex mode. |
-| One command increments a counter twice | Check whether both `debug-out` and `radio-out` sent the same `tc_realtime` command. |
-| A component stack stops | Preserve the failed assertion, confirm fresh housekeeping, and inspect the component and simulator logs. |
-| `/d` has no suitable file | Confirm DS is active, allow telemetry to accumulate, close the file set again, and request a fresh listing. |
-| CFDP does not complete | Confirm Duplex mode, both radio links, CF and YAMCS CFDP status, and the exact returned source filename. |
+If file integrity is part of your run criteria, export the received file and compare its hash with the source file.
+A completed transfer record alone does not prove that the file contents match.
 
-See the [FAQ](../manual/handbook/faq.md) for service and link diagnostics.
+## Review
 
-## Evidence to retain
+Commissioning of the available DRM systems is complete.
 
-Save the active configuration, repository revision, startup state, YAMCS link state, component stack results, command history, FM listing, CFDP result, and relevant service logs.
-Record source and received file hashes when file integrity matters.
+You have:
 
-A useful screenshot set contains the Do No Harm checkpoint, Duplex radio state, successful subsystem procedures, 42 Sun alignment, FM listing, and completed CFDP transfer.
+* confirmed the implemented Do No Harm startup state
+* established command and telemetry through the simulated radio path
+* verified basic cFE command handling
+* enabled and checked the ADCS and Demo systems
+* commanded Sun safe pointing and confirmed the result in 42
+* closed, selected, and transferred a stored data file
 
-This walkthrough remains a manual composition of implemented commands and procedures.
-Do not report it as one automated commissioning test until a reviewed procedure contains the full assertions, failure handling, and cleanup.
+This walkthrough leaves ADCS and Demo enabled and the Radio in Duplex mode for continued work.
+Nominal operations remains a planned scenario.
 
-## Finish the run
+This page composes existing commands and component procedures into a manual walkthrough.
+It is not yet one automated commissioning procedure with complete assertions and failure handling.
 
-The walkthrough intentionally leaves ADCS and Demo enabled as part of the transition toward nominal operations.
-Continue with [Nominal Operations](nominal-operations.md) if that is your goal.
-
-For a clean repeat, save the evidence, stop the lab with `make stop`, and start a new run.
-Confirm the Do No Harm checkpoint again because YAMCS history and stored ground data can persist across lab restarts.
+For a clean repeat, save the evidence, run `make stop`, then start a new DRM.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20 August 2026

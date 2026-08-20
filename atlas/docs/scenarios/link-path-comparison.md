@@ -1,12 +1,12 @@
 # Debug and Radio Path Comparison
 
 > **Scenario status:** Draft manual scenario using the current YAMCS link controls and command paths.
-> Link changes and results must be recorded because both command outputs consume `tc_realtime` by default.
+> YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
 
 ## Objective
 
 Send the same harmless command once through the direct debug path and once through the representative Radio and CryptoLib path.
-Compare the route, flight observation, return telemetry, and timing without duplicate command delivery.
+Compare the route, flight observation, return telemetry, and timing.
 
 ## Understand the paths
 
@@ -42,7 +42,7 @@ Read the current ES command counter and error count before each trial.
 8. Record the command time and first confirming telemetry time.
 
 `radio-in` can remain visible, but its packets are not evidence for this command trial.
-The required control is that only `debug-out` sends the command.
+Disabling `radio-out` forces YAMCS to select the debug fallback for this measurement.
 
 ## Trial 2 Radio path
 
@@ -80,7 +80,7 @@ The debug trial should return telemetry through `debug-in`.
 The radio trial should return telemetry through `radio-in` while the Radio is in Duplex mode.
 Neither trial should create a new command error.
 
-If the flight counter changes more than expected, stop and confirm that the other output was actually disabled.
+If the flight counter changes more than expected, stop and check for another command source or procedure.
 If the radio command succeeds but no radio telemetry returns, confirm RTS 6, Radio mode, CryptoLib service state, and `radio-in` data counts.
 
 ## Restore the lab
@@ -89,14 +89,13 @@ Reenable the link configuration expected by the next scenario.
 Allow RTS 6 to complete or stop it and return the Radio to Receive mode.
 Record the restored link state.
 
-The checked in configuration defines both command outputs without disabling either at startup.
-A lab restart can therefore restore simultaneous consumption of `tc_realtime`.
+The checked in configuration enables both command interfaces and restores the preferred radio path with debug fallback after a restart.
 
 ## Evidence and automation
 
 Retain before and after link screenshots, command history, ES counters, events, Radio mode, link data counts, timing observations, and service logs.
 
-An automated version needs reviewed link control, a unique command marker, assertions that only one output is enabled, and restoration even when a trial fails.
+An automated version needs reviewed link control, a unique command marker, assertions for the selected interface, and restoration even when a trial fails.
 It should run before the [Security Incident Response](security-incident-response.md) scenario so normal radio behavior is established first.
 
 ***

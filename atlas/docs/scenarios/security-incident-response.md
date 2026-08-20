@@ -61,8 +61,8 @@ Record:
 * representative telemetry received through the radio path
 * CryptoLib service health and sanitized log context
 
-Disable or separate the direct debug command output when the test design requires proof that the radio path carried the command.
-Changing link state must be part of the reviewed procedure because both command outputs consume `tc_realtime` by default.
+Confirm that YAMCS selected the preferred `radio-out` interface when the test design requires proof that the radio path carried the command.
+Disable the fallback interface only when the reviewed test procedure requires that additional control.
 
 ## Proposed exercise flow
 

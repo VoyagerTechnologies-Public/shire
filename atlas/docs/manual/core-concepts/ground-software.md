@@ -58,8 +58,8 @@ It resets command counters, enables ADCS, and leaves ADCS in `SUNSAFE` when it c
 It does not check every loaded application, exercise every component behavior, transfer a file through CFDP, or implement the full [Commissioning](../../scenarios/commissioning.md) walkthrough.
 
 Open **Procedures / Stacks / CheckoutTest.ycs** in YAMCS and review the steps before running it.
-Use a newly started lab and enable only the intended outbound command link.
-Both `debug-out` and `radio-out` consume the same realtime command stream, so leaving both enabled can deliver a command twice and invalidate the stack's absolute counter checks.
+Use a newly started DRM so earlier commands do not affect the stack's absolute counter checks.
+YAMCS uses `radio-out` as the preferred command interface and falls back to `debug-out` when the preferred interface is unavailable.
 The stack advances after YAMCS reports `Acknowledge_Queued` and then relies on its telemetry verification steps to establish the result.
 
 ## Timelines
@@ -101,7 +101,8 @@ Use `python3 yamcs/yamcs_timeline.py --help` for the complete interface and the 
 
 `yamcs/yamcs_commander.py` is a developer utility for exploring the active mission database and issuing commands through the YAMCS realtime processor.
 It does not start YAMCS or select an outbound link.
-Inspect the YAMCS link state before using it because every enabled telecommand link attached to `tc_realtime` can receive the issued command.
+YAMCS routes its commands through the preferred available interface, beginning with `radio-out` and falling back to `debug-out`.
+Inspect the YAMCS link state before using it so you know which interface will carry the command.
 
 Install its host dependencies when they are not already available:
 

@@ -55,7 +55,7 @@ Coverage reports show which code executed and do not establish that an acceptanc
 | DRM integration | `make` followed by `make start` | Manual observation of the generated flight, ground, security, dynamics, and simulation stack |
 | Component procedures | `comp/*/gsw/procedures/*.ycs` | Repeatable YAMCS component command sequences |
 | DRM procedures | `yamcs/src/main/yamcs/procedures/*.ycs` | Repeatable YAMCS system command sequences |
-| Atlas scenarios | `atlas/docs/scenarios/` | Manual workflows, expected results, limitations, and evidence guidance |
+| Published scenario | `atlas/docs/scenarios/commissioning.md` | Manual commissioning workflow, expected results, limitations, and evidence guidance |
 | Atlas validation | `make docs-check` | Markdown, asset, procedure, command reference, and strict site build checks |
 | Repository CI | `.github/workflows/ci.yml` | Simulith, flight software, and CLI builds plus flight software and component simulator tests |
 
@@ -85,7 +85,8 @@ Every verification result must retain:
 * Execution date and evidence location
 
 For an integrated run, also record which YAMCS command links were enabled.
-Both current command output links consume `tc_realtime` when enabled, so an unrecorded path selection can invalidate command count evidence.
+YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
+Record the selected interface when the command transport path is part of the evidence.
 
 ## Planned verification by requirement group
 
@@ -95,29 +96,29 @@ It does not mean the requirement has passed verification.
 
 | Requirement IDs | Planned activity | Primary evidence | Current boundary |
 | --- | --- | --- | --- |
-| `DRM-001` | Execute a controlled integrated DRM demonstration | [Commissioning](../scenarios/commissioning.md) and [Nominal Operations](../scenarios/nominal-operations.md) records | Manual workflows available without one procedure containing complete assertions |
-| `DRM-002` | Demonstrate command and telemetry exchange through each declared path | [Commissioning](../scenarios/commissioning.md) and [Link Path Comparison](../scenarios/link-path-comparison.md) records | Manual workflows available with duplicate path risk |
-| `DRM-003` | Demonstrate one complete stored file transfer to YAMCS | [Data Lifecycle](../scenarios/data-lifecycle.md) record and received file | Manual workflow available without automated integrity assertions |
-| `DRM-004` | Demonstrate an active LC condition reaching its configured response | [FDIR](../scenarios/fdir.md) record with LC, SC, event, and state telemetry | Implemented action points 5 and 11 only |
-| `DRM-005` | Demonstrate one component through simulator and physical hardware transports | [Component Hardware Development](../scenarios/component-hardware-development.md) evidence packet | Physical target and hardware evidence not present |
+| `DRM-001` | Execute a controlled integrated DRM demonstration | Commissioning record plus a planned Nominal Operations record | Published Commissioning workflow without one procedure containing complete assertions |
+| `DRM-002` | Demonstrate command and telemetry exchange through each declared path | Commissioning record plus a planned Link Path Comparison record | Published Commissioning workflow with duplicate path risk |
+| `DRM-003` | Demonstrate one complete stored file transfer to YAMCS | Planned Data Lifecycle record and received file | Commissioning includes manual CFDP steps without automated integrity assertions |
+| `DRM-004` | Demonstrate an active LC condition reaching its configured response | Planned FDIR record with LC, SC, event, and state telemetry | Implemented action points 5 and 11 without a published scenario |
+| `DRM-005` | Demonstrate one component through simulator and physical hardware transports | Planned Component Hardware Development evidence packet | Physical target and hardware evidence not present |
 | `CFG-001` | Test configuration generation for a declared selection | Active configuration and orchestrator output | Build path available without a test record traced to `CFG-001` |
 | `CFG-002`, `CFG-003` | Inspect generated cFS and Simulith content against the spacecraft selection | Generated startup and simulator configuration checklist | Generated artifacts available |
 | `SIM-001`, `SIM-002` | Test 42 propagation and shared Simulith context during a controlled run | Simulith tests, 42 truth, and component observations | Unit sources available with integrated acceptance work remaining |
 | `SIM-003` | Test the selected CLI against its simulator | CLI transcript and simulator log | Focused environment available |
 | `SIM-004` | Test the same device protocol against physical hardware | Board CLI transcript, transport capture, and hardware record | Physical target and hardware evidence not present |
-| `OPS-001` | Test the observable Do No Harm checkpoint after power on | [Commissioning](../scenarios/commissioning.md) startup telemetry and events | Manual checkpoint available |
+| `OPS-001` | Test the observable Do No Harm checkpoint after power on | [Commissioning](../scenarios/commissioning.md) startup telemetry and events | Published manual checkpoint available |
 | `AUT-001`, `AUT-002` | Test stored sequence execution and LC response initiation | Flight software tests plus SC and LC telemetry | Unit sources and two active integrated responses available |
 | `EVT-001` | Test rejected commands for each DRM component application | Flight software test output and event telemetry | Unit sources available |
-| `CMD-001` | Test command and telemetry exchange through the direct debug path | [Link Path Comparison](../scenarios/link-path-comparison.md) trial record | Manual workflow available |
-| `CMD-002` | Test command and telemetry exchange through the representative radio path | [Link Path Comparison](../scenarios/link-path-comparison.md) trial record | Manual workflow available |
-| `DAT-001` | Test DS packet selection and persistent file creation | DS table, FM listing, and stored file evidence | [Data Lifecycle](../scenarios/data-lifecycle.md) workflow available |
-| `DAT-002` | Test CF transfer of the selected file to YAMCS | CF events, YAMCS transfer record, and received file | [Data Lifecycle](../scenarios/data-lifecycle.md) workflow available |
+| `CMD-001` | Test command and telemetry exchange through the direct debug path | Planned Link Path Comparison trial record | Focused workflow remains planned |
+| `CMD-002` | Test command and telemetry exchange through the representative radio path | Planned Link Path Comparison trial record | Focused workflow remains planned |
+| `DAT-001` | Test DS packet selection and persistent file creation | DS table, FM listing, and stored file evidence | Manual steps included in Commissioning |
+| `DAT-002` | Test CF transfer of the selected file to YAMCS | CF events, YAMCS transfer record, and received file | Manual steps included in Commissioning |
 | `FSW-001`, `FSW-002` | Inspect the flight build and application interfaces | Build configuration and Software Bus interface checklist | Source and generated build artifacts available |
 | `FSW-003` | Test accepted and rejected command counters for each DRM component application | Flight software test output and housekeeping telemetry | Unit sources available |
-| `ADCS-001`, `ADCS-002`, `ADCS-003`, `ADCS-004` | Test modes, targets, housekeeping, and 42 actuation | ADCS simulator tests and [ADCS Truth Comparison](../scenarios/adcs-truth-comparison.md) record | Unit sources and manual truth comparison available |
+| `ADCS-001`, `ADCS-002`, `ADCS-003`, `ADCS-004` | Test modes, targets, housekeeping, and 42 actuation | ADCS simulator tests and planned ADCS Truth Comparison record | Unit sources available while truth comparison remains planned |
 | `DEMO-001`, `DEMO-002` | Test Sun vector encoding and enabled publication behavior | Demo simulator tests and component telemetry | Unit sources and component procedure available |
-| `EPS-001`, `EPS-002`, `EPS-003` | Test energy behavior, eight switch commands, and telemetry | EPS simulator tests and [EPS Load Switching](../scenarios/eps-load-switching.md) record | Unit sources and manual switching workflow available |
-| `COM-001`, `COM-002`, `COM-003` | Test Radio modes plus mode gated uplink and downlink | Radio simulator tests and [Link Path Comparison](../scenarios/link-path-comparison.md) record | Unit sources and manual path workflow available |
+| `EPS-001`, `EPS-002`, `EPS-003` | Test energy behavior, eight switch commands, and telemetry | EPS simulator tests and planned EPS Load Switching record | Unit sources available while switching scenario remains planned |
+| `COM-001`, `COM-002`, `COM-003` | Test Radio modes plus mode gated uplink and downlink | Radio simulator tests and planned Link Path Comparison record | Unit sources available while path comparison remains planned |
 | `CRYPTO-001`, `CRYPTO-002` | Test command and telemetry processing with the declared security association | Frame captures, CryptoLib results, and Radio events | Development configuration present without a security test traced to these requirements |
 | `GND-001`, `GND-002`, `GND-003`, `GND-004`, `GND-005` | Test commanding, telemetry, archive retrieval, and stack execution | YAMCS test output plus ground operation records | Ground features present while CI omits YAMCS tests |
 | `GND-006` | Inspect the checked in DRM timeline bands | Timeline configuration checklist | Timeline bands present without an inspection record |
@@ -154,11 +155,11 @@ Final validation uses representative workflows after enough lower level verifica
 
 | Objective | Validation question | Representative activity | Current boundary |
 | --- | --- | --- | --- |
-| `OBJ-001` | Is the integrated DRM useful as a software reference environment? | [Commissioning](../scenarios/commissioning.md) followed by [Nominal Operations](../scenarios/nominal-operations.md) | Manual workflows without a complete validation record |
-| `OBJ-002` | Can a developer observe and control the selected spacecraft through the intended paths? | [Commissioning](../scenarios/commissioning.md) and [Link Path Comparison](../scenarios/link-path-comparison.md) | Current debug and representative radio paths only |
-| `OBJ-003` | Does the data handling example represent a useful onboard to ground lifecycle? | [Data Lifecycle](../scenarios/data-lifecycle.md) scenario | Selected DS telemetry file rather than a payload science product |
-| `OBJ-004` | Does configured detection and response behavior aid fault management development? | [FDIR](../scenarios/fdir.md) scenario using action points 5 and 11 | Focused examples without general spacecraft safing |
-| `OBJ-005` | Does the development progression reduce risk before and after hardware arrival? | [Component Hardware Development](../scenarios/component-hardware-development.md) stages 0 through 6 | Simulator stages documented without physical hardware evidence |
+| `OBJ-001` | Is the integrated DRM useful as a software reference environment? | [Commissioning](../scenarios/commissioning.md) followed by planned Nominal Operations | Published manual workflow without a complete validation record |
+| `OBJ-002` | Can a developer observe and control the selected spacecraft through the intended paths? | Commissioning followed by planned Link Path Comparison | Current debug and representative radio paths only |
+| `OBJ-003` | Does the data handling example represent a useful onboard to ground lifecycle? | Planned Data Lifecycle scenario | Selected DS telemetry file rather than a payload science product |
+| `OBJ-004` | Does configured detection and response behavior aid fault management development? | Planned FDIR scenario using action points 5 and 11 | Focused examples without general spacecraft safing |
+| `OBJ-005` | Does the development progression reduce risk before and after hardware arrival? | Planned Component Hardware Development stages 0 through 6 | Simulator stages documented without physical hardware evidence |
 
 An objective is validated only when the stakeholder accepts the representative result for the intended use.
 A requirement can pass verification while its parent objective still fails validation.

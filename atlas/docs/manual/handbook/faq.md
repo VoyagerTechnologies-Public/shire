@@ -22,7 +22,7 @@ docker compose -f build/drm/shire-compose.yaml logs --tail 200
 | YAMCS opens without telemetry | YAMCS link state and FSW, Director, CryptoLib, and GSW logs. |
 | A component is absent | Active spacecraft selection, merged configuration, and Director image contents. |
 | A procedure change does not appear | The persistent YAMCS stacks bucket. |
-| A command travels over two paths | The enabled `debug-out` and `radio-out` links. |
+| A command uses the debug path unexpectedly | The state of the preferred `radio-out` link. |
 | Generated files have the wrong owner | The UID and GID used by build containers. |
 
 ## A generated file is missing
@@ -113,13 +113,12 @@ This protects changes made through YAMCS, but it also means rebuilding the image
 Export any work that must be preserved before resetting storage.
 Inspect the generated mission volume and the cleanup behavior in [Docker](../how-to/docker.md) before deleting it.
 
-## A command appears on both command paths
+## A command uses the debug path unexpectedly
 
-The current `debug-out` and `radio-out` YAMCS links both consume the `tc_realtime` stream.
-When both links are enabled, one command can be emitted through both paths.
+YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
 
-Disable the path that is not part of the exercise and confirm the intended link state before commanding.
-Command history shows submission and acknowledgements, but service logs and link counters are needed to confirm the transport path.
+Check the `radio-out` state and service logs to determine why YAMCS selected the fallback.
+Command history shows submission and acknowledgements, while link counters and service logs establish the transport path.
 
 ## Port 8090 or 5801 is already in use
 

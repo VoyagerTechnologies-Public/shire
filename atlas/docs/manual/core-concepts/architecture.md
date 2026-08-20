@@ -244,8 +244,8 @@ sequenceDiagram
     end
 ```
 
-Both YAMCS command links currently consume `tc_realtime` when enabled.
-A command may therefore leave YAMCS on both the debug and radio paths during a lab run.
+YAMCS prefers the representative `radio-out` path for commands.
+It falls back to `debug-out` when the preferred interface is unavailable.
 
 ## Build time architecture
 
