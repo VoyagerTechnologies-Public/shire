@@ -1,19 +1,23 @@
 # SHIRE
-The Software & Hardware Integration Runtime Environment (SHIRE) is an open-source, software-only simulation environment that emulates satellite flight hardware and interfaces, so teams can develop, integrate, and test an end-to-end mission from day one.
 
-SHIRE is released under a permissive open-source license.
+The Software & Hardware Integration Runtime Environment (SHIRE) is an open source simulation environment that emulates satellite flight hardware and interfaces in software.
+It lets teams develop, integrate, and test a complete mission from day one.
+
+SHIRE is released under a permissive open source license.
 SHIRE follows [Semantic Versioning](https://semver.org/).
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Quick Start
 
-Assuming you're running Linux, Mac, or Windows Subsystem for Linux you'll also need to install the following prerequisites:
+Use a supported Linux environment or Windows 11 with WSL 2 and install these prerequisites:
+
 * Docker Engine and Compose
 * Make
 * Git
-* Python3
+* Python 3 with PyYAML (`python3 -c "import yaml"`)
 
-Once you have those installed you can:
+Once they are installed, you can:
+
 * Clone
   * `git clone --recurse-submodules https://github.com/VoyagerTechnologies-Public/shire.git`
   * `cd shire`
@@ -27,22 +31,35 @@ Once you have those installed you can:
   * Open 42
     * `firefox localhost:5801/vnc_auto.html`
   * Attach to containers to pause / play time
-    * `docker attach shire-server`
+    * `docker attach shire-server-drm`
 * Stop
   * CTRL+C
   * Inspect volumes and logs as desired
   * `make stop`
 
+## Documentation
+
+The SHIRE Atlas is maintained as a self contained project in [atlas](atlas) and configured by [atlas/zensical.toml](atlas/zensical.toml).
+To preview it locally:
+
+```sh
+cd atlas
+python3 -m pip install --requirement requirements.txt
+python3 -m zensical serve
+```
+
+From the repository root, run `make docs-check` to validate documentation style, links, assets, commands, procedures, selected repository facts, and the production build.
+From `./atlas`, run `python3 -m zensical build --clean --strict` to verify the documentation before submitting a change.
+
 ## Project Status
 
-SHIRE is actively maintained by Voyager Technologies.
-If the project is ever placed in maintenance-only mode, a notice will be posted in this README and all open issues.
-The repository will not be deleted, it will be archived on GitHub (read-only) to preserve the reference mission for the community.
+See the repository activity, releases, and [CHANGELOG.md](CHANGELOG.md) for the current project status.
+If the project is archived, its status will be shown on GitHub and noted here.
 
 ## Software Bill of Materials (SBOM)
 
-A source-level inventory of system components, declared third-party dependencies, container images, build tooling, and known coverage gaps is in [SBOM.md](SBOM.md).
-The machine-readable SBOM is available as [sbom.cdx.json](sbom.cdx.json) (CycloneDX 1.6 JSON).
+A source level inventory of system components, declared third party dependencies, container images, build tooling, and known coverage gaps is in [SBOM.md](SBOM.md).
+The machine readable SBOM is available as [sbom.cdx.json](sbom.cdx.json) in CycloneDX 1.6 JSON format.
 
 ## Disclaimer
 
