@@ -83,13 +83,18 @@
       <xtce:Parameter name="SUN_X" parameterTypeRef="FLOAT32_LE_Type"/>
       <xtce:Parameter name="SUN_Y" parameterTypeRef="FLOAT32_LE_Type"/>
       <xtce:Parameter name="SUN_Z" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="CSS_CHAN1" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="CSS_CHAN2" parameterTypeRef="UINT16_Type"/>
+      <xtce:Parameter name="CSS_CHAN3" parameterTypeRef="UINT16_Type"/>
     </xtce:ParameterSet>
 
     <xtce:ContainerSet>
       <!-- Device data telemetry container -->
       <xtce:SequenceContainer name="ADCS_DATA_TLM" shortDescription="ADCS_Device_tlm_t">
         <xtce:EntryList>
-          <!-- If the device telemetry actually starts with a device header/trailer, map only payload fields here -->
+          <xtce:ParameterRefEntry parameterRef="CSS_CHAN1"/>
+          <xtce:ParameterRefEntry parameterRef="CSS_CHAN2"/>
+          <xtce:ParameterRefEntry parameterRef="CSS_CHAN3"/>
         </xtce:EntryList>
         <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
           <xtce:RestrictionCriteria>
@@ -168,7 +173,7 @@
       </xtce:EnumeratedArgumentType>
     </xtce:ArgumentTypeSet>
     <xtce:MetaCommandSet>
-      <xtce:MetaCommand name="ADCS_GET_CSS_CC">
+      <xtce:MetaCommand name="ADCS_REQ_RW">
         <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/>
@@ -176,12 +181,12 @@
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList/>
-        <xtce:CommandContainer name="ADCS_ADCS_GET_CSS_CommandContainer">
+        <xtce:CommandContainer name="ADCS_REQ_RW_CommandContainer">
           <xtce:EntryList/>
         </xtce:CommandContainer>
       </xtce:MetaCommand>
       
-      <xtce:MetaCommand name="ADCS_REQ_DATA">
+      <xtce:MetaCommand name="ADCS_REQ_CSS">
         <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/>
@@ -189,11 +194,35 @@
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList/>
-        <xtce:CommandContainer name="ADCS_ADCS_REQ_DATA_CommandContainer">
+        <xtce:CommandContainer name="ADCS_REQ_CSS_CommandContainer">
           <xtce:EntryList/>
         </xtce:CommandContainer>
       </xtce:MetaCommand>
 
+      <xtce:MetaCommand name="ADCS_REQ_FSS">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC"><xtce:ArgumentAssignmentList><xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/><xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="2"/></xtce:ArgumentAssignmentList></xtce:BaseMetaCommand>
+        <xtce:ArgumentList/><xtce:CommandContainer name="ADCS_REQ_FSS_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="ADCS_REQ_GPS">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC"><xtce:ArgumentAssignmentList><xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/><xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="3"/></xtce:ArgumentAssignmentList></xtce:BaseMetaCommand>
+        <xtce:ArgumentList/><xtce:CommandContainer name="ADCS_REQ_GPS_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="ADCS_REQ_IMU">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC"><xtce:ArgumentAssignmentList><xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/><xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="4"/></xtce:ArgumentAssignmentList></xtce:BaseMetaCommand>
+        <xtce:ArgumentList/><xtce:CommandContainer name="ADCS_REQ_IMU_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="ADCS_REQ_MAG">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC"><xtce:ArgumentAssignmentList><xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/><xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="5"/></xtce:ArgumentAssignmentList></xtce:BaseMetaCommand>
+        <xtce:ArgumentList/><xtce:CommandContainer name="ADCS_REQ_MAG_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="ADCS_REQ_MTB">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC"><xtce:ArgumentAssignmentList><xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/><xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="6"/></xtce:ArgumentAssignmentList></xtce:BaseMetaCommand>
+        <xtce:ArgumentList/><xtce:CommandContainer name="ADCS_REQ_MTB_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="ADCS_REQ_ST">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC"><xtce:ArgumentAssignmentList><xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D5"/><xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="8"/></xtce:ArgumentAssignmentList></xtce:BaseMetaCommand>
+        <xtce:ArgumentList/><xtce:CommandContainer name="ADCS_REQ_ST_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
       <xtce:MetaCommand name="ADCS_REQ_HK">
         <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
           <xtce:ArgumentAssignmentList>
