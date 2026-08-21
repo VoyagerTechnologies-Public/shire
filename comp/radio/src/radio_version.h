@@ -1,0 +1,9 @@
+#ifndef _RADIO_VERSION_H_
+#define _RADIO_VERSION_H_
+
+#define RADIO_MAJOR_VERSION 1
+#define RADIO_MINOR_VERSION 0
+#define RADIO_REVISION      0
+#define RADIO_MISSION_REV   0
+
+#endif

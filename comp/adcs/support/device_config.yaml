@@ -1,0 +1,6 @@
+adcs:
+  string: "/dev/usart_2"
+  handle: 2
+  baudrate_hz: 115200
+  ms_timeout: 250
+  debug: true

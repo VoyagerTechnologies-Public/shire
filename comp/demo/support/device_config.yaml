@@ -1,0 +1,6 @@
+demo:
+  string: "/dev/usart_5"
+  handle: 5
+  baudrate_hz: 115200
+  ms_timeout: 250
+  debug: true

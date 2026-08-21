@@ -1,0 +1,64 @@
+[submodule "cfs/cfe"]
+	path = cfs/cfe
+	url = https://github.com/VoyagerTechnologies-Public/external-cFE.git
+	branch = dev
+[submodule "cfs/osal"]
+	path = cfs/osal
+	url = https://github.com/VoyagerTechnologies-Public/external-osal.git
+	branch = dev
+[submodule "cfs/psp"]
+	path = cfs/psp
+	url = https://github.com/VoyagerTechnologies-Public/external-PSP.git
+	branch = dev
+[submodule "cfs/tools/elf2cfetbl"]
+	path = cfs/tools/elf2cfetbl
+	url = https://github.com/VoyagerTechnologies-Public/external-elf2cfetbl.git
+	branch = dev
+[submodule "cfs/apps/cf"]
+	path = cfs/apps/cf
+	url = https://github.com/VoyagerTechnologies-Public/external-CF.git
+	branch = dev
+[submodule "cfs/apps/ci_lab"]
+	path = cfs/apps/ci_lab
+	url = https://github.com/VoyagerTechnologies-Public/external-ci_lab.git
+	branch = dev
+[submodule "cfs/apps/ds"]
+	path = cfs/apps/ds
+	url = https://github.com/VoyagerTechnologies-Public/external-DS.git
+	branch = dev
+[submodule "cfs/apps/fm"]
+	path = cfs/apps/fm
+	url = https://github.com/VoyagerTechnologies-Public/external-FM.git
+	branch = dev
+[submodule "cfs/apps/lc"]
+	path = cfs/apps/lc
+	url = https://github.com/VoyagerTechnologies-Public/external-LC.git
+	branch = dev
+[submodule "cfs/apps/sc"]
+	path = cfs/apps/sc
+	url = https://github.com/VoyagerTechnologies-Public/external-SC.git
+	branch = dev
+[submodule "cfs/apps/sch"]
+	path = cfs/apps/sch
+	url = https://github.com/VoyagerTechnologies-Public/external-SCH.git
+	branch = master
+[submodule "cfs/apps/to_lab"]
+	path = cfs/apps/to_lab
+	url = https://github.com/VoyagerTechnologies-Public/external-to_lab.git
+	branch = dev
+[submodule "cfs/apps/io_lib"]
+	path = cfs/apps/io_lib
+	url = https://github.com/VoyagerTechnologies-Public/external-CFS_IO_LIB.git
+	branch = master
+[submodule "42"]
+	path = 42
+	url = https://github.com/VoyagerTechnologies-Public/external-42.git
+	branch = master
+[submodule "yamcs"]
+	path = yamcs
+	url = https://github.com/VoyagerTechnologies-Public/external-yamcs.git
+	branch = master
+[submodule "comp/cryptolib"]
+	path = comp/cryptolib
+	url = https://github.com/VoyagerTechnologies-Public/external-CryptoLib.git
+	branch = dev

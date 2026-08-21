@@ -1,0 +1,10 @@
+FROM ghcr.io/voyagertechnologies-public/shire-base:latest
+
+# Copy built FSW files into the image
+COPY build /app
+
+# Set working directory
+WORKDIR /app
+
+# Set command to run with default number of clients (can be overridden)
+CMD ["/app/simulith_server_standalone", "1"]

@@ -1,0 +1,17 @@
+# Build artifacts
+.container.stamp
+
+# Metadata
+.DS_Store
+.vscode
+*.tar.gz
+atlas/site
+atlas/.cache
+atlas/.venv
+build
+tmp
+
+# AIs
+.claude/
+.continue/
+.cursor/

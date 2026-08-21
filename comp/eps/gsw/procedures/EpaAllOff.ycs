@@ -1,0 +1,148 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Queued",
+    "wait": 1000
+  }
+}

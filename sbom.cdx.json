@@ -1,0 +1,577 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "version": 2,
+  "metadata": {
+    "timestamp": "2026-08-11T18:44:33Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "manual-sbom-audit",
+          "version": "2.0",
+          "description": "Source inventory reconciled against the checked-out Git submodules, manifests, Maven configuration, and Dockerfiles. Transitive and built-image dependencies are not resolved."
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/shire@1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "group": "VoyagerTechnologies-Public",
+      "name": "shire",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "description": "Software and Hardware Integration Runtime Environment",
+      "licenses": [
+        {
+          "license": {
+            "name": "Permissive Open-Source License v1.0",
+            "url": "https://github.com/VoyagerTechnologies-Public/shire/blob/main/LICENSE"
+          }
+        }
+      ],
+      "supplier": {
+        "name": "Voyager Technologies Inc.",
+        "url": ["https://voyagertechnologies.com"]
+      },
+      "purl": "pkg:github/VoyagerTechnologies-Public/shire@1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/VoyagerTechnologies-Public/shire.git"
+        }
+      ]
+    },
+    "authors": [{ "name": "Voyager Technologies Inc." }],
+    "properties": [
+      { "name": "shire:sbom:completeness", "value": "partial" },
+      { "name": "shire:vcs:commit", "value": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261" },
+      { "name": "shire:vcs:branch", "value": "1-setup" },
+      {
+        "name": "shire:sbom:gaps",
+        "value": "Maven and Python transitive dependencies; inherited and resolved container packages; exact versions for unconstrained packages; vulnerability scan results"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "shire:orchestrator",
+      "name": "SHIRE build orchestrator",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "properties": [{ "name": "shire:directory", "value": "cfg/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:simulith",
+      "name": "Simulith",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "properties": [{ "name": "shire:directory", "value": "simulith/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:adcs",
+      "name": "ADCS component",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "properties": [{ "name": "shire:directory", "value": "comp/adcs/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:eps",
+      "name": "EPS component",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "properties": [{ "name": "shire:directory", "value": "comp/eps/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:radio",
+      "name": "Radio component",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "scope": "required",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "properties": [{ "name": "shire:directory", "value": "comp/radio/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "shire:comp:demo",
+      "name": "Demo component",
+      "version": "1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "scope": "optional",
+      "licenses": [{ "license": { "name": "Permissive Open-Source License v1.0" } }],
+      "properties": [{ "name": "shire:directory", "value": "comp/demo/" }]
+    },
+
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-42@af31058313ad9837c0fba296897098c198bd17fd",
+      "name": "42 spacecraft simulator",
+      "version": "af31058313ad9837c0fba296897098c198bd17fd",
+      "scope": "required",
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-42@af31058313ad9837c0fba296897098c198bd17fd",
+      "hashes": [{ "alg": "SHA-1", "content": "af31058313ad9837c0fba296897098c198bd17fd" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-42.git" }],
+      "properties": [{ "name": "shire:directory", "value": "42/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-cFE@72a865663c5c167fbe523b3dd5fa950cf3796473",
+      "name": "Core Flight Executive (cFE)",
+      "version": "72a865663c5c167fbe523b3dd5fa950cf3796473",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-cFE@72a865663c5c167fbe523b3dd5fa950cf3796473",
+      "hashes": [{ "alg": "SHA-1", "content": "72a865663c5c167fbe523b3dd5fa950cf3796473" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-cFE.git" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/cfe/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-osal@5654aa05548be698b1f8e840c6ac86e241280a32",
+      "name": "Operating System Abstraction Layer (OSAL)",
+      "version": "5654aa05548be698b1f8e840c6ac86e241280a32",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-osal@5654aa05548be698b1f8e840c6ac86e241280a32",
+      "hashes": [{ "alg": "SHA-1", "content": "5654aa05548be698b1f8e840c6ac86e241280a32" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-osal.git" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/osal/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-PSP@1b8f96ea225caefe763f4097bc411c6f58c9702a",
+      "name": "Platform Support Package (PSP)",
+      "version": "1b8f96ea225caefe763f4097bc411c6f58c9702a",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-PSP@1b8f96ea225caefe763f4097bc411c6f58c9702a",
+      "hashes": [{ "alg": "SHA-1", "content": "1b8f96ea225caefe763f4097bc411c6f58c9702a" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-PSP.git" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/psp/" }]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-elf2cfetbl@e888aa04fd4dcb77ace5ac218300266fe568f1dc",
+      "name": "elf2cfetbl",
+      "version": "e888aa04fd4dcb77ace5ac218300266fe568f1dc",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-elf2cfetbl@e888aa04fd4dcb77ace5ac218300266fe568f1dc",
+      "hashes": [{ "alg": "SHA-1", "content": "e888aa04fd4dcb77ace5ac218300266fe568f1dc" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-elf2cfetbl.git" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/tools/elf2cfetbl/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-CF@4f751647df1a83e9d0897879f759213e7e803e14",
+      "name": "CF (CFDP)",
+      "version": "4f751647df1a83e9d0897879f759213e7e803e14",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-CF@4f751647df1a83e9d0897879f759213e7e803e14",
+      "hashes": [{ "alg": "SHA-1", "content": "4f751647df1a83e9d0897879f759213e7e803e14" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/cf/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-ci_lab@7a006e4429e08b50d4a58fafbcb9e4899306fcb4",
+      "name": "CI Lab",
+      "version": "7a006e4429e08b50d4a58fafbcb9e4899306fcb4",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-ci_lab@7a006e4429e08b50d4a58fafbcb9e4899306fcb4",
+      "hashes": [{ "alg": "SHA-1", "content": "7a006e4429e08b50d4a58fafbcb9e4899306fcb4" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/ci_lab/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-DS@73d680405833b849486511b9c2d4ab60209e9b9e",
+      "name": "DS",
+      "version": "73d680405833b849486511b9c2d4ab60209e9b9e",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-DS@73d680405833b849486511b9c2d4ab60209e9b9e",
+      "hashes": [{ "alg": "SHA-1", "content": "73d680405833b849486511b9c2d4ab60209e9b9e" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/ds/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-FM@7c1982e8bde1f227e786d1aa02f98b018fd56529",
+      "name": "FM",
+      "version": "7c1982e8bde1f227e786d1aa02f98b018fd56529",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-FM@7c1982e8bde1f227e786d1aa02f98b018fd56529",
+      "hashes": [{ "alg": "SHA-1", "content": "7c1982e8bde1f227e786d1aa02f98b018fd56529" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/fm/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-CFS_IO_LIB@328f79ca75208dc4b6da950133f4ae418460da1c",
+      "name": "IO Lib",
+      "version": "328f79ca75208dc4b6da950133f4ae418460da1c",
+      "scope": "required",
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-CFS_IO_LIB@328f79ca75208dc4b6da950133f4ae418460da1c",
+      "hashes": [{ "alg": "SHA-1", "content": "328f79ca75208dc4b6da950133f4ae418460da1c" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/io_lib/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-LC@0ad442f83f01bf94afd9e4376e16245af0af1f36",
+      "name": "LC",
+      "version": "0ad442f83f01bf94afd9e4376e16245af0af1f36",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-LC@0ad442f83f01bf94afd9e4376e16245af0af1f36",
+      "hashes": [{ "alg": "SHA-1", "content": "0ad442f83f01bf94afd9e4376e16245af0af1f36" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/lc/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-SC@86cfe00d89f1dc09c09a2e3bcd84d968050ef25e",
+      "name": "SC",
+      "version": "86cfe00d89f1dc09c09a2e3bcd84d968050ef25e",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-SC@86cfe00d89f1dc09c09a2e3bcd84d968050ef25e",
+      "hashes": [{ "alg": "SHA-1", "content": "86cfe00d89f1dc09c09a2e3bcd84d968050ef25e" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/sc/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-SCH@28110189859131739375414b80d2af6d604690dc",
+      "name": "SCH",
+      "version": "28110189859131739375414b80d2af6d604690dc",
+      "scope": "required",
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-SCH@28110189859131739375414b80d2af6d604690dc",
+      "hashes": [{ "alg": "SHA-1", "content": "28110189859131739375414b80d2af6d604690dc" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/sch/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-to_lab@9ca4f85d9d10df5170b542792ab34d79144e417f",
+      "name": "TO Lab",
+      "version": "9ca4f85d9d10df5170b542792ab34d79144e417f",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-to_lab@9ca4f85d9d10df5170b542792ab34d79144e417f",
+      "hashes": [{ "alg": "SHA-1", "content": "9ca4f85d9d10df5170b542792ab34d79144e417f" }],
+      "properties": [{ "name": "shire:directory", "value": "cfs/apps/to_lab/" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-CryptoLib@f8ee0237ac36acd8bed0c490caa3b932a6d71a75",
+      "name": "CryptoLib",
+      "version": "f8ee0237ac36acd8bed0c490caa3b932a6d71a75",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "NASA-1.3" } }],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-CryptoLib@f8ee0237ac36acd8bed0c490caa3b932a6d71a75",
+      "hashes": [{ "alg": "SHA-1", "content": "f8ee0237ac36acd8bed0c490caa3b932a6d71a75" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-CryptoLib.git" }],
+      "properties": [{ "name": "shire:directory", "value": "comp/cryptolib/" }]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-yamcs@7c77ecce36025c0e314a5eed265d15098214d4ed",
+      "name": "SHIRE YAMCS",
+      "version": "7c77ecce36025c0e314a5eed265d15098214d4ed",
+      "scope": "required",
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-yamcs@7c77ecce36025c0e314a5eed265d15098214d4ed",
+      "hashes": [{ "alg": "SHA-1", "content": "7c77ecce36025c0e314a5eed265d15098214d4ed" }],
+      "externalReferences": [{ "type": "vcs", "url": "https://github.com/VoyagerTechnologies-Public/external-yamcs.git" }],
+      "properties": [{ "name": "shire:directory", "value": "yamcs/" }]
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.yamcs/yamcs-core@5.13.0",
+      "group": "org.yamcs",
+      "name": "yamcs-core",
+      "version": "5.13.0",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "AGPL-3.0-only" } }],
+      "purl": "pkg:maven/org.yamcs/yamcs-core@5.13.0",
+      "properties": [{ "name": "shire:note:transitive", "value": "Transitive dependencies are not enumerated" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.yamcs/yamcs-web@5.13.0",
+      "group": "org.yamcs",
+      "name": "yamcs-web",
+      "version": "5.13.0",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "AGPL-3.0-only" } }],
+      "purl": "pkg:maven/org.yamcs/yamcs-web@5.13.0"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.yamcs/yamcs-maven-plugin@1.3.7",
+      "group": "org.yamcs",
+      "name": "yamcs-maven-plugin",
+      "version": "1.3.7",
+      "scope": "excluded",
+      "purl": "pkg:maven/org.yamcs/yamcs-maven-plugin@1.3.7"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.apache.maven.plugins/maven-compiler-plugin@3.15.0",
+      "group": "org.apache.maven.plugins",
+      "name": "maven-compiler-plugin",
+      "version": "3.15.0",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:maven/org.apache.maven.plugins/maven-compiler-plugin@3.15.0"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.apache.maven.plugins/maven-site-plugin@3.21.0",
+      "group": "org.apache.maven.plugins",
+      "name": "maven-site-plugin",
+      "version": "3.21.0",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:maven/org.apache.maven.plugins/maven-site-plugin@3.21.0"
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:maven/org.apache.maven.plugins/maven-project-info-reports-plugin@3.4.3",
+      "group": "org.apache.maven.plugins",
+      "name": "maven-project-info-reports-plugin",
+      "version": "3.4.3",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:maven/org.apache.maven.plugins/maven-project-info-reports-plugin@3.4.3"
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml",
+      "name": "pyyaml",
+      "scope": "required",
+      "purl": "pkg:pypi/pyyaml",
+      "properties": [{ "name": "shire:version:pinned", "value": "false" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/jinja2",
+      "name": "jinja2",
+      "scope": "required",
+      "purl": "pkg:pypi/jinja2",
+      "properties": [{ "name": "shire:version:pinned", "value": "false" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/yamcs-client@1.9.0",
+      "name": "yamcs-client",
+      "version": "1.9.0",
+      "scope": "required",
+      "purl": "pkg:pypi/yamcs-client@1.9.0",
+      "properties": [{ "name": "shire:version:constraint", "value": ">=1.9.0; resolved version is not pinned" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.31.0",
+      "name": "requests",
+      "version": "2.31.0",
+      "scope": "required",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:pypi/requests@2.31.0",
+      "properties": [{ "name": "shire:version:constraint", "value": ">=2.31.0; resolved version is not pinned" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/sphinx@8.0",
+      "name": "sphinx",
+      "version": "8.0",
+      "scope": "excluded",
+      "purl": "pkg:pypi/sphinx@8.0",
+      "properties": [{ "name": "shire:version:constraint", "value": ">=8.0; resolved version is not pinned" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/sphinx-rtd-theme",
+      "name": "sphinx-rtd-theme",
+      "scope": "excluded",
+      "purl": "pkg:pypi/sphinx-rtd-theme",
+      "properties": [{ "name": "shire:version:pinned", "value": "false" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/myst-parser",
+      "name": "myst-parser",
+      "scope": "excluded",
+      "purl": "pkg:pypi/myst-parser",
+      "properties": [{ "name": "shire:version:pinned", "value": "false" }]
+    },
+
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/wolfSSL/wolfssl@v5.7.6-stable",
+      "name": "wolfSSL",
+      "version": "5.7.6-stable",
+      "scope": "required",
+      "licenses": [{ "expression": "GPL-2.0-only OR LicenseRef-wolfSSL-Commercial" }],
+      "purl": "pkg:github/wolfSSL/wolfssl@v5.7.6-stable",
+      "properties": [{ "name": "shire:build:provenance", "value": "Downloaded as a tag-named archive without checksum verification" }]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/AFLplusplus/AFLplusplus@v4.31c",
+      "name": "AFLplusplus",
+      "version": "v4.31c",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:github/AFLplusplus/AFLplusplus@v4.31c",
+      "properties": [{ "name": "shire:build:provenance", "value": "Cloned by tag without commit pinning" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/libgcrypt@1.11.0",
+      "name": "libgcrypt",
+      "version": "1.11.0",
+      "scope": "optional",
+      "purl": "pkg:generic/libgcrypt@1.11.0",
+      "properties": [{ "name": "shire:source", "value": "Optional CryptoLib update_env.sh source download; container builds otherwise use an unpinned distribution package" }]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/libgpg-error@1.50",
+      "name": "libgpg-error",
+      "version": "1.50",
+      "scope": "optional",
+      "purl": "pkg:generic/libgpg-error@1.50",
+      "properties": [{ "name": "shire:source", "value": "Optional CryptoLib update_env.sh source download; no checksum verification" }]
+    },
+
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/debian@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd",
+      "name": "debian",
+      "version": "bookworm-slim",
+      "scope": "required",
+      "purl": "pkg:oci/debian@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd?repository_url=index.docker.io%2Flibrary&tag=bookworm-slim",
+      "hashes": [{ "alg": "SHA-256", "content": "6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd" }],
+      "properties": [{ "name": "shire:image:pinned", "value": "true" }]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/maven@3.9.9-eclipse-temurin-17",
+      "name": "maven",
+      "version": "3.9.9-eclipse-temurin-17",
+      "scope": "required",
+      "purl": "pkg:oci/maven@3.9.9-eclipse-temurin-17?repository_url=index.docker.io%2Flibrary",
+      "properties": [{ "name": "shire:image:pinned", "value": "false" }]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/ubuntu@noble-20250127",
+      "name": "ubuntu",
+      "version": "noble-20250127",
+      "scope": "excluded",
+      "purl": "pkg:oci/ubuntu@noble-20250127?repository_url=index.docker.io%2Flibrary",
+      "properties": [{ "name": "shire:image:pinned", "value": "false" }]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/x-vnc@latest?repository_url=ghcr.io%2Fhaisamido",
+      "name": "ghcr.io/haisamido/x-vnc",
+      "version": "latest",
+      "scope": "required",
+      "purl": "pkg:oci/x-vnc@latest?repository_url=ghcr.io%2Fhaisamido",
+      "properties": [{ "name": "shire:image:pinned", "value": "false" }]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/shire-base@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "name": "ghcr.io/voyagertechnologies-public/shire-base",
+      "version": "latest",
+      "scope": "required",
+      "purl": "pkg:oci/shire-base@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "properties": [{ "name": "shire:image:pinned", "value": "false" }, { "name": "shire:dockerfile", "value": "cfg/Dockerfile.base" }]
+    },
+    {
+      "type": "container",
+      "bom-ref": "pkg:oci/shire-yamcs@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "name": "ghcr.io/voyagertechnologies-public/shire-yamcs",
+      "version": "latest",
+      "scope": "required",
+      "purl": "pkg:oci/shire-yamcs@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "properties": [{ "name": "shire:image:pinned", "value": "false" }, { "name": "shire:dockerfile", "value": "yamcs/Dockerfile.yamcs" }]
+    },
+
+    {
+      "type": "application",
+      "bom-ref": "pkg:generic/apache-maven@3.9.9",
+      "name": "Apache Maven",
+      "version": "3.9.9",
+      "scope": "excluded",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "purl": "pkg:generic/apache-maven@3.9.9",
+      "properties": [{ "name": "shire:build:provenance", "value": "Maven wrapper distribution has no distributionSha256Sum" }]
+    },
+    {
+      "type": "framework",
+      "bom-ref": "pkg:generic/eclipse-temurin@17",
+      "name": "Eclipse Temurin JDK",
+      "version": "17",
+      "scope": "required",
+      "purl": "pkg:generic/eclipse-temurin@17"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:github/VoyagerTechnologies-Public/shire@1d4ee967fb2fe21aadd7b51a31fde56e5214c261",
+      "dependsOn": [
+        "shire:orchestrator",
+        "shire:simulith",
+        "shire:comp:adcs",
+        "shire:comp:eps",
+        "shire:comp:radio",
+        "shire:comp:demo",
+        "pkg:github/VoyagerTechnologies-Public/external-42@af31058313ad9837c0fba296897098c198bd17fd",
+        "pkg:github/VoyagerTechnologies-Public/external-cFE@72a865663c5c167fbe523b3dd5fa950cf3796473",
+        "pkg:github/VoyagerTechnologies-Public/external-osal@5654aa05548be698b1f8e840c6ac86e241280a32",
+        "pkg:github/VoyagerTechnologies-Public/external-PSP@1b8f96ea225caefe763f4097bc411c6f58c9702a",
+        "pkg:github/VoyagerTechnologies-Public/external-elf2cfetbl@e888aa04fd4dcb77ace5ac218300266fe568f1dc",
+        "pkg:github/VoyagerTechnologies-Public/external-CF@4f751647df1a83e9d0897879f759213e7e803e14",
+        "pkg:github/VoyagerTechnologies-Public/external-ci_lab@7a006e4429e08b50d4a58fafbcb9e4899306fcb4",
+        "pkg:github/VoyagerTechnologies-Public/external-DS@73d680405833b849486511b9c2d4ab60209e9b9e",
+        "pkg:github/VoyagerTechnologies-Public/external-FM@7c1982e8bde1f227e786d1aa02f98b018fd56529",
+        "pkg:github/VoyagerTechnologies-Public/external-CFS_IO_LIB@328f79ca75208dc4b6da950133f4ae418460da1c",
+        "pkg:github/VoyagerTechnologies-Public/external-LC@0ad442f83f01bf94afd9e4376e16245af0af1f36",
+        "pkg:github/VoyagerTechnologies-Public/external-SC@86cfe00d89f1dc09c09a2e3bcd84d968050ef25e",
+        "pkg:github/VoyagerTechnologies-Public/external-SCH@28110189859131739375414b80d2af6d604690dc",
+        "pkg:github/VoyagerTechnologies-Public/external-to_lab@9ca4f85d9d10df5170b542792ab34d79144e417f",
+        "pkg:github/VoyagerTechnologies-Public/external-CryptoLib@f8ee0237ac36acd8bed0c490caa3b932a6d71a75",
+        "pkg:github/VoyagerTechnologies-Public/external-yamcs@7c77ecce36025c0e314a5eed265d15098214d4ed"
+      ]
+    },
+    {
+      "ref": "pkg:github/VoyagerTechnologies-Public/external-yamcs@7c77ecce36025c0e314a5eed265d15098214d4ed",
+      "dependsOn": [
+        "pkg:maven/org.yamcs/yamcs-core@5.13.0",
+        "pkg:maven/org.yamcs/yamcs-web@5.13.0",
+        "pkg:pypi/yamcs-client@1.9.0",
+        "pkg:pypi/requests@2.31.0"
+      ]
+    },
+    {
+      "ref": "pkg:github/VoyagerTechnologies-Public/external-CryptoLib@f8ee0237ac36acd8bed0c490caa3b932a6d71a75",
+      "dependsOn": [
+        "pkg:github/wolfSSL/wolfssl@v5.7.6-stable",
+        "pkg:generic/libgcrypt@1.11.0"
+      ]
+    },
+    {
+      "ref": "shire:orchestrator",
+      "dependsOn": ["pkg:pypi/pyyaml", "pkg:pypi/jinja2"]
+    }
+  ]
+}
