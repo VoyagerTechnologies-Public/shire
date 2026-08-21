@@ -33,7 +33,7 @@ CF_ConfigTable_t CF_config_table = {
      {
          /* channel 0 */
          5,      /* max number of outgoing messages per wakeup */
-         5,      /* max number of rx messages per wakeup */
+         16,     /* max number of rx messages per wakeup */
          3,      /* ACK timer */
          3,      /* NAK timer */
          30,     /* inactivity timer */
@@ -41,7 +41,7 @@ CF_ConfigTable_t CF_config_table = {
          10,     /* NAK limit */
          0x1FFD, /* input message id */
          0x0FFD, /* output message id */
-         16,     /* input pipe depth */
+         32,     /* input pipe depth */
          {       /* polling directory configuration for CF_MAX_POLLING_DIR_PER_CHAN */
           {
               /* polling directory 0 */
