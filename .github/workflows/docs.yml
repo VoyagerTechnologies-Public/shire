@@ -1,0 +1,48 @@
+name: Documentation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Atlas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out YAMCS
+        run: git submodule update --init yamcs
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.x
+      - run: python3 -m pip install --requirement requirements.txt
+        working-directory: atlas
+      - run: python3 atlas/scripts/check_docs.py
+      - run: python3 -m zensical build --clean --strict
+        working-directory: atlas
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: atlas/site
+
+  deploy:
+    name: Publish Atlas
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/configure-pages@v6
+      - uses: actions/deploy-pages@v5
+        id: deployment

@@ -6,6 +6,8 @@
 .vscode
 *.tar.gz
 atlas/site
+atlas/.cache
+atlas/.venv
 build
 tmp
 

@@ -38,6 +38,12 @@ updates:
       - "*"
     multi-ecosystem-group: all-dependencies
 
+  - package-ecosystem: pip
+    directory: /atlas
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-dependencies
+
   - package-ecosystem: maven
     directory: /yamcs
     patterns:

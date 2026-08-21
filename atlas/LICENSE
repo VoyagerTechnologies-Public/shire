@@ -1,0 +1,50 @@
+Permissive Open-Source License
+Version 1.0
+Copyright © 2025 Voyager Technologies Inc.
+
+Permission is hereby granted, free of charge, to any person or organization obtaining a copy of this software (“You”) and associated documentation files, source code, object code, build files, configuration files, and related materials collectively referred to as the “Software,” to use, reproduce, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the following conditions.
+
+1. Grant of Rights
+Subject to the terms of this License, each copyright holder grants You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense, and distribute the Software and such derivative works in source or object form.
+
+2. Patent Grant
+Subject to the terms of this License, each contributor grants You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Software.
+This patent license applies only to patent claims that are necessarily infringed by the contributor’s contribution alone or by combination of the contributor’s contribution with the Software to which the contribution was submitted.
+If You institute patent litigation against any contributor alleging that the Software or a contribution incorporated within the Software constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License shall terminate as of the date such litigation is filed.
+
+3. Redistribution
+You may reproduce and distribute copies of the Software or derivative works thereof in any medium, with or without modifications, and in source or object form, provided that You meet the following conditions:
+   1.	You must provide a copy of this License with any distribution of the Software or derivative works.
+   2.	You must retain all copyright, patent, trademark, and attribution notices from the original Software, excluding notices that do not pertain to any part of the derivative works.
+   3.	If You modify the Software, You must include a prominent notice stating that You changed the Software.
+   4.	You may add Your own copyright statements to Your modifications and may provide additional or different license terms for Your modifications, provided that Your use, reproduction, and distribution of the original Software remains compliant with this License.
+
+4. Contributions
+Unless explicitly stated otherwise, any contribution intentionally submitted for inclusion in the Software by You shall be licensed under the terms of this License.
+A “contribution” includes any source code, object code, documentation, patch, pull request, issue submission, design proposal, or other work submitted to the copyright holder or project maintainers for the purpose of inclusion in the Software.
+
+5. Trademarks
+This License does not grant permission to use the trade names, trademarks, service marks, logos, or product names of the copyright holder or any contributor, except as required for reasonable and customary attribution or to describe the origin of the Software.
+
+6. No Warranty
+THE SOFTWARE IS PROVIDED “AS IS,” “WITH ALL FAULTS,” AND WITHOUT WARRANTY OF ANY KIND.
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDERS, AUTHORS, MAINTAINERS, AND CONTRIBUTORS DISCLAIM ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, SECURITY, RELIABILITY, ACCURACY, AVAILABILITY, QUIET ENJOYMENT, AND ANY WARRANTIES ARISING OUT OF COURSE OF DEALING, COURSE OF PERFORMANCE, OR USAGE OF TRADE.
+NO COPYRIGHT HOLDER, AUTHOR, MAINTAINER, OR CONTRIBUTOR WARRANTS THAT THE SOFTWARE WILL OPERATE WITHOUT INTERRUPTION, BE ERROR-FREE, BE SECURE, MEET YOUR REQUIREMENTS, OR BE FREE FROM DEFECTS, VULNERABILITIES, MALICIOUS CODE, DATA LOSS, OR OTHER HARMFUL COMPONENTS.
+
+7. Limitation of Liability
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL ANY COPYRIGHT HOLDER, AUTHOR, MAINTAINER, OR CONTRIBUTOR BE LIABLE FOR ANY CLAIM, DAMAGES, LOSSES, COSTS, EXPENSES, OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT, STRICT LIABILITY, EQUITY, NEGLIGENCE, WARRANTY, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE, INABILITY TO USE, MODIFICATION, DISTRIBUTION, PERFORMANCE, OR OPERATION OF THE SOFTWARE.
+THIS LIMITATION INCLUDES, WITHOUT LIMITATION, LIABILITY FOR DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES, INCLUDING LOSS OF PROFITS, LOSS OF REVENUE, LOSS OF DATA, LOSS OF GOODWILL, BUSINESS INTERRUPTION, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES, SECURITY INCIDENTS, SYSTEM FAILURES, OR ANY OTHER COMMERCIAL OR PERSONAL DAMAGES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+8. Assumption of Risk
+You are solely responsible for evaluating the suitability, security, legality, reliability, and performance of the Software for Your intended use.
+You assume all risks associated with using, modifying, distributing, deploying, or relying upon the Software, including risks related to cybersecurity, regulatory compliance, data protection, safety-critical systems, export controls, and operational availability.
+
+9. Third-Party Components
+The Software may include or interact with third-party components, libraries, services, tools, or dependencies. Such third-party materials may be subject to separate license terms. This License does not modify or supersede any third-party license obligations.
+
+10. Compliance With Laws
+You are responsible for complying with all applicable laws, regulations, rules, and governmental requirements in connection with Your use, reproduction, modification, distribution, export, import, or deployment of the Software.
+
+11. Acceptance
+By using, copying, modifying, distributing, or contributing to the Software, You accept and agree to be bound by the terms of this License.
+If You do not agree to the terms of this License, do not use, copy, modify, distribute, or contribute to the Software.
