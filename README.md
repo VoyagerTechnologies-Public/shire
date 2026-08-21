@@ -39,7 +39,8 @@ Once they are installed, you can:
 
 ## Documentation
 
-The SHIRE Atlas is maintained as a self contained project in [atlas](atlas) and configured by [atlas/zensical.toml](atlas/zensical.toml).
+The [SHIRE Atlas](https://voyagertechnologies-public.github.io/shire/) is the published project documentation.
+Its source is maintained as a self contained project in [atlas](atlas) and configured by [atlas/zensical.toml](atlas/zensical.toml).
 To preview it locally:
 
 ```sh
