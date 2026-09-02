@@ -30,7 +30,7 @@ debug:
 	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) /bin/bash
 
 runtime:
-	$(MAKE) clean build && docker build -t $(RUNTIME_NAME) -f ../support/Dockerfile.cli --build-arg BUILDDIR=$$(realpath --relative-to=$(SHIRE_DIR) $(BUILDDIR)) $(SHIRE_DIR)
+	$(MAKE) clean build && docker build -t $(RUNTIME_NAME) -f ../support/Dockerfile.cli --build-arg BUILDDIR=$$(python3 -c "import os.path; print(os.path.relpath('$(BUILDDIR)', '$(SHIRE_DIR)'))") $(SHIRE_DIR)
 
 start:
 	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_comp_run" $(BUILD_IMAGE) ./$(BUILDDIR)/adcs_cli
