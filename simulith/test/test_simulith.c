@@ -14,6 +14,10 @@
 #define CLIENT_ID    "test_client"
 #define TEST_TIME_S  1 // seconds
 
+#ifndef SIMULITH_SERVER_PATH
+#error "SIMULITH_SERVER_PATH must identify the standalone server executable"
+#endif
+
 static int ticks_received = 0;
 
 void setUp(void)
@@ -142,8 +146,48 @@ static void test_server_init_invalid_params(void)
     result = simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, -1, INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(-1, result);
 
+    result = simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, 33, INTERVAL_NS);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+
     result = simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, 1, 0);
     TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+static void test_server_periodic_broadcast_reporting(void)
+{
+    static const char pub[] = "ipc:///tmp/simulith-report-pub.sock";
+    static const char rep[] = "ipc:///tmp/simulith-report-rep.sock";
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_init(pub, rep, 1, INTERVAL_NS));
+    simulith_server_broadcast_for_test(10000000000ULL);
+    test_sleep_us(1000);
+    simulith_server_broadcast_for_test(20000000000ULL);
+    simulith_server_shutdown();
+}
+
+static void test_server_cli_command_parser(void)
+{
+    int paused = 0;
+    double speed = 1.0;
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("p", &paused, &speed));
+    TEST_ASSERT_EQUAL_INT(1, paused);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("p", &paused, &speed));
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("+", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 2.0);
+    speed = 1024.0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("+", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 1024.0);
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("-", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 512.0);
+    speed = 0.015625;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("-", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 0.015625);
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("unknown", &paused, &speed));
+    TEST_ASSERT_EQUAL_INT(1, simulith_server_process_cli_command_for_test("quit", &paused, &speed));
 }
 
 // Test invalid client initialization
@@ -158,7 +202,13 @@ static void test_client_init_invalid_address(void)
 
 static void test_client_init_invalid_params(void)
 {
-    int result = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, NULL, INTERVAL_NS);
+    int result = simulith_client_init(NULL, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+
+    result = simulith_client_init(LOCAL_PUB_ADDR, NULL, CLIENT_ID, INTERVAL_NS);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+
+    result = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, NULL, INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(-1, result);
 
     result = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "", INTERVAL_NS);
@@ -166,6 +216,11 @@ static void test_client_init_invalid_params(void)
 
     result = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, CLIENT_ID, 0);
     TEST_ASSERT_EQUAL_INT(-1, result);
+
+    uint64_t tick = 0;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_wait_for_tick(NULL));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_wait_for_tick(&tick));
+    simulith_client_shutdown();
 }
 
 // Test handshake without server
@@ -281,21 +336,30 @@ static void test_server_ack_handling(void)
 // Test server CLI: send a sequence of commands via a pipe to stdin to trigger pause/play and speed changes
 static void test_server_cli_commands(void)
 {
-    // Start server in a thread and then send commands to its stdin via popen of the standalone
+    int input_pipe[2];
+    TEST_ASSERT_EQUAL_INT(0, pipe(input_pipe));
     pid_t pid = fork();
     if (pid == 0) {
-        // Child: exec the standalone server with 1 client
-        execlp("./build/simulith_server_standalone", "simulith_server_standalone", "1", (char *)NULL);
+        close(input_pipe[1]);
+        dup2(input_pipe[0], STDIN_FILENO);
+        close(input_pipe[0]);
+        execl(SIMULITH_SERVER_PATH, "simulith_server_standalone", "1", (char *)NULL);
         _exit(127);
     }
 
-    // Parent: allow server to start, then write commands to its stdin via /proc/<pid>/fd/0 is not writable
-    // Instead we sleep a bit and then kill to trigger clean shutdown path (this exercises startup and shutdown)
-    sleep(1);
-    kill(pid, SIGTERM);
+    close(input_pipe[0]);
+    test_sleep_us(50000);
+    char reply[16] = {0};
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY CLI", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    TEST_ASSERT_EQUAL_INT(2, (int)write(input_pipe[1], "p\n", 2));
+    test_sleep_us(150000);
+    TEST_ASSERT_EQUAL_INT(5, (int)write(input_pipe[1], "quit\n", 5));
+    close(input_pipe[1]);
     int status = 0;
     waitpid(pid, &status, 0);
-    TEST_ASSERT_TRUE(WIFEXITED(status) || WIFSIGNALED(status));
+    TEST_ASSERT_TRUE(WIFEXITED(status));
+    TEST_ASSERT_EQUAL_INT(0, WEXITSTATUS(status));
 }
 
 // Test that the standalone server exits with non-zero on invalid arg
@@ -363,6 +427,8 @@ int main(void)
     RUN_TEST(test_synchronization_tick_exchange);
     RUN_TEST(test_server_init_invalid_address);
     RUN_TEST(test_server_init_invalid_params);
+    RUN_TEST(test_server_periodic_broadcast_reporting);
+    RUN_TEST(test_server_cli_command_parser);
     RUN_TEST(test_client_init_invalid_address);
     RUN_TEST(test_client_init_invalid_params);
     RUN_TEST(test_client_handshake_no_server);

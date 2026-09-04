@@ -4,7 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
+
+#ifndef DIRECTOR_FIXTURE_DIR
+#error "DIRECTOR_FIXTURE_DIR must identify the test plugin directory"
+#endif
 
 struct component_state
 {
@@ -19,6 +24,90 @@ static int                    fake_backdoor_calls;
 static uint16_t               fake_backdoor_command;
 static uint8_t                fake_backdoor_payload[16];
 static size_t                 fake_backdoor_payload_length;
+
+typedef struct
+{
+    int listen_fd;
+    int exchanges;
+    int commands_seen;
+} director_42_server_t;
+
+static int recv_exact(int socket_fd, void *buffer, size_t length)
+{
+    size_t received = 0;
+    while (received < length) {
+        ssize_t count = recv(socket_fd, (uint8_t *)buffer + received,
+                             length - received, 0);
+        if (count <= 0)
+            return -1;
+        received += (size_t)count;
+    }
+    return 0;
+}
+
+static int open_loopback_listener(uint16_t *port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+    int reuse = 1;
+    (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        listen(fd, 1) != 0) {
+        close(fd);
+        return -1;
+    }
+    socklen_t length = sizeof(address);
+    if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) {
+        close(fd);
+        return -1;
+    }
+    *port = ntohs(address.sin_port);
+    return fd;
+}
+
+static void *director_42_server(void *argument)
+{
+    director_42_server_t *server = argument;
+    int client = accept(server->listen_fd, NULL, NULL);
+    if (client < 0)
+        return NULL;
+    static const char state[] =
+        "TIME 2026-001-00:00:01.0\n"
+        "SC[0].svb = [1 0 0]\n"
+        "Orb[0].PosN = [2 3 4]\n";
+    for (int i = 0; i < server->exchanges; i++) {
+        if (send(client, state, sizeof(state) - 1, 0) < 0)
+            break;
+        char buffer[2048];
+        if (recv_exact(client, buffer, 4) != 0)
+            break;
+        size_t used = 0;
+        buffer[0] = '\0';
+        while (!strstr(buffer, "[ENDMSG]\n") && used < sizeof(buffer) - 1) {
+            ssize_t count = recv(client, buffer + used, sizeof(buffer) - 1 - used, 0);
+            if (count <= 0) {
+                used = 0;
+                break;
+            }
+            used += (size_t)count;
+            buffer[used] = '\0';
+        }
+        if (used == 0)
+            break;
+        if (strstr(buffer, "[ENDMSG]"))
+            server->commands_seen++;
+        if (send(client, "Ack", 4, 0) < 0)
+            break;
+    }
+    close(client);
+    return NULL;
+}
 
 static int fake_init(component_state_t **state)
 {
@@ -103,13 +192,33 @@ static void test_parse_args(void)
     TEST_ASSERT_EQUAL_INT(100, config.time_step_ms);
     TEST_ASSERT_EQUAL_INT(1, config.enable_42);
 
-    char *options[] = {"director", "--verbose", "--42-config", "/tmp/42"};
-    TEST_ASSERT_EQUAL_INT(0, parse_args(4, options, &config));
+    char *options[] = {"director", "--verbose", "--enable-42", "--42-config", "/tmp/42"};
+    TEST_ASSERT_EQUAL_INT(0, parse_args(5, options, &config));
     TEST_ASSERT_EQUAL_INT(1, config.verbose);
     TEST_ASSERT_EQUAL_STRING("/tmp/42", config.fortytwo_config);
 
     char *help[] = {"director", "--help"};
     TEST_ASSERT_EQUAL_INT(-1, parse_args(2, help, &config));
+}
+
+static void test_component_loading_accepts_only_valid_plugins(void)
+{
+    director_config_t config;
+    memset(&config, 0, sizeof(config));
+    snprintf(config.components_dir, sizeof(config.components_dir), "%s",
+             DIRECTOR_FIXTURE_DIR);
+
+    TEST_ASSERT_EQUAL_INT(0, load_components(&config));
+    TEST_ASSERT_EQUAL_INT(1, config.component_count);
+    TEST_ASSERT_EQUAL_INT(3, config.lib_count);
+    TEST_ASSERT_NOT_NULL(config.components[0].interface);
+    TEST_ASSERT_EQUAL_STRING("director_fixture", config.components[0].interface->name);
+    TEST_ASSERT_NOT_NULL(config.components[0].lib_handle);
+    TEST_ASSERT_EQUAL_INT(1, config.components[0].active);
+
+    cleanup_components(&config);
+    TEST_ASSERT_EQUAL_INT(0, config.lib_count);
+    TEST_ASSERT_EQUAL_INT(0, config.components[0].active);
 }
 
 static void test_component_loading_paths(void)
@@ -176,6 +285,90 @@ static void test_initialization_failures_and_disabled_42(void)
     setenv("FORTYTWO_SOCKET_PATH", "/tmp/shire-no-42.sock", 1);
     TEST_ASSERT_EQUAL_INT(-1, initialize_42(&config));
     TEST_ASSERT_EQUAL_INT(0, config.enable_42);
+
+    config.enable_42 = 1;
+    unsetenv("FORTYTWO_SOCKET_PATH");
+    setenv("FORTYTWO_HOST", "127.0.0.1", 1);
+    setenv("FORTYTWO_PORT", "1", 1);
+    TEST_ASSERT_EQUAL_INT(-1, initialize_42(&config));
+    TEST_ASSERT_EQUAL_INT(0, config.enable_42);
+}
+
+static void test_telemetry_serialization(void)
+{
+    simulith_42_context_t context;
+    memset(&context, 0, sizeof(context));
+    context.dyn_time = 1.25;
+    context.pos_n[0] = 2.5;
+    context.sun_vector_body[2] = 3.75;
+    context.mag_field_body[1] = 4.5;
+    context.hvb[2] = 5.25;
+    context.wn[0] = 6.5;
+    context.qn[3] = 7.25;
+    context.mass = 8.5;
+    context.cm[2] = 9.25;
+    context.inertia[2][2] = 10.5;
+    context.eclipse = 1;
+    context.atmo_density = 11.25;
+
+    uint8_t packet[SIMULITH_42_TELEMETRY_SIZE];
+    TEST_ASSERT_EQUAL_size_t(0, simulith_serialize_42_telemetry(NULL, packet, sizeof(packet)));
+    TEST_ASSERT_EQUAL_size_t(0, simulith_serialize_42_telemetry(&context, NULL, sizeof(packet)));
+    TEST_ASSERT_EQUAL_size_t(0, simulith_serialize_42_telemetry(&context, packet, sizeof(packet) - 1));
+    TEST_ASSERT_EQUAL_size_t(sizeof(packet),
+                             simulith_serialize_42_telemetry(&context, packet, sizeof(packet)));
+
+    double value;
+    memcpy(&value, packet, sizeof(value));
+    TEST_ASSERT_TRUE(value == context.dyn_time);
+    memcpy(&value, packet + sizeof(double), sizeof(value));
+    TEST_ASSERT_TRUE(value == context.pos_n[0]);
+    memcpy(&value, packet + sizeof(packet) - sizeof(double), sizeof(value));
+    TEST_ASSERT_TRUE(value == context.atmo_density);
+}
+
+static void test_live_42_tick_and_telemetry(void)
+{
+    uint16_t port = 0;
+    director_42_server_t server = {
+        .listen_fd = open_loopback_listener(&port),
+        .exchanges = UDP_PUBLISH_INTERVAL_TICKS,
+    };
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, server.listen_fd);
+    pthread_t server_thread;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&server_thread, NULL, director_42_server, &server));
+
+    char port_string[16];
+    snprintf(port_string, sizeof(port_string), "%u", port);
+    setenv("FORTYTWO_HOST", "127.0.0.1", 1);
+    setenv("FORTYTWO_PORT", port_string, 1);
+    g_director_config.enable_42 = 1;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    TEST_ASSERT_EQUAL_INT(0, initialize_42(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(1, g_director_config.fortytwo_initialized);
+
+    double torque[4] = {0.25, 0.0, 0.0, 0.0};
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_wheel_command(0, torque, 1));
+    for (int i = 0; i < UDP_PUBLISH_INTERVAL_TICKS; i++)
+        on_tick((uint64_t)i * 1000000U);
+
+    cleanup_components(&g_director_config);
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(server_thread, NULL));
+    TEST_ASSERT_EQUAL_INT(UDP_PUBLISH_INTERVAL_TICKS, server.commands_seen);
+    close(server.listen_fd);
+}
+
+static void test_tick_handles_42_state_failure(void)
+{
+    g_director_config.enable_42 = 1;
+    g_director_config.fortytwo_initialized = 1;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    on_tick(123);
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.shared_context_42.valid);
+    g_director_config.enable_42 = 0;
+    g_director_config.fortytwo_initialized = 0;
+    cleanup_components(&g_director_config);
 }
 
 static void test_backdoor_rejects_malformed_and_dispatches_valid_packet(void)
@@ -232,9 +425,13 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_parse_args);
     RUN_TEST(test_component_loading_paths);
+    RUN_TEST(test_component_loading_accepts_only_valid_plugins);
     RUN_TEST(test_component_lifecycle_and_tick);
     RUN_TEST(test_initialization_failures_and_disabled_42);
     RUN_TEST(test_backdoor_rejects_malformed_and_dispatches_valid_packet);
     RUN_TEST(test_telemetry_initialization);
+    RUN_TEST(test_telemetry_serialization);
+    RUN_TEST(test_live_42_tick_and_telemetry);
+    RUN_TEST(test_tick_handles_42_state_failure);
     return UNITY_END();
 }

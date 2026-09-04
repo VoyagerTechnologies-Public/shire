@@ -439,7 +439,7 @@ int simulith_42_send_command_batch(const simulith_42_command_t *commands, int co
         
         /* Read acknowledgment from 42 (TXRX mode expects Ack response) */
         ssize_t ack_received = recv(g_client.socket_fd, ack, 4, 0);
-        if (ack_received < 0) {
+        if (ack_received <= 0) {
             fprintf(stderr, "[42-client] Failed to receive Ack from 42\n");
             return -1;
         }
@@ -472,7 +472,7 @@ int simulith_42_send_empty_commands(void)
     
     // Read acknowledgment from 42
     ssize_t ack_received = recv(g_client.socket_fd, ack, 4, 0);
-    if (ack_received < 0) {
+    if (ack_received <= 0) {
         fprintf(stderr, "[42-client] Failed to receive Ack from 42\n");
         return -1;
     }

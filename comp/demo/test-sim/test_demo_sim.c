@@ -26,6 +26,10 @@
 
 static void *g_handle                       = NULL;
 static const component_interface_t *g_iface = NULL;
+typedef int  (*demo_init_fn)(demo_sim_state_t *);
+typedef void (*demo_cleanup_fn)(demo_sim_state_t *);
+static demo_init_fn    g_demo_sim_init    = NULL;
+static demo_cleanup_fn g_demo_sim_cleanup = NULL;
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -148,6 +152,17 @@ static void test_cleanup_releases_ipc_socket(void)
     g_iface->cleanup(state);
 }
 
+static void test_public_lifecycle_helpers_reject_null(void)
+{
+    TEST_ASSERT_NOT_NULL(g_demo_sim_init);
+    TEST_ASSERT_NOT_NULL(g_demo_sim_cleanup);
+    TEST_ASSERT_EQUAL_INT(DEMO_SIM_ERROR, g_demo_sim_init(NULL));
+    g_demo_sim_cleanup(NULL);
+    g_iface->tick(NULL, 0ULL, NULL);
+    g_iface->cleanup(NULL);
+    g_iface->backdoor(NULL, DEMO_BD_SET_CONFIG, NULL, 0);
+}
+
 /* -------------------------------------------------------------------------
  * Backdoor command tests
  * -------------------------------------------------------------------------*/
@@ -221,6 +236,25 @@ static void test_backdoor_unknown_cmd_is_noop(void)
     TEST_ASSERT_EQUAL_HEX16(cfg_b4, ds->hk.DeviceConfig);
     TEST_ASSERT_EQUAL_UINT8(hkflag, ds->rand_hk_enabled);
     TEST_ASSERT_EQUAL_UINT8(dataflag, ds->rand_data_enabled);
+
+    g_iface->cleanup(state);
+}
+
+static void test_backdoor_short_payloads_use_documented_defaults(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t one_byte = 0xAB;
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, &one_byte, 1);
+    TEST_ASSERT_EQUAL_HEX16(0, ds->hk.DeviceConfig);
+
+    /* RAND commands intentionally treat an omitted value as "enable". */
+    g_iface->backdoor(state, DEMO_BD_RAND_HK, NULL, 0);
+    g_iface->backdoor(state, DEMO_BD_RAND_DATA, NULL, 0);
+    TEST_ASSERT_EQUAL_UINT8(1, ds->rand_hk_enabled);
+    TEST_ASSERT_EQUAL_UINT8(1, ds->rand_data_enabled);
 
     g_iface->cleanup(state);
 }
@@ -654,6 +688,9 @@ int main(void)
         return 1;
     }
 
+    g_demo_sim_init = (demo_init_fn)dlsym(g_handle, "demo_sim_init");
+    g_demo_sim_cleanup = (demo_cleanup_fn)dlsym(g_handle, "demo_sim_cleanup");
+
     UNITY_BEGIN();
 
     /* Lifecycle / loader */
@@ -662,12 +699,14 @@ int main(void)
     RUN_TEST(test_init_returns_success_and_state);
     RUN_TEST(test_tick_does_not_crash_with_null_42_context);
     RUN_TEST(test_cleanup_releases_ipc_socket);
+    RUN_TEST(test_public_lifecycle_helpers_reject_null);
 
     /* Backdoor */
     RUN_TEST(test_backdoor_set_config_writes_device_config);
     RUN_TEST(test_backdoor_rand_hk_toggles_flag);
     RUN_TEST(test_backdoor_rand_data_toggles_flag);
     RUN_TEST(test_backdoor_unknown_cmd_is_noop);
+    RUN_TEST(test_backdoor_short_payloads_use_documented_defaults);
 
     /* Tick paths */
     RUN_TEST(test_tick_with_rand_data_writes_8bit_random_channels);

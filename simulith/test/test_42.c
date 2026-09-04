@@ -28,6 +28,8 @@ static void test_enqueue_dequeue_basic(void)
     simulith_42_command_t cmd_out = {0};
     int rc;
 
+    TEST_ASSERT_EQUAL_INT(-1, enqueue_command(NULL));
+
     cmd_in.type = SIMULITH_42_CMD_MTB_TORQUE;
     cmd_in.spacecraft_id = 3;
     cmd_in.valid = 1;

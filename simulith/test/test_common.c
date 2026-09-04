@@ -7,22 +7,9 @@
 #include "simulith.h"
 #include "test_sleep.h"
 
-// Test-only helper: reset internals by accessing module globals directly.
-// When building tests we define SIMULITH_TESTING which makes these symbols
-// non-static in the implementation so they are visible here.
 extern int simulith_log_mode_initialized;
 extern int simulith_log_mode; /* enum type compatible with int */
 extern FILE *simulith_log_file;
-
-void simulith_log_reset_for_tests(void)
-{
-    if (simulith_log_file) {
-        fclose(simulith_log_file);
-        simulith_log_file = NULL;
-    }
-    simulith_log_mode_initialized = 0;
-    simulith_log_mode = 0; // LOG_MODE_STDOUT
-}
 
 void setUp(void) { }
 void tearDown(void) { }
@@ -93,6 +80,29 @@ static void test_log_none(void)
     unsetenv("SIMULITH_LOG_MODE");
 }
 
+static void test_log_invalid_mode_falls_back_and_reset_closes_file(void)
+{
+    setenv("SIMULITH_LOG_MODE", "invalid", 1);
+    simulith_log_reset_for_tests();
+    char *out = capture_stdout_of(call_log);
+    TEST_ASSERT_NOT_NULL(strstr(out, "hello-from-test"));
+    free(out);
+
+    setenv("SIMULITH_LOG_MODE", "file", 1);
+    simulith_log_reset_for_tests();
+    simulith_log("open-reset-file\n");
+    TEST_ASSERT_NOT_NULL(simulith_log_file);
+    simulith_log_reset_for_tests();
+    TEST_ASSERT_NULL(simulith_log_file);
+
+    /* Exercise the defensive fallback for a corrupted internal mode. */
+    simulith_log_mode_initialized = 1;
+    simulith_log_mode = 99;
+    simulith_log("ignored-invalid-internal-mode\n");
+    unsetenv("SIMULITH_LOG_MODE");
+    simulith_log_reset_for_tests();
+}
+
 static void test_log_file_and_both(void)
 {
     const char *logpath = "/tmp/simulith.log";
@@ -143,6 +153,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_log_default_stdout);
     RUN_TEST(test_log_none);
+    RUN_TEST(test_log_invalid_mode_falls_back_and_reset_closes_file);
     RUN_TEST(test_log_file_and_both);
     return UNITY_END();
 }

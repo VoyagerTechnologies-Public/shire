@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -44,6 +45,75 @@ static void *fake_42_server(void *arg)
     return NULL;
 }
 
+static void *closing_42_server(void *arg)
+{
+    int listen_fd = *(int *)arg;
+    int client = accept(listen_fd, NULL, NULL);
+    if (client >= 0)
+        close(client);
+    return NULL;
+}
+
+static int recv_exact_bytes(int socket_fd, void *buffer, size_t length)
+{
+    size_t received = 0;
+    while (received < length) {
+        ssize_t count = recv(socket_fd, (uint8_t *)buffer + received,
+                             length - received, 0);
+        if (count <= 0)
+            return -1;
+        received += (size_t)count;
+    }
+    return 0;
+}
+
+static void *close_before_command_ack_server(void *arg)
+{
+    int listen_fd = *(int *)arg;
+    int client = accept(listen_fd, NULL, NULL);
+    if (client < 0)
+        return NULL;
+    static const char state[] =
+        "TIME 2026-001-00:00:01.0\nSC[0].svb = [1 0 0]\n";
+    char buffer[2048];
+    send(client, state, sizeof(state) - 1, 0);
+    if (recv_exact_bytes(client, buffer, 4) == 0)
+        (void)recv(client, buffer, sizeof(buffer), 0);
+    close(client);
+    return NULL;
+}
+
+static int open_tcp_listener(uint16_t *port)
+{
+    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd < 0)
+        return -1;
+
+    int reuse = 1;
+    (void)setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (bind(listen_fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        listen(listen_fd, 1) != 0)
+    {
+        close(listen_fd);
+        return -1;
+    }
+
+    socklen_t address_length = sizeof(address);
+    if (getsockname(listen_fd, (struct sockaddr *)&address, &address_length) != 0)
+    {
+        close(listen_fd);
+        return -1;
+    }
+    *port = ntohs(address.sin_port);
+    return listen_fd;
+}
+
 void setUp(void)
 {
     simulith_42_cleanup();
@@ -81,6 +151,9 @@ static void test_unconnected_and_invalid_connections(void)
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_empty_commands());
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch(&command, 1));
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_init(long_path, 0));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("256.256.256.256", 1));
+    setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "2", 1);
+    setenv("SIMULITH_42_RECONNECT_DELAY_MS", "1", 1);
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("/tmp/shire-missing-42.sock", 0));
     TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
 }
@@ -141,11 +214,105 @@ static void test_unix_connection_state_and_commands(void)
     rmdir(directory);
 }
 
+static void test_tcp_connection_and_unsupported_command(void)
+{
+    uint16_t port = 0;
+    int listen_fd = open_tcp_listener(&port);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, listen_fd);
+
+    fake_42_t server = {.listen_fd = listen_fd};
+    pthread_t thread;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL, fake_42_server, &server));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init("127.0.0.1", port));
+
+    /* Invalid batches must be rejected without disturbing the connection. */
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch(NULL, 1));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch((simulith_42_command_t[1]){{0}}, 0));
+
+    simulith_42_context_t context;
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_request_state(&context));
+    TEST_ASSERT_EQUAL_INT(1, context.valid);
+
+    simulith_42_command_t unsupported = {
+        .valid = 1,
+        .type = SIMULITH_42_CMD_COUNT,
+    };
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_command_batch(&unsupported, 1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_empty_commands());
+
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+    TEST_ASSERT_NOT_NULL(strstr(server.batch, "[ENDMSG]"));
+    close(listen_fd);
+}
+
+static void test_tcp_retry_failure_uses_configured_delay(void)
+{
+    uint16_t port = 0;
+    int listen_fd = open_tcp_listener(&port);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, listen_fd);
+    close(listen_fd); /* Reserve an unused loopback port without an external dependency. */
+
+    setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "2", 1);
+    setenv("SIMULITH_42_RECONNECT_DELAY_MS", "1", 1);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", port));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
+}
+
+static void test_tcp_peer_disconnect_marks_connection_closed(void)
+{
+    uint16_t port = 0;
+    int listen_fd = open_tcp_listener(&port);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, listen_fd);
+
+    pthread_t thread;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL, closing_42_server, &listen_fd));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init("127.0.0.1", port));
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+
+    simulith_42_context_t context;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_request_state(&context));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
+    close(listen_fd);
+}
+
+static void test_command_acknowledgement_eof_is_an_error(void)
+{
+    for (int empty = 0; empty < 2; empty++) {
+        uint16_t port = 0;
+        int listen_fd = open_tcp_listener(&port);
+        TEST_ASSERT_GREATER_OR_EQUAL_INT(0, listen_fd);
+        pthread_t thread;
+        TEST_ASSERT_EQUAL_INT(0, pthread_create(
+            &thread, NULL, close_before_command_ack_server, &listen_fd));
+        TEST_ASSERT_EQUAL_INT(0, simulith_42_init("127.0.0.1", port));
+        simulith_42_context_t context;
+        TEST_ASSERT_EQUAL_INT(0, simulith_42_request_state(&context));
+
+        if (empty) {
+            TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_empty_commands());
+        } else {
+            simulith_42_command_t command = {
+                .type = SIMULITH_42_CMD_WHEEL_TORQUE,
+                .valid = 1,
+                .cmd.wheel.enable_mask = 1,
+            };
+            TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch(&command, 1));
+        }
+        TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+        simulith_42_cleanup();
+        close(listen_fd);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_parse_state_fields_and_eclipse);
     RUN_TEST(test_unconnected_and_invalid_connections);
     RUN_TEST(test_unix_connection_state_and_commands);
+    RUN_TEST(test_tcp_connection_and_unsupported_command);
+    RUN_TEST(test_tcp_retry_failure_uses_configured_delay);
+    RUN_TEST(test_tcp_peer_disconnect_marks_connection_closed);
+    RUN_TEST(test_command_acknowledgement_eof_is_an_error);
     return UNITY_END();
 }

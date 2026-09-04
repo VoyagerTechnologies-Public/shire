@@ -26,12 +26,15 @@ static void test_transport_init(void)
 {
     int result;
 
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR, simulith_transport_init(NULL));
+
     /* Example: port 0, A (server) and B (client) */
     strcpy(transport_a_ports[0].name, "tp0_a");
     strcpy(transport_a_ports[0].address, LOCAL_PUB_ADDR);
     transport_a_ports[0].is_server = 1;
     result = simulith_transport_init(&transport_a_ports[0]);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_a_ports[0]));
 
     strcpy(transport_b_ports[0].name, "tp0_b");
     strcpy(transport_b_ports[0].address, LOCAL_PUB_ADDR);
@@ -65,6 +68,20 @@ static void test_transport_init(void)
     transport_b_ports[last].is_server = 0;
     result = simulith_transport_init(&transport_b_ports[last]);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
+}
+
+static void test_transport_invalid_addresses(void)
+{
+    transport_port_t bind_port = {0};
+    strcpy(bind_port.name, "bad_bind");
+    strcpy(bind_port.address, "invalid://bind");
+    bind_port.is_server = 1;
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR, simulith_transport_init(&bind_port));
+
+    transport_port_t connect_port = {0};
+    strcpy(connect_port.address, "invalid://connect");
+    connect_port.is_server = 0;
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR, simulith_transport_init(&connect_port));
 }
 
 static void test_transport_send_receive(void)
@@ -155,8 +172,28 @@ static void test_transport_uninitialized_send(void)
 {
     transport_port_t uninit = {0};
     uint8_t buf[4] = {1,2,3,4};
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_send(NULL, buf, sizeof(buf)));
     int rc = simulith_transport_send(&uninit, buf, sizeof(buf));
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR, rc);
+
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_receive(NULL, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_receive(&uninit, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_available(NULL));
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_available(&uninit));
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_flush(NULL));
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_flush(&uninit));
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR,
+                      simulith_transport_close(NULL));
+
+    transport_port_t initialized_empty = {.init = SIMULITH_TRANSPORT_INITIALIZED};
+    TEST_ASSERT_EQUAL_INT(0, simulith_transport_receive(&initialized_empty, buf, sizeof(buf)));
 }
 
 static void test_transport_multiple_messages(void)
@@ -245,12 +282,23 @@ static void test_transport_partial_receive(void)
 static void test_transport_flush(void)
 {
     transport_port_t a = {0};
+    transport_port_t b = {0};
     strcpy(a.name, "flush_a");
     strcpy(a.address, "ipc:///tmp/simulith_pub:7010");
     a.is_server = 1;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&a));
+
+    strcpy(b.name, "flush_b");
+    strcpy(b.address, a.address);
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&b));
+    test_sleep_us(1000);
+    static const uint8_t message[] = {1, 2, 3};
+    TEST_ASSERT_EQUAL_INT((int)sizeof(message),
+                          simulith_transport_send(&b, message, sizeof(message)));
+    test_sleep_us(1000);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_flush(&a));
     simulith_transport_close(&a);
+    simulith_transport_close(&b);
 }
 
 static void test_transport_close_uninitialized(void)
@@ -264,6 +312,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_transport_init);
+    RUN_TEST(test_transport_invalid_addresses);
     RUN_TEST(test_transport_send_receive);
     RUN_TEST(test_transport_buffer_overflow);
     RUN_TEST(test_transport_uninitialized_send);

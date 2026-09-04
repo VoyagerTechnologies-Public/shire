@@ -78,6 +78,7 @@ extern int32 UT_CRYPTO_TC_ProcessSecurity_ReturnValue;
 extern int32 UT_CRYPTO_TM_ApplySecurity_ReturnValue;
 extern int32 UT_CRYPTO_SC_Init_ReturnValue;
 extern bool  UT_CRYPTO_Enable_Stubs;
+extern RADIO_Subs_t *RADIO_SubsTblPtr;
 static void TM_SDLP_InitChannel_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context);
 static uint32 RADIO_ReceiveData_HandlerCalls;
 
@@ -237,8 +238,83 @@ void Test_RADIO_AppInit(void)
                   (unsigned int)EventTest.MatchCount);
     UT_CRYPTO_SC_Init_ReturnValue = CRYPTO_LIB_SUCCESS;
 
+    /* IO_LIB setup failures are non-fatal but must be reported. */
+    UT_ResetState(0);
+    UT_SetDeferredRetcode(UT_KEY(TM_SYNC_LibInit), 1, TM_SYNC_INVALID_POINTER);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 1, "RADIO: TM_SYNC init failure event generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    UT_ResetState(0);
+    UT_SetDeferredRetcode(UT_KEY(TM_SDLP_InitChannel), 1, TM_SDLP_INVALID_POINTER);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 1, "RADIO: TM SDLP init failure event generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
     // UT_SetDeferredRetcode(UT_KEY(CFE_EVS_SendEvent), 1, CFE_SB_BAD_ARGUMENT);
     // UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SB_BAD_ARGUMENT);
+}
+
+void Test_RADIO_AppInit_SubscriptionTable(void)
+{
+    RADIO_Subs_t table;
+    memset(&table, 0, sizeof(table));
+    table.Subs[0].Stream = CFE_SB_ValueToMsgId(RADIO_HK_TLM_MID);
+    table.Subs[0].BufLimit = 2;
+    table.Subs[1].Stream = CFE_SB_INVALID_MSG_ID;
+
+    RADIO_Subs_t *table_ptr = &table;
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    /* The first SubscribeEx is the table entry; the later command subscription succeeds. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_SubscribeEx), 1, CFE_SB_BAD_ARGUMENT);
+
+    UT_CheckEvent_t EventTest;
+    UT_CheckEvent_Setup(&EventTest, RADIO_PIPE_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+
+    UtAssert_STUB_COUNT(CFE_SB_IsValidMsgId, 2);
+    UtAssert_STUB_COUNT(CFE_SB_SubscribeEx, 2);
+    UtAssert_True(EventTest.MatchCount == 1,
+                  "RADIO: Failed table subscription should generate one event (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    /* Avoid retaining a pointer to this test's stack after it returns. */
+    RADIO_SubsTblPtr = NULL;
+}
+
+void Test_RADIO_ProcessGroundCommand_Service(void)
+{
+    CFE_MSG_Message_t message;
+    memset(&message, 0, sizeof(message));
+    RADIO_AppData.MsgPtr = &message;
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_DISABLED;
+
+    CFE_SB_MsgId_t msg_id = CFE_SB_ValueToMsgId(RADIO_CMD_MID);
+    CFE_MSG_FcnCode_t function_code = RADIO_SERVICE_CC;
+    size_t size = sizeof(RADIO_NoArgs_cmd_t);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &msg_id, sizeof(msg_id), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &function_code, sizeof(function_code), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &size, sizeof(size), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    RADIO_ProcessGroundCommand();
+    UtAssert_STUB_COUNT(CFE_SB_ReceiveBuffer, 1);
+
+    /* Invalid service-command length must be rejected before servicing devices. */
+    UT_ResetState(0);
+    size = sizeof(RADIO_Config_cmd_t);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &msg_id, sizeof(msg_id), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &msg_id, sizeof(msg_id), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &function_code, sizeof(function_code), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &function_code, sizeof(function_code), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &size, sizeof(size), false);
+    UT_CheckEvent_t EventTest;
+    UT_CheckEvent_Setup(&EventTest, RADIO_LEN_ERR_EID, NULL);
+    RADIO_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1,
+                  "RADIO: Invalid service length should generate one event (%u)",
+                  (unsigned int)EventTest.MatchCount);
 }
 
 void Test_RADIO_ProcessTelemetryRequest(void)
@@ -1418,8 +1494,10 @@ void UtTest_Setup(void)
 {
     ADD_TEST(RADIO_AppMain);
     ADD_TEST(RADIO_AppInit);
+    ADD_TEST(RADIO_AppInit_SubscriptionTable);
     ADD_TEST(RADIO_ProcessCommandPacket);
     ADD_TEST(RADIO_ProcessGroundCommand);
+    ADD_TEST(RADIO_ProcessGroundCommand_Service);
     ADD_TEST(RADIO_ReportHousekeeping);
     ADD_TEST(RADIO_VerifyCmdLength);
     ADD_TEST(RADIO_ProcessTelemetryRequest);

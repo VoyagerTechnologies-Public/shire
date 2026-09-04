@@ -12,12 +12,12 @@ static int simulith_42_send_set_mode_with_extra(int spacecraft_id, int mode, con
 
 int enqueue_command(const simulith_42_command_t* cmd)
 {
+    if (!cmd) {
+        fprintf(stderr, "simulith: enqueue_command FAILED - cmd=NULL\n");
+        return -1;
+    }
     if (g_command_queue.count >= SIMULITH_42_CMD_QUEUE_SIZE) {
-        if (cmd) {
-            fprintf(stderr, "simulith: enqueue_command FAILED - queue full (type=%d sc=%d)\n", cmd->type, cmd->spacecraft_id);
-        } else {
-            fprintf(stderr, "simulith: enqueue_command FAILED - queue full (cmd=NULL)\n");
-        }
+        fprintf(stderr, "simulith: enqueue_command FAILED - queue full (type=%d sc=%d)\n", cmd->type, cmd->spacecraft_id);
         return -1;
     }
 
@@ -25,10 +25,8 @@ int enqueue_command(const simulith_42_command_t* cmd)
     g_command_queue.head = (g_command_queue.head + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
     g_command_queue.count++;
 
-    if (cmd) {
-        if (cmd->type == SIMULITH_42_CMD_SET_MODE) {
-            fprintf(stdout, "simulith: SET_MODE sc=%d mode=%d\n", cmd->spacecraft_id, cmd->cmd.setmode.mode);
-        }
+    if (cmd->type == SIMULITH_42_CMD_SET_MODE) {
+        fprintf(stdout, "simulith: SET_MODE sc=%d mode=%d\n", cmd->spacecraft_id, cmd->cmd.setmode.mode);
     }
     return 0;
 }

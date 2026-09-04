@@ -68,6 +68,13 @@ extern "C"
     /** Request that a server loop running on another thread return. */
     void simulith_server_request_stop(void);
 
+#ifdef SIMULITH_TESTING
+    /** Exercise the server's interactive command parser without running its loop. */
+    int simulith_server_process_cli_command_for_test(const char *command, int *paused, double *speed);
+    /** Force a broadcast timestamp to exercise periodic reporting deterministically. */
+    void simulith_server_broadcast_for_test(uint64_t time_ns);
+#endif
+
     /**
      * Cleanly shuts down the server.
      */

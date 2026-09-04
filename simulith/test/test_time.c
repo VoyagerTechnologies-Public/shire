@@ -13,6 +13,10 @@ void tearDown(void) { }
 
 static void test_time_init_get_wait_cleanup(void)
 {
+    TEST_ASSERT_TRUE(simulith_time_get(NULL) == 0.0);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_time_wait_for_next_tick(NULL));
+    simulith_time_cleanup(NULL);
+
     // Create a PUB socket to send a tick to LOCAL_PUB_ADDR
     void* ctx = zmq_ctx_new();
     TEST_ASSERT_NOT_NULL(ctx);

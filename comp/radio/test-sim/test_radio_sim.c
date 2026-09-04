@@ -837,6 +837,70 @@ static void test_gpio_interrupt_write(void)
     g_iface->cleanup(state);
 }
 
+static void test_gpio_rejects_short_wrong_pin_and_invalid_commands(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    g_state_under_test = state;
+    if (g_gpio_power) g_gpio_power->value = 0;
+    if (g_gpio_int) g_gpio_int->value = 0;
+
+    transport_port_t power;
+    transport_port_t interrupt;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_gpio_client(&power, "test_pw_invalid", RADIO_POWER_PORT));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_gpio_client(&interrupt, "test_irq_invalid", RADIO_INT_PORT));
+    usleep(5000);
+
+    const uint8_t short_request[] = {0};
+    const uint8_t wrong_power_pin[] = {0, (uint8_t)(RADIO_CFG_GPIO_POWER_PIN + 1)};
+    const uint8_t invalid_power_command[] = {2, RADIO_CFG_GPIO_POWER_PIN, 1};
+    const uint8_t short_power_write[] = {1, RADIO_CFG_GPIO_POWER_PIN};
+    const uint8_t wrong_interrupt_pin[] = {0, (uint8_t)(RADIO_CFG_GPIO_INTERRUPT_PIN + 1)};
+    const uint8_t invalid_interrupt_command[] = {2, RADIO_CFG_GPIO_INTERRUPT_PIN, 1};
+    const uint8_t short_interrupt_write[] = {1, RADIO_CFG_GPIO_INTERRUPT_PIN};
+
+    simulith_transport_send(&power, short_request, sizeof(short_request));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, wrong_power_pin, sizeof(wrong_power_pin));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, invalid_power_command, sizeof(invalid_power_command));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, short_power_write, sizeof(short_power_write));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+
+    simulith_transport_send(&interrupt, short_request, sizeof(short_request));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, wrong_interrupt_pin, sizeof(wrong_interrupt_pin));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, invalid_interrupt_command,
+                            sizeof(invalid_interrupt_command));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, short_interrupt_write,
+                            sizeof(short_interrupt_write));
+    usleep(1000);
+    g_iface->tick(state, 0ULL, NULL);
+
+    uint8_t response[8];
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&power, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&interrupt, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_INT(0, g_gpio_power ? g_gpio_power->value : -1);
+    TEST_ASSERT_EQUAL_INT(0, g_gpio_int ? g_gpio_int->value : -1);
+
+    simulith_transport_close(&interrupt);
+    simulith_transport_close(&power);
+    g_state_under_test = NULL;
+    g_iface->cleanup(state);
+}
+
 /* -------------------------------------------------------------------------
  * Interrupt-flag tests (direct state manipulation, no transport overhead)
  * -------------------------------------------------------------------------*/
@@ -1054,6 +1118,50 @@ static void test_spi_receive_cmd_with_udp_data(void)
     g_iface->cleanup(state);
 }
 
+static void test_spi_receive_cmd_leaves_unrequested_udp_data_buffered(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    g_state_under_test = state;
+    power_on(state);
+
+    static const uint8_t ground_data[8] = {
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+    TEST_ASSERT_TRUE(inject_udp(ground_data, sizeof(ground_data)) > 0);
+    usleep(50000);
+
+    transport_port_t spi;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_spi_client(&spi, "test_spi_partial"));
+    usleep(2000);
+
+    const uint16_t requested = 4;
+    uint8_t payload[2] = {0, (uint8_t)requested};
+    uint8_t frame[7];
+    encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_RECEIVE_CMD, payload, 2);
+    simulith_transport_send(&spi, frame, sizeof(frame));
+    usleep(2000);
+    g_iface->tick(state, 200000000ULL, NULL);
+
+    uint8_t response[16];
+    TEST_ASSERT_EQUAL_size_t(requested + 4u,
+                             drain_all(&spi, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_MEMORY(ground_data, &response[3], requested);
+
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&rs->buffer_mutex);
+    uint32_t remaining = (rs->rx_buffer_head >= rs->rx_buffer_tail)
+                             ? rs->rx_buffer_head - rs->rx_buffer_tail
+                             : (RADIO_SIM_RX_BUFFER_SIZE - rs->rx_buffer_tail) +
+                                   rs->rx_buffer_head;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(ground_data) - requested, remaining);
+
+    simulith_transport_close(&spi);
+    g_state_under_test = NULL;
+    g_iface->cleanup(state);
+}
+
 /* -------------------------------------------------------------------------
  * Init failure path
  * -------------------------------------------------------------------------*/
@@ -1247,6 +1355,7 @@ int main(void)
     RUN_TEST(test_gpio_power_write_same_value_no_op);
     RUN_TEST(test_gpio_power_write_off_clears_state);
     RUN_TEST(test_gpio_interrupt_write);
+    RUN_TEST(test_gpio_rejects_short_wrong_pin_and_invalid_commands);
 
     /* Interrupt flag (state manipulation) */
     RUN_TEST(test_interrupt_asserted_when_buffer_fills);
@@ -1261,6 +1370,7 @@ int main(void)
     RUN_TEST(test_udp_thread_ignores_data_when_powered_off);
     RUN_TEST(test_udp_inject_populates_rx_buffer);
     RUN_TEST(test_spi_receive_cmd_with_udp_data);
+    RUN_TEST(test_spi_receive_cmd_leaves_unrequested_udp_data_buffered);
     RUN_TEST(test_udp_select_error_stops_thread);
 
     /* Init failure */

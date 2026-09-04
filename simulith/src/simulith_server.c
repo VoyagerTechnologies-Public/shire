@@ -161,6 +161,14 @@ static void broadcast_time(void)
     }
 }
 
+#ifdef SIMULITH_TESTING
+void simulith_server_broadcast_for_test(uint64_t time_ns)
+{
+    current_time_ns = time_ns;
+    broadcast_time();
+}
+#endif
+
 static int all_clients_responded(void)
 {
     int count = 0;
@@ -192,6 +200,50 @@ static void handle_ack(const char *client_id)
     }
     simulith_log("ACK received from unknown client: %s\n", client_id);
 }
+
+/* Keep command interpretation independent of stdin so it is deterministic and
+ * directly testable.  A non-zero return asks the caller to stop the server. */
+static int process_cli_command(const char *command, int *paused, double *speed)
+{
+    if (strncmp(command, "p", 1) == 0)
+    {
+        *paused = !*paused;
+        printf(*paused ? "Simulation paused.\n" : "Simulation resumed.\n");
+    }
+    else if (strncmp(command, "+", 1) == 0)
+    {
+        *speed *= 2.0;
+        if (*speed > 1024.0)
+            *speed = 1024.0;
+        g_attempted_speed = *speed;
+        printf("Attempted simulation speed: %.2fx\n", *speed);
+    }
+    else if (strncmp(command, "-", 1) == 0)
+    {
+        *speed /= 2.0;
+        if (*speed < 0.015625)
+            *speed = 0.015625;
+        g_attempted_speed = *speed;
+        printf("Attempted simulation speed: %.4fx\n", *speed);
+    }
+    else if (strncmp(command, "quit", 4) == 0)
+    {
+        printf("Exiting simulation.\n");
+        return 1;
+    }
+    else
+    {
+        printf("Unknown command. Use 'p', '+', '-', or 'quit'.\n");
+    }
+    return 0;
+}
+
+#ifdef SIMULITH_TESTING
+int simulith_server_process_cli_command_for_test(const char *command, int *paused, double *speed)
+{
+    return process_cli_command(command, paused, speed);
+}
+#endif
 
 void simulith_server_run(void)
 {
@@ -307,33 +359,11 @@ void simulith_server_run(void)
         int cli_ready = select(1, &readfds, NULL, NULL, &tv);
         if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
         {
-            if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
+            if (fgets(cli_buf, sizeof(cli_buf), stdin) &&
+                process_cli_command(cli_buf, &paused, &speed))
             {
-                if (strncmp(cli_buf, "p", 1) == 0) 
-                {
-                    paused = !paused;
-                    printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
-                } else if (strncmp(cli_buf, "+", 1) == 0) 
-                {
-                    speed *= 2.0;
-                    if (speed > 1024.0) speed = 1024.0;
-                    g_attempted_speed = speed;
-                    printf("Attempted simulation speed: %.2fx\n", speed);
-                } else if (strncmp(cli_buf, "-", 1) == 0) 
-                {
-                    speed /= 2.0;
-                    if (speed < 0.015625) speed = 0.015625;
-                    g_attempted_speed = speed;
-                    printf("Attempted simulation speed: %.4fx\n", speed);
-                } else if (strncmp(cli_buf, "quit", 4) == 0) 
-                {
-                    running = 0;
-                    printf("Exiting simulation.\n");
-                    break;
-                } else 
-                {
-                    printf("Unknown command. Use 'p', '+', or '-'.\n");
-                }
+                running = 0;
+                break;
             }
         }
 
@@ -388,28 +418,10 @@ void simulith_server_run(void)
                     cli_ready = select(1, &readfds, NULL, NULL, &tv);
                     if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
                     {
-                        if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
+                        if (fgets(cli_buf, sizeof(cli_buf), stdin) &&
+                            process_cli_command(cli_buf, &paused, &speed))
                         {
-                            if (strncmp(cli_buf, "p", 1) == 0) 
-                            {
-                                paused = !paused;
-                                printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
-                            } else if (strncmp(cli_buf, "+", 1) == 0) 
-                            {
-                                speed *= 2.0;
-                                if (speed > 1024.0) speed = 1024.0;
-                                g_attempted_speed = speed;
-                                printf("Attempted simulation speed: %.2fx\n", speed);
-                            } else if (strncmp(cli_buf, "-", 1) == 0) 
-                            {
-                                speed /= 2.0;
-                                if (speed < 0.015625) speed = 0.015625;
-                                g_attempted_speed = speed;
-                                printf("Attempted simulation speed: %.4fx\n", speed);
-                            } else 
-                            {
-                                printf("Unknown command. Use 'p', '+', or '-'.\n");
-                            }
+                            running = 0;
                         }
                     }
                 }
