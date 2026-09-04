@@ -193,6 +193,7 @@ void Test_DEMO_RequestData(void)
 {
     uart_info_t              device;
     DEMO_Device_Data_tlm_t data;
+    memset(&data, 0, sizeof(data));
     int32_t status = DEMO_RequestData(&device, &data);
     UtAssert_True(status != OS_SUCCESS, "DEMO_RequestData should fail without stubs (rc=%d)", (int)status);
 
