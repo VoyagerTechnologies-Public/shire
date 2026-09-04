@@ -65,6 +65,9 @@ extern "C"
      */
     void simulith_server_run(void);
 
+    /** Request that a server loop running on another thread return. */
+    void simulith_server_request_stop(void);
+
     /**
      * Cleanly shuts down the server.
      */
@@ -103,6 +106,9 @@ extern "C"
      * @param on_tick Callback to invoke each time a new tick is received.
      */
     void simulith_client_run_loop(simulith_tick_callback on_tick);
+
+    /** Request that a client loop running on another thread return. */
+    void simulith_client_request_stop(void);
 
     /**
      * Wait for next tick and send acknowledgment (non-blocking API for OSAL use).

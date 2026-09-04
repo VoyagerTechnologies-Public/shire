@@ -19,7 +19,7 @@ jobs:
     name: Build Simulith
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+      image: ghcr.io/voyagertechnologies-public/shire-base:0.0.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -61,7 +61,7 @@ jobs:
     name: Build flight software
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+      image: ghcr.io/voyagertechnologies-public/shire-base:0.0.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -102,7 +102,7 @@ jobs:
       id-token: write
       packages: read
     container:
-      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+      image: ghcr.io/voyagertechnologies-public/shire-base:0.0.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -126,15 +126,31 @@ jobs:
           FSW_DIR=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml')).get('fsw_dir', 'cfs'))")
           make -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-test
 
+      - name: Analyze cyclomatic complexity
+        run: make build-complexity
+
+      - name: Upload flight-software coverage artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: fsw-coverage
+          path: |
+            cfs/build/amd64-linux/default_cpu1/*.info
+            cfs/build/amd64-linux/default_cpu1/report/
+            cfs/build/amd64-linux/default_cpu1/ctest.log
+            build/coverage-complexity.txt
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
           files: cfs/build/amd64-linux/default_cpu1/coverage_filtered.info
           flags: fsw
+          disable_search: true
           fail_ci_if_error: true
           use_oidc: true
 
-  test-simulith:
+  test-component-simulators:
     name: Test component simulators
     runs-on: ubuntu-latest
     permissions:
@@ -142,7 +158,7 @@ jobs:
       id-token: write
       packages: read
     container:
-      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+      image: ghcr.io/voyagertechnologies-public/shire-base:0.0.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -160,11 +176,65 @@ jobs:
       - name: Build and test component simulators
         run: make -C simulith build-comp-test
 
+      - name: Upload component-simulator coverage artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: component-simulator-coverage
+          path: |
+            build/sim-coverage/*.info
+            build/sim-coverage/report/
+            comp/*/sim/build/ctest.log
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
-          files: build/sim-coverage/coverage.info
-          flags: sim
+          files: build/sim-coverage/coverage_filtered.info
+          flags: component-sim
+          disable_search: true
+          fail_ci_if_error: true
+          use_oidc: true
+
+  test-simulith:
+    name: Test Simulith core
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    container:
+      image: ghcr.io/voyagertechnologies-public/shire-base:0.0.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build and test Simulith
+        run: make -C simulith build-test
+
+      - name: Upload Simulith coverage artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: simulith-coverage
+          path: |
+            simulith/build/*.info
+            simulith/build/report/
+            simulith/build/ctest.log
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: simulith/build/coverage_filtered.info
+          flags: simulith
+          disable_search: true
           fail_ci_if_error: true
           use_oidc: true
 
@@ -172,7 +242,7 @@ jobs:
     name: Build command-line interfaces
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/voyagertechnologies-public/shire-base:latest
+      image: ghcr.io/voyagertechnologies-public/shire-base:0.0.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}

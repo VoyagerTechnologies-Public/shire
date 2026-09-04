@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "simulith.h"
+#include "test_sleep.h"
 
 // Test-only helper: reset internals by accessing module globals directly.
 // When building tests we define SIMULITH_TESTING which makes these symbols
@@ -104,7 +105,7 @@ static void test_log_file_and_both(void)
     simulith_log("%s", "file-only\n");
     // Give the logging subsystem a moment to open/write the file
     fflush(NULL);
-    usleep(1000);
+    test_sleep_us(1000);
 
     FILE *f = fopen(logpath, "r");
     TEST_ASSERT_NOT_NULL(f);

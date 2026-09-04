@@ -11,6 +11,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Keep POSIX APIs visible when Simulith is embedded in cFS, whose mission flags
+# compile in strict C99 mode.
+add_compile_definitions(_POSIX_C_SOURCE=200809L)
+
 # Find ZeroMQ via pkg-config
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ZeroMQ REQUIRED libzmq)
@@ -71,6 +75,13 @@ target_include_directories(simulith PUBLIC
 )
 target_link_libraries(simulith PUBLIC ${ZeroMQ_LIBRARIES})
 
+# Director orchestration is a library so it can be tested independently from
+# the process entry point and its long-running client loop.
+add_library(simulith_director_core STATIC src/simulith_director.c)
+set_target_properties(simulith_director_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(simulith_director_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(simulith_director_core PUBLIC simulith ${ZeroMQ_LIBRARIES} dl m pthread)
+
 if(BUILD_SIMULITH_TESTS)
     # When building tests, expose internal symbols for test-only helpers
     target_compile_definitions(simulith PRIVATE SIMULITH_TESTING)
@@ -81,8 +92,8 @@ endif()
 # Director will communicate with 42 via socket IPC instead of direct linking
 
 # Build Simulith director (no longer links to 42)
-add_executable(simulith_director_standalone src/simulith_director.c)
-target_link_libraries(simulith_director_standalone PRIVATE simulith ${ZeroMQ_LIBRARIES} dl m pthread)
+add_executable(simulith_director_standalone src/simulith_director_main.c)
+target_link_libraries(simulith_director_standalone PRIVATE simulith_director_core)
 set_target_properties(simulith_director_standalone PROPERTIES
     BUILD_RPATH "$ORIGIN"
     INSTALL_RPATH "$ORIGIN"

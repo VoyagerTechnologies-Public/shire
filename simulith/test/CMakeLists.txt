@@ -33,3 +33,13 @@ add_executable(test_transport test_transport.c ${UNITY_SRC})
 target_link_libraries(test_transport simulith ${ZeroMQ_LIBRARIES})
 target_compile_definitions(test_transport PRIVATE SIMULITH_TESTING)
 add_test(NAME TransportTests COMMAND test_transport)
+
+add_executable(test_42_socket_client test_42_socket_client.c ${UNITY_SRC})
+target_link_libraries(test_42_socket_client simulith pthread)
+target_compile_definitions(test_42_socket_client PRIVATE SIMULITH_TESTING)
+add_test(NAME 42SocketClientTests COMMAND test_42_socket_client)
+
+add_executable(test_director test_director.c ${UNITY_SRC})
+target_link_libraries(test_director simulith_director_core)
+target_compile_definitions(test_director PRIVATE SIMULITH_TESTING)
+add_test(NAME DirectorTests COMMAND test_director)

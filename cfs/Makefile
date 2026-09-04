@@ -1,11 +1,13 @@
 # Makefile for SHIRE Flight Software (FSW) development
 .PHONY: all build clean debug runtime start stop test
 
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 export BUILDDIR ?= $(CURDIR)/build
+export COVBUILDDIR ?= $(BUILDDIR)-coverage-mission
 export BUILDTYPE ?= debug
 export CFS_APP_PATH = ../comp
 export COVDIR ?= $(BUILDDIR)/amd64-linux/default_cpu1
+export COVMISSIONDIR ?= $(COVBUILDDIR)/amd64-shire/default_cpu1
 export INSTALLPREFIX ?= exe
 export MISSION ?= drm
 export SPACECRAFT ?= sat-1
@@ -37,7 +39,7 @@ endif
 all: build
 
 build:
-	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-fsw
+	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-fsw
 
 build-fsw:
 	mkdir -p $(BUILDDIR) && \
@@ -47,20 +49,18 @@ build-fsw:
 build-test:
 	mkdir -p $(BUILDDIR) && \
 	cd $(BUILDDIR) && cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=true $(CURDIR)/cfe && \
-	$(MAKE) --no-print-directory -C $(BUILDDIR) mission-install && \
+	$(MAKE) --no-print-directory -C $(BUILDDIR) mission-install
+	mkdir -p $(COVBUILDDIR) && \
+	cd $(COVBUILDDIR) && SHIRE_COVERAGE=1 ENABLE_UNIT_TESTS=false \
+		cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=false -DSHIRE_COVERAGE=ON $(CURDIR)/cfe && \
+	SHIRE_COVERAGE=1 ENABLE_UNIT_TESTS=false \
+		$(MAKE) --no-print-directory -C $(COVBUILDDIR) mission-install
+	$(SHIRE_DIR)/cfg/coverage.sh initial fsw $(COVDIR) $(COVDIR) $(COVMISSIONDIR)
 	cd $(COVDIR) && ctest --output-on-failure -O ctest.log
-	# Limit collection to this build tree. Some source submodules contain
-	# historical coverage artifacts produced by incompatible GCC versions.
-	lcov -c --directory $(COVDIR) --output-file $(COVDIR)/coverage.info
-	lcov --remove $(COVDIR)/coverage.info '*/unit-test/stubs/*' '*/unit-test/coveragetest/*' -o $(COVDIR)/coverage_filtered.info
-	genhtml $(COVDIR)/coverage_filtered.info --output-directory $(COVDIR)/report
-	@echo ""
-	@echo "Review coverage report: "
-	@echo "  firefox $(COVDIR)/report/index.html"
-	@echo ""
+	$(SHIRE_DIR)/cfg/coverage.sh report fsw $(COVDIR) $(COVDIR)
 
 clean:
-	rm -rf $(BUILDDIR)
+	rm -rf $(BUILDDIR) $(COVBUILDDIR)
 
 debug:
 	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_debug" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice $(BUILD_IMAGE) /bin/bash
@@ -76,10 +76,10 @@ runtime:
 	cd .. && docker build -t $(RUNTIME_FSW_IMAGE_NAME):$(SPACECRAFT) -f ${CURDIR}/tools/Dockerfile.fsw --build-arg SPACECRAFT=$(SPACECRAFT) --build-arg MISSION=$(MISSION) .
 
 start:
-	docker run --rm -it --name "shire_fsw_runtime" --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice $(RUNTIME_FSW_IMAGE_NAME)
+	docker run --rm -it --name "shire_fsw_runtime" --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice $(RUNTIME_FSW_IMAGE_NAME):$(SPACECRAFT)
 
 stop:
 	docker ps --filter name=shire-* --filter status=running -aq | xargs docker stop
 
 test:
-	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-test
+	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-test

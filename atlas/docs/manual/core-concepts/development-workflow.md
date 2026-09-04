@@ -126,7 +126,29 @@ Use the gates and evidence guidance in this workflow when moving from simulation
 | `make` | Runs configuration, then builds simulation, FSW, and GSW. |
 | `make cli` | Builds 42, Simulith, the selected component simulator, the Director and Server images, and the selected host CLI image. |
 | `make test-sim` | Builds Simulith, runs simulator tests selected from the existing `build/build.yaml`, and produces combined simulator coverage. |
+| `make test-simulith` | Runs the standalone Simulith core suite and produces its coverage report. |
 | `make test-fsw` | Builds and runs cFS/application tests and produces coverage output. |
+| `make complexity` | Writes the informational `pmccabe` report to `build/coverage-complexity.txt`. |
+
+## Coverage baseline
+
+The GCC 14 coverage baseline established by these commands is:
+
+| Scope | Line | Branch | MC/DC | Policy |
+| --- | ---: | ---: | ---: | --- |
+| Deployed SHIRE FSW | 84.8% | 84.4% | 84.3% | Informational project baseline |
+| Repository component FSW | 97.5% | 88.0% | 87.1% | Included in deployed FSW |
+| Component simulators | 95.3% | 82.1% | 80.0% | No-regression baseline |
+| Simulith | 75.0% | 57.5% | 57.6% | Includes zero-hit standalone entry points |
+
+Coverage traces use an explicit production allowlist and merge an initial
+zero-count trace with executed counters, so compiled but unexecuted production
+sources remain in the denominator.
+Codecov receives separate `fsw`, `component-sim`, and `simulith` uploads.
+Project coverage is informational.
+Changed lines must meet the blocking 80% patch target.
+MC/DC and the sorted cyclomatic-complexity report are review artifacts rather
+than gates.
 
 ## What stays and what changes
 
@@ -220,7 +242,9 @@ Consumers must still validate wire protocols, identifiers, timing, device driver
 ## Automation status
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main` or `dev`.
-It defines separate Simulith, FSW, and CLI build jobs, runs the FSW and component simulator test builds, and uploads their coverage to Codecov.
+It defines separate Simulith, FSW, and CLI build jobs, runs the FSW, component
+simulator, and Simulith core test builds, and uploads their explicitly scoped
+coverage to Codecov.
 `.github/workflows/docs.yml` validates the Atlas on pull requests and pushes to `main` or `dev`.
 It publishes GitHub Pages only after a successful push build on `main`.
 

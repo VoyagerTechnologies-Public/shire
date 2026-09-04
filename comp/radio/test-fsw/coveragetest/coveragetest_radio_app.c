@@ -72,9 +72,14 @@ static int32 UT_CheckEvent_Hook(void *UserObj, int32 StubRetcode, uint32 CallCou
 
 /* Forward declarations for handler functions and test-controlled variables used by tests */
 static void RADIO_ReceiveData_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context);
-static void CFE_SB_ReceiveBuffer_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context);
+static void SetupSingleSBPacket(void);
 extern uint16_t UT_RADIO_Receive_len;
+extern int32 UT_CRYPTO_TC_ProcessSecurity_ReturnValue;
+extern int32 UT_CRYPTO_TM_ApplySecurity_ReturnValue;
+extern int32 UT_CRYPTO_SC_Init_ReturnValue;
+extern bool  UT_CRYPTO_Enable_Stubs;
 static void TM_SDLP_InitChannel_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context);
+static uint32 RADIO_ReceiveData_HandlerCalls;
 
 /*
  * Helper function to set up for event checking
@@ -539,12 +544,12 @@ void Test_RADIO_ServiceUplink_MultipleTFs(void)
     /* Build a buffer with two back-to-back TFs, each containing a CCSDS packet */
     uint8_t buf[64];
     memset(buf, 0, sizeof(buf));
-    /* First TF: header at 0, fl=6 => frame_len=7, packet id 0x1001 */
-    buf[0] = 0xAA; buf[1] = 0xBB; buf[2] = 0x00; buf[3] = 0x06;
+    /* First TF: header at 0, fl=10 => frame_len=11, packet id 0x1001 */
+    buf[0] = 0xAA; buf[1] = 0xBB; buf[2] = 0x00; buf[3] = 0x0A;
     buf[4] = 0x10; buf[5] = 0x01; buf[6] = 0x00; buf[7] = 0x00; buf[8] = 0x00; buf[9] = 0x00;
-    /* Second TF immediately after first: at offset 7, set header fl=6 => frame_len=7 */
-    size_t off = 7;
-    buf[off + 0] = 0xCC; buf[off + 1] = 0xDD; buf[off + 2] = 0x00; buf[off + 3] = 0x06;
+    /* Second TF immediately after first: at offset 11, frame_len=11. */
+    size_t off = 11;
+    buf[off + 0] = 0xCC; buf[off + 1] = 0xDD; buf[off + 2] = 0x00; buf[off + 3] = 0x0A;
     buf[off + 4] = 0x10; buf[off + 5] = 0x01; buf[off + 6] = 0x00; buf[off + 7] = 0x00; buf[off + 8] = 0x00; buf[off + 9] = 0x00;
 
     UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), RADIO_ReceiveData_Handler, buf);
@@ -600,8 +605,7 @@ void Test_RADIO_ServiceUplink_Forward_ScanAndTransmit(void)
 
     RADIO_ServiceUplink();
 
-    /* Allow zero in environments where forwarding isn't simulated; ensure no crash */
-    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) >= 0, "RADIO: expected CFE_SB_TransmitMsg call count is non-negative");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)), 1);
 
     UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), NULL, NULL);
     UT_RADIO_Receive_len = 0;
@@ -634,8 +638,9 @@ void Test_RADIO_ServiceUplink_InvalidTF_Resync(void)
 
     RADIO_ServiceUplink();
 
-    /* No crash and function completes; allow zero transmits in some environments */
-    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) >= 0, "RADIO: resync path executed without crash");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_ReceiveData)), 2);
+    UtAssert_True(RADIO_AppData.ReceiveBuffLength <= RADIO_MAX_PAYLOAD_SIZE,
+                  "RADIO: resync keeps receive length bounded");
 
     UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), NULL, NULL);
     UT_RADIO_Receive_len = 0;
@@ -649,13 +654,12 @@ void Test_RADIO_ServiceDownlink_AlreadyReady(void)
      * frame_info become ready, then call it again without the init handler to exercise
      * the "already ready" path. */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
     UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
@@ -667,10 +671,9 @@ void Test_RADIO_ServiceDownlink_AlreadyReady(void)
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
     RADIO_ServiceDownlink();
 
-    /* Should complete without crashing and possibly update counters */
-    UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceCount >= 0, "RADIO: Downlink executed when already ready");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(TM_SDLP_InitChannel)), 0);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 2);
 
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -681,16 +684,13 @@ void Test_RADIO_Service_NoEnabled(void)
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
 
     /* Arrange CFE_SB_ReceiveBuffer to return CFE_SUCCESS once then NO_MESSAGE to end loop */
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
+    SetupSingleSBPacket();
 
     RADIO_Service();
 
-    /* If it returns, discard loop executed without hang */
-    UtAssert_True(1 == 1, "RADIO: Service called with device disabled executed without hang");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_ReceiveBuffer)), 2);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 0);
 
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -753,14 +753,14 @@ static void RADIO_ReceiveData_Handler(void *UserObj, UT_EntryKey_t FuncKey, cons
     uint16_t *actualp = UT_Hook_GetArgValueByName(Context, "actual_length", uint16_t *);
     /* Support tests supplying an explicit length; default to copying up to max_len */
     extern uint16_t UT_RADIO_Receive_len;
-    if (src && dst && actualp)
+    if (RADIO_ReceiveData_HandlerCalls++ == 0 && src && dst && actualp)
     {
         size_t n = (UT_RADIO_Receive_len > 0) ? UT_RADIO_Receive_len : (size_t)max_len;
         if (n > max_len) n = max_len;
         memcpy(dst, src, n);
         *actualp = (uint16_t)n;
     }
-    int32_t stub_ret = OS_SUCCESS;
+    int32_t stub_ret = (RADIO_ReceiveData_HandlerCalls == 1) ? OS_SUCCESS : OS_ERROR;
     UT_Stub_SetReturnValue(FuncKey, stub_ret);
 }
 
@@ -775,7 +775,7 @@ void Test_RADIO_ServiceUplink_ProcessTF_Success(void)
     /* TF header bytes - cur[2]=0, cur[3]=6 => fl=6 => frame_len=7 */
     tf[0] = 0xAA; /* arbitrary */
     tf[1] = 0xBB;
-    tf[2] = 0x00; tf[3] = 0x06; /* fl=6 => frame_len=7 */
+    tf[2] = 0x00; tf[3] = 0x0A; /* fl=10 => frame_len=11 */
     /* Payload (7 bytes) - embed a CCSDS packet at offset 0 within payload */
     /* Build packet header: packet_id = version(0)=0, type=1 => top bits 0001 -> 0x1000 */
     tf[4] = 0x10; tf[5] = 0x01; /* packet id 0x1001 */
@@ -802,8 +802,7 @@ void Test_RADIO_ServiceUplink_ProcessTF_Success(void)
 
     RADIO_ServiceUplink();
 
-    /* Expect that a transmit occurred (valid CCSDS packet forwarded) */
-    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) >= 0, "RADIO: Service uplink should forward valid CCSDS packets");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)), 1);
 
     UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), NULL, NULL);
     UT_RADIO_Receive_len = 0;
@@ -817,7 +816,7 @@ void Test_RADIO_ServiceUplink_ForwardWithMsgId(void)
     memset(tf, 0, sizeof(tf));
     /* TF header bytes - cur[2]=0, cur[3]=6 => fl=6 => frame_len=7 */
     tf[0] = 0x00; tf[1] = 0x00;
-    tf[2] = 0x00; tf[3] = 0x06; /* fl=6 => frame_len=7 */
+    tf[2] = 0x00; tf[3] = 0x0A; /* fl=10 => frame_len=11 */
     /* Place CCSDS packet starting at payload byte 0 (offset 4) */
     /* packet_id: version=0,type=1 -> set high bits accordingly; use 0x1000 as APID base */
     tf[4] = 0x10; tf[5] = 0x01; /* packet id 0x1001 */
@@ -845,8 +844,7 @@ void Test_RADIO_ServiceUplink_ForwardWithMsgId(void)
 
     RADIO_ServiceUplink();
 
-    /* Expect that a transmit occurred (allow zero in environments where forwarding isn't simulated) */
-    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) >= 0, "RADIO: Uplink forwarding should call CFE_SB_TransmitMsg");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)), 1);
 
     UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), NULL, NULL);
     UT_RADIO_Receive_len = 0;
@@ -857,11 +855,16 @@ void Test_RADIO_ServiceUplink_ForwardWithMsgId(void)
 static void TM_SDLP_InitChannel_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
 {
     TM_SDLP_FrameInfo_t *fi = UT_Hook_GetArgValueByName(Context, "frame_info", TM_SDLP_FrameInfo_t *);
+    static uint8         frame_buffer[2048];
+
+    (void)UserObj;
     if (fi)
     {
+        memset(frame_buffer, 0, sizeof(frame_buffer));
         fi->isReady = 1;
+        fi->isInitialized = 1;
         fi->freeOctets = 1024;
-        fi->frame = (void *)fi; /* harmless pointer */
+        fi->frame = (TMTF_PriHdr_t *)frame_buffer;
     }
     {
         int32 ret = TM_SDLP_SUCCESS;
@@ -869,29 +872,23 @@ static void TM_SDLP_InitChannel_Handler(void *UserObj, UT_EntryKey_t FuncKey, co
     }
 }
 
-/* Handler to simulate a SB receive returning a single packet buffer */
-static void CFE_SB_ReceiveBuffer_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+/* Configure the generated SB stub to return one packet, followed by NO_MESSAGE. */
+static void SetupSingleSBPacket(void)
 {
-    CFE_SB_Buffer_t **outbuf = UT_Hook_GetArgValueByName(Context, "BufPtr", CFE_SB_Buffer_t **);
     static CFE_SB_Buffer_t sbbuf;
-    static int call_count = 0;
-    call_count++;
-    if (outbuf)
-    {
-        memset(&sbbuf, 0, sizeof(sbbuf));
-        *outbuf = &sbbuf;
-    }
-    {
-        int32 ret2 = (call_count == 1) ? CFE_SUCCESS : CFE_SB_NO_MESSAGE;
-        UT_Stub_CopyToReturnValue(FuncKey, &ret2, sizeof(ret2));
-    }
+    CFE_SB_Buffer_t *sbbuf_ptr = &sbbuf;
+
+    memset(&sbbuf, 0, sizeof(sbbuf));
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &sbbuf_ptr, sizeof(sbbuf_ptr), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
 }
 
 void Test_RADIO_ServiceDownlink_Success(void)
 {
     /* Arrange: make TM SDLP init/start succeed and ensure a packet is available */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
@@ -906,12 +903,11 @@ void Test_RADIO_ServiceDownlink_Success(void)
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
     RADIO_ServiceDownlink();
 
-    /* Expect no crash and at least one transmit attempt recorded (DeviceCount may be updated) */
-    UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceCount >= 0, "RADIO: Service downlink should execute successfully");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceCount, 1);
 
     /* Cleanup handlers */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -993,13 +989,11 @@ void Test_RADIO_Configure_DeviceSuccess(void)
 
     uint32_t before = RADIO_AppData.HkTelemetryPkt.DeviceCount;
 
-    /* Ensure RADIO_SetConfiguration reports success */
-        UT_SetDefaultReturnValue(UT_KEY(RADIO_CommandDevice), OS_SUCCESS);
-        UT_SetDefaultReturnValue(UT_KEY(RADIO_SetConfiguration), OS_SUCCESS);
+    UT_SetDefaultReturnValue(UT_KEY(RADIO_SetConfiguration), OS_SUCCESS);
 
     RADIO_Configure();
 
-    UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceCount >= before,
+    UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceCount > before,
                   "RADIO: DeviceCount incremented on successful configuration");
 
     UT_ResetState(0);
@@ -1043,16 +1037,14 @@ void Test_RADIO_Enable(void)
 
     UT_CheckEvent_Setup(&EventTest, RADIO_ENABLE_INF_EID, NULL);
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_DISABLED;
-    UT_SetDeferredRetcode(UT_KEY(spi_init_dev), 1, SPI_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(gpio_init), 1, GPIO_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(gpio_init), 2, GPIO_SUCCESS);  /* Called twice for power and interrupt GPIO */
-    UT_SetDeferredRetcode(UT_KEY(gpio_write), 1, GPIO_SUCCESS);  /* For power on */
+    UT_SetDeferredRetcode(UT_KEY(RADIO_InitDevice), 1, OS_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(RADIO_PowerOn), 1, OS_SUCCESS);
     RADIO_Enable();
     UtAssert_True(EventTest.MatchCount == 1, "RADIO: Device enabled (%u)", (unsigned int)EventTest.MatchCount);
 
     UT_CheckEvent_Setup(&EventTest, RADIO_ENABLE_ERR_EID, NULL);
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_DISABLED;
-    UT_SetDeferredRetcode(UT_KEY(spi_init_dev), 1, SPI_ERROR);
+    UT_SetDeferredRetcode(UT_KEY(RADIO_InitDevice), 1, OS_ERROR);
     RADIO_Enable();
     UtAssert_True(EventTest.MatchCount == 1, "RADIO: SPI initialization error (%u)",
                   (unsigned int)EventTest.MatchCount);
@@ -1074,10 +1066,7 @@ void Test_RADIO_Disable(void)
     RADIO_AppData.RadioSpi.isOpen = SPI_DEVICE_OPEN;
     RADIO_AppData.RadioPowerGpio.isOpen = GPIO_OPEN;
     RADIO_AppData.RadioInterruptGpio.isOpen = GPIO_OPEN;
-    UT_SetDeferredRetcode(UT_KEY(gpio_write), 1, GPIO_SUCCESS);  /* For power off */
-    UT_SetDeferredRetcode(UT_KEY(spi_close_device), 1, SPI_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(gpio_close), 1, GPIO_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(gpio_close), 2, GPIO_SUCCESS);  /* Called twice for power and interrupt GPIO */
+    UT_SetDeferredRetcode(UT_KEY(RADIO_PowerOff), 1, OS_SUCCESS);
     RADIO_Disable();
     UtAssert_True(EventTest.MatchCount == 1, "RADIO: Device disabled (%u)", (unsigned int)EventTest.MatchCount);
 
@@ -1135,13 +1124,12 @@ void Test_RADIO_ServiceDownlink_AddPacketFailure(void)
 {
     /* Arrange: init/start succeed, first SB receive returns a packet, AddPacket fails */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), -1);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
     UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
@@ -1152,18 +1140,16 @@ void Test_RADIO_ServiceDownlink_AddPacketFailure(void)
     UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount > before, "RADIO: AddPacket failure should increment device error count");
 
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
 void Test_RADIO_ServiceDownlink_CompleteFrameFailure(void)
 {
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_ERROR);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
@@ -1174,19 +1160,17 @@ void Test_RADIO_ServiceDownlink_CompleteFrameFailure(void)
     UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount > before, "RADIO: CompleteFrame failure should increment device error count");
 
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
 void Test_RADIO_ServiceDownlink_TM_SYNC_Failure(void)
 {
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), -1);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
@@ -1197,20 +1181,18 @@ void Test_RADIO_ServiceDownlink_TM_SYNC_Failure(void)
     UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount > before, "RADIO: TM_SYNC failure should increment device error count");
 
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
 void Test_RADIO_ServiceDownlink_SendDataFailure(void)
 {
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
     UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_ERROR);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
@@ -1221,7 +1203,6 @@ void Test_RADIO_ServiceDownlink_SendDataFailure(void)
     UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount > before, "RADIO: SendData failure should increment device error count");
 
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -1276,13 +1257,12 @@ void Test_RADIO_ServiceDownlink_NoSA(void)
 {
     /* Simulate missing SecurityAssociation lookup for TM frame */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
     UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     extern bool UT_CRYPTO_Enable_Stubs;
     /* Disable crypto stubs so get_sa_interface_inmemory returns NULL */
@@ -1298,7 +1278,6 @@ void Test_RADIO_ServiceDownlink_NoSA(void)
 
     UT_CRYPTO_Enable_Stubs = true;
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -1355,13 +1334,12 @@ void Test_RADIO_ServiceDownlink_TM_ApplySecurityFail(void)
 {
     /* Simulate Crypto TM apply security failure path */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
     UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     extern int32 UT_CRYPTO_TM_ApplySecurity_ReturnValue;
     UT_CRYPTO_TM_ApplySecurity_ReturnValue = -1; /* force error */
@@ -1375,7 +1353,6 @@ void Test_RADIO_ServiceDownlink_TM_ApplySecurityFail(void)
     UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount > before, "RADIO: TM_ApplySecurity failure should increment device error count");
 
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -1383,19 +1360,20 @@ void Test_RADIO_ServiceDownlink_SecuritySuccess(void)
 {
     /* Exercise the path where SA is found and Crypto TM ApplySecurity succeeds */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_ReceiveBuffer_Handler, NULL);
+    SetupSingleSBPacket();
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
     UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
     UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 2, CFE_SB_NO_MESSAGE);
 
     /* Forward-declare SecurityAssociation_t to avoid pulling in conflicting typedefs */
     typedef struct SecurityAssociation SecurityAssociation_t;
-    extern void UT_CRYPTO_Set_SaHook(int32_t (*hook)(uint8_t, uint8_t, uint8_t, uint8_t, SecurityAssociation_t **));
+    extern void UT_CRYPTO_Set_SaHook(int32_t (*hook)(uint8_t, uint16_t, uint16_t, uint8_t,
+                                                     SecurityAssociation_t **));
     extern int32 UT_CRYPTO_TM_ApplySecurity_ReturnValue;
-    extern int32_t UT_CRYPTO_Sa_Default(uint8_t gvcid, uint8_t scid, uint8_t vcid, uint8_t mapid, SecurityAssociation_t **sa);
+    extern int32_t UT_CRYPTO_Sa_Default(uint8_t gvcid, uint16_t scid, uint16_t vcid, uint8_t mapid,
+                                        SecurityAssociation_t **sa);
     /* Install default SA success hook */
     UT_CRYPTO_Set_SaHook(UT_CRYPTO_Sa_Default);
     UT_CRYPTO_TM_ApplySecurity_ReturnValue = CRYPTO_LIB_SUCCESS;
@@ -1407,11 +1385,10 @@ void Test_RADIO_ServiceDownlink_SecuritySuccess(void)
     uint32_t before = RADIO_AppData.HkTelemetryPkt.DeviceCount;
     RADIO_ServiceDownlink();
 
-    UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceCount >= before,
+    UtAssert_True(RADIO_AppData.HkTelemetryPkt.DeviceCount > before,
                   "RADIO: Successful TM apply security path should not crash and may update DeviceCount");
 
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
-    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
     UT_ResetState(0);
 }
 
@@ -1421,6 +1398,12 @@ void Test_RADIO_ServiceDownlink_SecuritySuccess(void)
 void Radio_UT_Setup(void)
 {
     UT_ResetState(0);
+    RADIO_ReceiveData_HandlerCalls = 0;
+    UT_RADIO_Receive_len = 0;
+    UT_CRYPTO_TC_ProcessSecurity_ReturnValue = CRYPTO_LIB_SUCCESS;
+    UT_CRYPTO_TM_ApplySecurity_ReturnValue = CRYPTO_LIB_SUCCESS;
+    UT_CRYPTO_SC_Init_ReturnValue = CRYPTO_LIB_SUCCESS;
+    UT_CRYPTO_Enable_Stubs = true;
 }
 
 /*

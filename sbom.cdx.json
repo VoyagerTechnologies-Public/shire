@@ -489,20 +489,20 @@
     },
     {
       "type": "container",
-      "bom-ref": "pkg:oci/shire-base@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "bom-ref": "pkg:oci/shire-base@0.0.0?repository_url=ghcr.io%2Fvoyagertechnologies-public",
       "name": "ghcr.io/voyagertechnologies-public/shire-base",
-      "version": "latest",
+      "version": "0.0.0",
       "scope": "required",
-      "purl": "pkg:oci/shire-base@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "purl": "pkg:oci/shire-base@0.0.0?repository_url=ghcr.io%2Fvoyagertechnologies-public",
       "properties": [{ "name": "shire:image:pinned", "value": "false" }, { "name": "shire:dockerfile", "value": "cfg/Dockerfile.base" }]
     },
     {
       "type": "container",
-      "bom-ref": "pkg:oci/shire-yamcs@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "bom-ref": "pkg:oci/shire-yamcs@0.0.0?repository_url=ghcr.io%2Fvoyagertechnologies-public",
       "name": "ghcr.io/voyagertechnologies-public/shire-yamcs",
-      "version": "latest",
+      "version": "0.0.0",
       "scope": "required",
-      "purl": "pkg:oci/shire-yamcs@latest?repository_url=ghcr.io%2Fvoyagertechnologies-public",
+      "purl": "pkg:oci/shire-yamcs@0.0.0?repository_url=ghcr.io%2Fvoyagertechnologies-public",
       "properties": [{ "name": "shire:image:pinned", "value": "false" }, { "name": "shire:dockerfile", "value": "yamcs/Dockerfile.yamcs" }]
     },
 

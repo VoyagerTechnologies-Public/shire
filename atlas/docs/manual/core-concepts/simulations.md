@@ -74,7 +74,10 @@ make test-sim
 ```
 
 `make test-sim` builds the Simulith executables needed by the component tests, but it does not run the separate Simulith core test suite.
-Run that suite with `cd simulith && make test`.
+Run that suite from the repository root with `make test-simulith` (or directly
+with `make -C simulith test`).
+Both simulation suites produce line, branch, and MC/DC HTML reports and a
+separate Codecov-compatible LCOV trace.
 A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
 

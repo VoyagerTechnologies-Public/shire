@@ -1,14 +1,30 @@
 #include "simulith.h"
 #include <sched.h>
+#include <signal.h>
 
 static void    *client_context = NULL;
 static void    *subscriber     = NULL;
 static void    *requester      = NULL;
 static char     client_id[64];
 static uint64_t update_rate_ns = 0;
+static volatile sig_atomic_t client_stop_requested = 0;
+
+static void close_client_resources(void)
+{
+    if (subscriber)
+        zmq_close(subscriber);
+    if (requester)
+        zmq_close(requester);
+    if (client_context)
+        zmq_ctx_term(client_context);
+    subscriber     = NULL;
+    requester      = NULL;
+    client_context = NULL;
+}
 
 int simulith_client_init(const char *pub_addr, const char *rep_addr, const char *id, uint64_t rate_ns)
 {
+    client_stop_requested = 0;
     // Validate parameters
     if (!pub_addr || !rep_addr || !id)
     {
@@ -43,16 +59,21 @@ int simulith_client_init(const char *pub_addr, const char *rep_addr, const char 
     if (!subscriber || zmq_connect(subscriber, pub_addr) != 0)
     {
         perror("Subscriber socket setup failed");
+        close_client_resources();
         return -1;
     }
+    int linger = 0;
+    zmq_setsockopt(subscriber, ZMQ_LINGER, &linger, sizeof(linger));
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0); // Subscribe to all messages
 
     requester = zmq_socket(client_context, ZMQ_REQ);
     if (!requester || zmq_connect(requester, rep_addr) != 0)
     {
         perror("Requester socket setup failed");
+        close_client_resources();
         return -1;
     }
+    zmq_setsockopt(requester, ZMQ_LINGER, &linger, sizeof(linger));
     
     simulith_log("Simulith client [%s] initialized with update rate %lu ns\n", client_id, update_rate_ns);
     return 0;
@@ -118,7 +139,7 @@ int simulith_client_handshake(void)
 
 void simulith_client_run_loop(simulith_tick_callback on_tick)
 {
-    while (1)
+    while (!client_stop_requested)
     {
         /* Spin-wait for the next tick broadcast */
         uint64_t time_ns;
@@ -127,7 +148,10 @@ void simulith_client_run_loop(simulith_tick_callback on_tick)
             recv_bytes = zmq_recv(subscriber, &time_ns, sizeof(time_ns), ZMQ_DONTWAIT);
             if (recv_bytes != (int)sizeof(time_ns))
                 sched_yield();
-        } while (recv_bytes != (int)sizeof(time_ns));
+        } while (recv_bytes != (int)sizeof(time_ns) && !client_stop_requested);
+
+        if (client_stop_requested)
+            break;
 
         if (on_tick)
             on_tick(time_ns);
@@ -136,6 +160,11 @@ void simulith_client_run_loop(simulith_tick_callback on_tick)
         zmq_send(requester, client_id, strlen(client_id), 0);
         zmq_recv(requester, reply, sizeof(reply) - 1, 0); // wait for server ACK
     }
+}
+
+void simulith_client_request_stop(void)
+{
+    client_stop_requested = 1;
 }
 
 int simulith_client_wait_for_tick(uint64_t* tick_time_ns)
@@ -171,14 +200,6 @@ int simulith_client_wait_for_tick(uint64_t* tick_time_ns)
 
 void simulith_client_shutdown(void)
 {
-    if (subscriber)
-        zmq_close(subscriber);
-    if (requester)
-        zmq_close(requester);
-    if (client_context)
-        zmq_ctx_term(client_context);
-    subscriber     = NULL;
-    requester      = NULL;
-    client_context = NULL;
+    close_client_resources();
     simulith_log("Simulith client [%s] shut down\n", client_id);
 }

@@ -99,7 +99,6 @@ static void process_backdoor_once(director_config_t* config)
         break;
     }
 }
-
 int parse_args(int argc, char *argv[], director_config_t *config) 
 {
     // Set defaults
@@ -281,7 +280,12 @@ int initialize_components(director_config_t* config)
 
     /* Barrier count: one slot per worker + one for the main thread.
      * A count of 1 (no components) lets the main thread pass immediately. */
-    int barrier_count = (config->component_count > 0) ? config->component_count + 1 : 1;
+    int active_components = 0;
+    for (int i = 0; i < config->component_count; i++) {
+        if (config->components[i].active)
+            active_components++;
+    }
+    int barrier_count = active_components + 1;
     pthread_barrier_init(&config->tick_barrier, NULL, (unsigned)barrier_count);
 
     for (int i = 0; i < config->component_count; i++) {
@@ -326,17 +330,42 @@ int initialize_42(director_config_t* config)
     // Initialize socket connection to 42
     if (simulith_42_init(hostname, port) != 0) {
         printf("Warning: Failed to connect to 42 at %s:%d\n", hostname, port);
-        printf("Exiting...\n");
         config->enable_42 = 0;
-        exit(1);
-        return 0;
+        return -1;
     }
     
     config->fortytwo_initialized = 1;
     printf("Connected to 42 successfully\n");
     return 0;
 }
+int initialize_telemetry(void)
+{
+    g_udp_publish_counter = 0;
+    g_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_udp_sock < 0)
+    {
+        perror("UDP socket creation failed");
+        return -1;
+    }
 
+    memset(&g_udp_addr, 0, sizeof(g_udp_addr));
+    g_udp_addr.sin_family = AF_INET;
+    g_udp_addr.sin_port = htons(50042);
+
+    const char *gsw_hostname = getenv("SIMULITH_GSW_HOST");
+    if (!gsw_hostname || gsw_hostname[0] == '\0')
+        gsw_hostname = "shire-gsw";
+    struct hostent *gsw_host = gethostbyname(gsw_hostname);
+    if (gsw_host && gsw_host->h_addrtype == AF_INET)
+    {
+        memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
+    }
+    else
+    {
+        g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    }
+    return 0;
+}
 void cleanup_components(director_config_t* config)
 {
     printf("Cleaning up components...\n");
@@ -384,8 +413,19 @@ void cleanup_components(director_config_t* config)
         }
     }
     config->lib_count = 0;
-}
 
+    if (g_udp_sock >= 0)
+    {
+        close(g_udp_sock);
+        g_udp_sock = -1;
+    }
+    if (g_backdoor_sock >= 0)
+    {
+        close(g_backdoor_sock);
+        g_backdoor_sock = -1;
+    }
+    g_udp_publish_counter = 0;
+}
 static void populate_42_context(simulith_42_context_t* context)
 {
     // Initialize context
@@ -568,92 +608,4 @@ void on_tick(uint64_t tick_time_ns)
         // Send exactly 276 bytes
         sendto(g_udp_sock, packet, 276, 0, (struct sockaddr*)&g_udp_addr, sizeof(g_udp_addr));
     }
-}
-
-int main(int argc, char *argv[]) 
-{
-    printf("Simulith Director starting...\n");
-    
-    int parse_result = parse_args(argc, argv, &g_director_config);
-    if (parse_result < 0) {
-        return 0;  // Help was shown or parsing failed
-    } else if (parse_result > 0) {
-        fprintf(stderr, "Failed to parse arguments\n");
-        return 1;
-    }
-
-    if (load_components(&g_director_config) != 0) 
-    {
-        fprintf(stderr, "Failed to load components\n");
-        return 1;
-    }
-
-    if (initialize_components(&g_director_config) != 0)
-    {
-        fprintf(stderr, "Failed to initialize components\n");
-        cleanup_components(&g_director_config);
-        return 1;
-    }
-
-    if (initialize_42(&g_director_config) != 0)
-    {
-        fprintf(stderr, "Warning: 42 simulation initialization had issues, continuing without it\n");
-        g_director_config.enable_42 = 0;
-        g_director_config.fortytwo_initialized = 0;
-    }
-
-    // UDP Telemetry Socket Init
-    g_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (g_udp_sock < 0) 
-    {
-        perror("UDP socket creation failed");
-    } 
-    else 
-    {
-        memset(&g_udp_addr, 0, sizeof(g_udp_addr));
-        g_udp_addr.sin_family = AF_INET;
-        g_udp_addr.sin_port = htons(50042); // Default port for 42 telemetry
-
-        // Resolve shire-gsw hostname
-        const char* gsw_hostname = "shire-gsw";
-        struct hostent* gsw_host = gethostbyname(gsw_hostname);
-        if (gsw_host && gsw_host->h_addrtype == AF_INET) {
-            memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
-            char ip_str[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &g_udp_addr.sin_addr, ip_str, sizeof(ip_str));
-            printf("UDP telemetry publisher initialized for YAMCS at %s:50042\n", ip_str);
-        } else {
-            printf("Warning: Could not resolve hostname '%s', defaulting to 127.0.0.1\n", gsw_hostname);
-            g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        }
-    }
-
-    // Wait a second for the Simulith server to start up
-    sleep(1);
-
-    if (simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "shire-director", INTERVAL_NS) != 0) 
-    {
-        printf("Failed to initialize Simulith client\n");
-        cleanup_components(&g_director_config);
-        return 1;
-    }
-
-    // Handshake with Simulith server
-    if (simulith_client_handshake() != 0) 
-    {
-        printf("Failed to handshake with Simulith server\n");
-        simulith_client_shutdown();
-        cleanup_components(&g_director_config);
-        return 1;
-    }
-
-    simulith_client_run_loop(on_tick);
-    
-    printf("Simulith director shutting down...\n");
-    
-    // Cleanup
-    simulith_client_shutdown();
-    cleanup_components(&g_director_config);
-    
-    return 0;
 }

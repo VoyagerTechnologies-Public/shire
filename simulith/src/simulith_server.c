@@ -1,6 +1,7 @@
 #include "simulith.h"
 #include <sched.h>
 #include <signal.h>
+#include <sys/select.h>
 
 #define MAX_CLIENTS 32
 
@@ -20,6 +21,30 @@ static ClientState client_states[MAX_CLIENTS] = {0};
 
 /* Test/debug helper: request server shutdown from other threads. */
 static volatile sig_atomic_t simulith_server_stop_requested = 0;
+
+static void sleep_for_microseconds(long microseconds)
+{
+    struct timespec delay = {
+        .tv_sec = (time_t)(microseconds / 1000000L),
+        .tv_nsec = (microseconds % 1000000L) * 1000L
+    };
+    while (nanosleep(&delay, &delay) != 0 && errno == EINTR)
+    {
+    }
+}
+
+static void close_server_resources(void)
+{
+    if (publisher)
+        zmq_close(publisher);
+    if (responder)
+        zmq_close(responder);
+    if (server_context)
+        zmq_ctx_term(server_context);
+    publisher      = NULL;
+    responder      = NULL;
+    server_context = NULL;
+}
 
 static int is_client_id_taken(const char *id)
 {
@@ -66,6 +91,7 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     if (!publisher || zmq_bind(publisher, pub_bind) != 0)
     {
         perror("Publisher socket setup failed");
+        close_server_resources();
         return -1;
     }
 
@@ -79,6 +105,7 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     if (!responder || zmq_bind(responder, rep_bind) != 0)
     {
         perror("Responder socket setup failed");
+        close_server_resources();
         return -1;
     }
 
@@ -270,7 +297,7 @@ void simulith_server_run(void)
 
     printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), or '-' (slower).\n");
 
-    while (running)
+    while (running && !simulith_server_stop_requested)
     {
         // Check for CLI input (non-blocking)
         FD_ZERO(&readfds);
@@ -318,7 +345,7 @@ void simulith_server_run(void)
             broadcast_time();
             reset_responses();
 
-            while (!all_clients_responded() && running) 
+            while (!all_clients_responded() && running && !simulith_server_stop_requested)
             {
                 char buffer[64] = {0};
                 int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, ZMQ_DONTWAIT);
@@ -345,7 +372,7 @@ void simulith_server_run(void)
                         sched_yield();
                     } else {
                         // At lower speeds, small sleep is fine
-                        usleep(1);
+                        sleep_for_microseconds(1);
                     }
                 }
                 
@@ -428,24 +455,21 @@ void simulith_server_run(void)
         } else 
         {
             // If paused, sleep briefly to avoid busy loop
-            usleep(100000);
+            sleep_for_microseconds(100000);
         }
     }
 }
 
+void simulith_server_request_stop(void)
+{
+    simulith_server_stop_requested = 1;
+}
+
 void simulith_server_shutdown(void)
 {
-    /* Request the server loop to stop, then proceed to close sockets. */
-    simulith_server_stop_requested = 1;
+    /* Close resources after the owner loop has returned. */
+    simulith_server_request_stop();
 
-    if (publisher)
-        zmq_close(publisher);
-    if (responder)
-        zmq_close(responder);
-    if (server_context)
-        zmq_ctx_term(server_context);
-    publisher      = NULL;
-    responder      = NULL;
-    server_context = NULL;
+    close_server_resources();
     simulith_log("Simulith server shut down\n");
 }

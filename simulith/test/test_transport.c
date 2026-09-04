@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "simulith_transport.h"
+#include "test_sleep.h"
 #include "unity.h"
 
 static transport_port_t transport_a_ports[8];
@@ -86,12 +87,12 @@ static void test_transport_send_receive(void)
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
 
     /* Allow ZMQ to establish connection */
-    usleep(1000);
+    test_sleep_us(1000);
 
     /* Send from A to B */
     result = simulith_transport_send(&transport_a_ports[0], test_data, sizeof(test_data));
     TEST_ASSERT_EQUAL(sizeof(test_data), result);
-    usleep(1000);
+    test_sleep_us(1000);
 
     /* Confirm available on B */
     result = simulith_transport_available(&transport_b_ports[0]);
@@ -105,7 +106,7 @@ static void test_transport_send_receive(void)
     /* Send back from B to A */
     result = simulith_transport_send(&transport_b_ports[0], rx_data, sizeof(rx_data));
     TEST_ASSERT_EQUAL(sizeof(rx_data), result);
-    usleep(1000);
+    test_sleep_us(1000);
 
     result = simulith_transport_available(&transport_a_ports[0]);
     TEST_ASSERT_TRUE(result == 1);
@@ -133,7 +134,7 @@ static void test_transport_buffer_overflow(void)
     TEST_ASSERT_NOT_NULL(bigbuf);
     memset(bigbuf, 0xFF, big);
 
-    usleep(1000);
+    test_sleep_us(1000);
     int sent = simulith_transport_send(&transport_b_ports[2], bigbuf, big);
     /* send may succeed or fail depending on ZMQ state; we just ensure server won't buffer it */
     (void)sent;
@@ -142,7 +143,7 @@ static void test_transport_buffer_overflow(void)
     for (int i = 0; i < 200; ++i) {
         available = simulith_transport_available(&transport_a_ports[2]);
         if (available) break;
-        usleep(1000);
+        test_sleep_us(1000);
     }
 
     /* The implementation will drop oversized messages; expect no buffered data */
@@ -175,7 +176,7 @@ static void test_transport_multiple_messages(void)
     for (int i = 0; i < 3; ++i) {
         int sent = simulith_transport_send(&transport_b_ports[3], (const uint8_t*)msgs[i], strlen(msgs[i]));
         TEST_ASSERT_EQUAL((int)strlen(msgs[i]), sent);
-        usleep(1000);
+        test_sleep_us(1000);
     }
 
     /* Receive sequentially */
@@ -185,7 +186,7 @@ static void test_transport_multiple_messages(void)
         for (int j = 0; j < 200; ++j) {
             available = simulith_transport_available(&transport_a_ports[3]);
             if (available) break;
-            usleep(1000);
+            test_sleep_us(1000);
         }
         TEST_ASSERT_TRUE(available == 1);
         int r = simulith_transport_receive(&transport_a_ports[3], (uint8_t*)buf, sizeof(buf));
@@ -213,7 +214,7 @@ static void test_transport_partial_receive(void)
     TEST_ASSERT_NOT_NULL(big);
     for (size_t i = 0; i < total; ++i) big[i] = (uint8_t)(i & 0xFF);
 
-    usleep(1000);
+    test_sleep_us(1000);
     int sent = simulith_transport_send(&transport_b_ports[4], big, total);
     TEST_ASSERT_EQUAL((int)total, sent);
 
@@ -223,7 +224,7 @@ static void test_transport_partial_receive(void)
     for (int j = 0; j < 200; ++j) {
         avail = simulith_transport_available(&transport_a_ports[4]);
         if (avail) break;
-        usleep(1000);
+        test_sleep_us(1000);
     }
     TEST_ASSERT_TRUE(avail == 1);
     int r1 = simulith_transport_receive(&transport_a_ports[4], part, sizeof(part));

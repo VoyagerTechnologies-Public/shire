@@ -1038,7 +1038,7 @@ void RADIO_ServiceDownlink(void)
                     RADIO_AppData.HkTelemetryPkt.DeviceErrorCount++;
                     CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
                                     "RADIO: TM frame start failed for packet, status=%d", (int)status);
-                    break;
+                    return;
                 }
             }
 
@@ -1052,7 +1052,7 @@ void RADIO_ServiceDownlink(void)
                     RADIO_AppData.HkTelemetryPkt.DeviceErrorCount++;
                     CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
                                     "RADIO: Failed to add packet to TM frame, status=%d", (int)add_status);
-                    break;
+                    return;
                 }
                 else
                 {

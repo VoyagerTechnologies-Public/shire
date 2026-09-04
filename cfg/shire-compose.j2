@@ -2,7 +2,7 @@
 # Jinja2 template for shire-compose.yaml with spacecraft-specific images
 services:
   shire-42:
-    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-42-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -18,7 +18,7 @@ services:
     shm_size: '2gb'
 
   shire-gsw:
-    image: shire-gsw-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-gsw-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-gsw-{{ mission | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -37,7 +37,7 @@ services:
     mem_limit: 1g
 
   shire-server:
-    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-server-{{ mission | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -56,7 +56,7 @@ services:
     privileged: false
 
   shire-director:
-    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-director-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -78,7 +78,7 @@ services:
       - /dev/shm:noexec,nosuid,size=100m
 
   shire-cryptolib:
-    image: shire-cryptolib-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-cryptolib-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-cryptolib-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -94,7 +94,7 @@ services:
       - /dev/shm:noexec,nosuid,size=100m
 
   shire-fsw:
-    image: shire-fsw-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-fsw-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-fsw-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}

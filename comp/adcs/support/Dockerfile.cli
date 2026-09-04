@@ -1,4 +1,4 @@
-FROM ghcr.io/voyagertechnologies-public/shire-base:latest
+FROM ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 
 ARG BUILDDIR=./build
 

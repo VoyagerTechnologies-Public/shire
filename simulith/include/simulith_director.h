@@ -113,6 +113,9 @@ void cleanup_components(director_config_t* config);
  */
 int initialize_42(director_config_t* config);
 
+/** Initialize the director's UDP telemetry publisher. */
+int initialize_telemetry(void);
+
 /**
  * Execute one 42 simulation step
  * @return 0 on success, 1 if simulation is complete, -1 on error
