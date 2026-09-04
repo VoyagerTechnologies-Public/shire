@@ -2,7 +2,21 @@
 # Build environment for SHIRE FSW, Simulith, and components.
 # Published to: ghcr.io/voyagertechnologies-public/shire-base
 #
-# Local build: make container (from repo root)
+# Local, native-platform build: make container (from repo root)
+#
+# Publish a multi-platform image to your own GHCR namespace (from repo root):
+#   1. Create a GitHub token with write:packages, then use it as the password for:
+#        docker login ghcr.io -u YOUR_GITHUB_USER
+#   2. Create and bootstrap a multi-platform builder (one time):
+#        docker buildx create --name shire-multiarch --driver docker-container --use
+#        docker buildx inspect --bootstrap
+#   3. Build and push the image plus its multi-platform manifest:
+#        export IMAGE=ghcr.io/voyagertechnologies-public/shire-base
+#        docker buildx build --platform linux/amd64,linux/arm64 \
+#          --tag "${IMAGE}:latest" --push -f cfg/Dockerfile.base cfg
+#   4. Verify the published platforms:
+#        docker buildx imagetools inspect "${IMAGE}:latest"
+#
 
 FROM debian:bookworm-slim@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd
 
@@ -40,5 +54,7 @@ RUN pip3 install --break-system-packages --no-cache-dir --upgrade -r /requiremen
 # Create developer user (UID/GID 1000 by default; override with --build-arg for local dev)
 ARG USER_ID=1000
 ARG GROUP_ID=1000
-RUN groupadd -g ${GROUP_ID} developer && \
+RUN if ! getent group ${GROUP_ID} > /dev/null 2>&1; then \
+        groupadd -g ${GROUP_ID} developer; \
+    fi && \
     useradd -u ${USER_ID} -g ${GROUP_ID} -m -s /bin/bash shire

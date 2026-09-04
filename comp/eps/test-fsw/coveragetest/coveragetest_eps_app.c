@@ -393,9 +393,9 @@ void Test_EPS_ProcessGroundCommand(void)
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
     UT_CheckEvent_Setup(&EventTest, EPS_CMD_SWITCH_ON_INF_EID, NULL);
-    UT_SetDeferredRetcode(UT_KEY(EPS_CommandDevice), 1, OS_ERROR);
-    CFE_MSG_Message_t msgPtr;
-    EPS_AppData.MsgPtr = &msgPtr;
+    UT_SetDeferredRetcode(UT_KEY(EPS_SetSwitch), 1, I2C_SUCCESS);
+    TestMsg.Switch.SwitchNumber = 0;
+    EPS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.Switch;
     EPS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "EPS_CMD_SWITCH_ON_INF_EID generated (%u)",
                   (unsigned int)EventTest.MatchCount);
@@ -419,8 +419,9 @@ void Test_EPS_ProcessGroundCommand(void)
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
     UT_CheckEvent_Setup(&EventTest, EPS_CMD_SWITCH_OFF_INF_EID, NULL);
-    UT_SetDeferredRetcode(UT_KEY(EPS_CommandDevice), 1, OS_SUCCESS);
-    EPS_AppData.MsgPtr = &msgPtr;
+    UT_SetDeferredRetcode(UT_KEY(EPS_SetSwitch), 1, I2C_SUCCESS);
+    TestMsg.Switch.SwitchNumber = 0;
+    EPS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.Switch;
     EPS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "EPS_CMD_SWITCH_OFF_INF_EID generated (%u)",
                   (unsigned int)EventTest.MatchCount);
