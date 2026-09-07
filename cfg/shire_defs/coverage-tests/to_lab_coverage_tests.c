@@ -156,9 +156,112 @@ static void Test_RunAndTransport(void)
     TO_LAB_AppMain();
 }
 
+static void Test_AllCommandDispatch(void)
+{
+    CFE_SB_Buffer_t      packet = {0};
+    CFE_MSG_FcnCode_t    functionCodes[] = {
+        TO_LAB_RESET_STATUS_CC,
+        TO_LAB_SEND_DATA_TYPES_CC,
+        TO_LAB_ADD_PKT_CC,
+        TO_LAB_REMOVE_PKT_CC,
+        TO_LAB_REMOVE_ALL_PKT_CC,
+        TO_LAB_OUTPUT_ENABLE_CC
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(functionCodes) / sizeof(functionCodes[0]); ++i)
+    {
+        UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &functionCodes[i], sizeof(functionCodes[i]), false);
+        TO_LAB_ProcessGroundCommand(&packet);
+    }
+}
+
+static void Test_InitializationFailures(void)
+{
+    void *tableAddress = &SubsTable;
+
+    UT_SetDefaultReturnValue(UT_KEY(CFE_TBL_Register), -1);
+    UtAssert_INT32_EQ(TO_LAB_init(), -1);
+
+    Test_Setup();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_TBL_Load), -2);
+    UtAssert_INT32_EQ(TO_LAB_init(), -2);
+
+    Test_Setup();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_TBL_GetAddress), -3);
+    UtAssert_INT32_EQ(TO_LAB_init(), -3);
+
+    Test_Setup();
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &tableAddress, sizeof(tableAddress), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_CreatePipe), -4);
+    UtAssert_INT32_EQ(TO_LAB_init(), -4);
+
+    Test_Setup();
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &tableAddress, sizeof(tableAddress), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_CreatePipe), 2, -5);
+    UtAssert_INT32_EQ(TO_LAB_init(), -5);
+}
+
+static void Test_RunLoopsAndForwarding(void)
+{
+    CFE_SB_Buffer_t  packet = {0};
+    CFE_SB_Buffer_t *packetPtr = &packet;
+    CFE_SB_MsgId_t  unknownMid = CFE_SB_ValueToMsgId(0x999);
+    CFE_MSG_Size_t  packetSize = sizeof(packet);
+    void           *tableAddress = &SubsTable;
+
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &tableAddress, sizeof(tableAddress), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_ES_RunLoop), 1, true);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    TO_LAB_AppMain();
+
+    Test_Setup();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packetPtr, sizeof(packetPtr), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &unknownMid, sizeof(unknownMid), false);
+    TO_LAB_process_commands();
+
+    Test_Setup();
+    TO_LAB_Global.downlink_on = false;
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packetPtr, sizeof(packetPtr), false);
+    TO_LAB_forward_telemetry();
+
+    Test_Setup();
+    TO_LAB_Global.downlink_on = true;
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packetPtr, sizeof(packetPtr), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &packetSize, sizeof(packetSize), false);
+    TO_LAB_forward_telemetry();
+
+    Test_Setup();
+    TO_LAB_Global.downlink_on = true;
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packetPtr, sizeof(packetPtr), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_MSG_GetSize), -1);
+    TO_LAB_forward_telemetry();
+
+    Test_Setup();
+    TO_LAB_Global.downlink_on = true;
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packetPtr, sizeof(packetPtr), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &packetSize, sizeof(packetSize), false);
+    UT_SetDefaultReturnValue(UT_KEY(OS_SocketSendTo), -1);
+    TO_LAB_forward_telemetry();
+    UtAssert_True(TO_LAB_Global.suppress_sendto, "send failure suppresses subsequent output");
+}
+
 void UtTest_Setup(void)
 {
     UtTest_Add(Test_Commands, Test_Setup, NULL, "TO commands and subscription state");
     UtTest_Add(Test_TablesAndLifecycle, Test_Setup, NULL, "TO tables and lifecycle");
     UtTest_Add(Test_RunAndTransport, Test_Setup, NULL, "TO dispatch and transport edges");
+    UtTest_Add(Test_AllCommandDispatch, Test_Setup, NULL, "TO dispatches every command code");
+    UtTest_Add(Test_InitializationFailures, Test_Setup, NULL, "TO initialization failure stages");
+    UtTest_Add(Test_RunLoopsAndForwarding, Test_Setup, NULL, "TO run loops and telemetry forwarding");
 }

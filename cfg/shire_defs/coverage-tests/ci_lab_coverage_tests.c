@@ -155,9 +155,55 @@ static void Test_Lifecycle(void)
     CI_LAB_AppMain();
 }
 
+static void Test_InitializationFailures(void)
+{
+    UT_SetDefaultReturnValue(UT_KEY(CFE_EVS_Register), -1);
+    CI_LAB_TaskInit();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_ES_WriteToSysLog)) > 0,
+                  "event registration failure is logged");
+
+    Test_Setup();
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_Subscribe), 1, -1);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_Subscribe), 1, -2);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_Subscribe), 1, -3);
+    CI_LAB_TaskInit();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_EVS_SendEvent)) >= 3,
+                  "each subscription failure emits an event");
+
+    Test_Setup();
+    UT_SetDefaultReturnValue(UT_KEY(OS_SocketBind), -1);
+    CI_LAB_TaskInit();
+    UtAssert_True(!CI_LAB_Global.SocketConnected, "bind failure leaves the socket disconnected");
+}
+
+static void Test_MainLoopAndMalformedUplink(void)
+{
+    CFE_SB_Buffer_t  packet = {0};
+    CFE_SB_Buffer_t *packet_ptr = &packet;
+    CFE_SB_MsgId_t  unknown_mid = CFE_SB_ValueToMsgId(0x999);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_ES_RunLoop), 1, true);
+    UT_SetDeferredRetcode(UT_KEY(CFE_ES_RunLoop), 1, false);
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packet_ptr, sizeof(packet_ptr), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &unknown_mid, sizeof(unknown_mid), false);
+    CI_LAB_AppMain();
+    UtAssert_INT32_EQ(UT_GetStubCount(UT_KEY(CFE_ES_ExitApp)), 1);
+    UtAssert_INT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_ReceiveBuffer)), 1);
+
+    Test_Setup();
+    CI_LAB_Global.NetBufPtr = &packet;
+    CI_LAB_Global.NetBufSize = sizeof(packet);
+    SocketFirstReceiveSize = 1;
+    UT_SetHandlerFunction(UT_KEY(OS_SocketRecvFrom), ReceiveOneDatagram, NULL);
+    CI_LAB_ReadUpLink();
+    UtAssert_UINT8_EQ(CI_LAB_Global.HkTlm.Payload.IngestErrors, 1);
+}
+
 void UtTest_Setup(void)
 {
     UtTest_Add(Test_CommandsAndDispatch, Test_Setup, NULL, "CI commands and dispatch");
     UtTest_Add(Test_DecodeAndIngest, Test_Setup, NULL, "CI decoding and ingest");
     UtTest_Add(Test_Lifecycle, Test_Setup, NULL, "CI initialization and lifecycle");
+    UtTest_Add(Test_InitializationFailures, Test_Setup, NULL, "CI initialization failures");
+    UtTest_Add(Test_MainLoopAndMalformedUplink, Test_Setup, NULL, "CI run loop and malformed uplink");
 }
