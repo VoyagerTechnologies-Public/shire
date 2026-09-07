@@ -103,10 +103,31 @@ static void test_time_receive_failure_and_cleanup(void)
     simulith_time_cleanup(provider);
 }
 
+static void test_time_cleanup_accepts_partially_initialized_provider(void)
+{
+    /* Keep this layout synchronized with the private provider structure. */
+    struct test_time_provider
+    {
+        void *context;
+        void *sub_socket;
+        uint64_t tick_count;
+        double tick_interval;
+    };
+
+    struct test_time_provider *provider = malloc(sizeof(*provider));
+    TEST_ASSERT_NOT_NULL(provider);
+    provider->context = NULL;
+    provider->sub_socket = NULL;
+    provider->tick_count = 0;
+    provider->tick_interval = 0.0;
+    simulith_time_cleanup(provider);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_time_initialization_failures);
     RUN_TEST(test_time_receive_failure_and_cleanup);
+    RUN_TEST(test_time_cleanup_accepts_partially_initialized_provider);
     return UNITY_END();
 }

@@ -67,6 +67,14 @@ static void test_log_default_stdout(void)
     TEST_ASSERT_NOT_NULL(out);
     TEST_ASSERT_TRUE(strstr(out, "hello-from-test") != NULL);
     free(out);
+
+    /* The explicit stdout setting follows the same output path as default. */
+    setenv("SIMULITH_LOG_MODE", "stdout", 1);
+    simulith_log_reset_for_tests();
+    out = capture_stdout_of(call_log);
+    TEST_ASSERT_NOT_NULL(strstr(out, "hello-from-test"));
+    free(out);
+    unsetenv("SIMULITH_LOG_MODE");
 }
 
 static void test_log_none(void)

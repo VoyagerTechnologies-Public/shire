@@ -11,6 +11,7 @@ typedef enum
     FAIL_CONTEXT,
     FAIL_SOCKET,
     FAIL_SEND,
+    POLL_WITHOUT_INPUT,
     FAIL_MESSAGE_RECEIVE
 } failure_t;
 
@@ -71,6 +72,10 @@ int __wrap_zmq_poll(zmq_pollitem_t *items, int count, long timeout)
         items[0].revents = ZMQ_POLLIN;
         return 1;
     }
+    if (failure == POLL_WITHOUT_INPUT) {
+        items[0].revents = 0;
+        return 1;
+    }
     return 0;
 }
 
@@ -111,6 +116,8 @@ static void test_transport_runtime_failures(void)
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
                           simulith_transport_send(&port, &value, sizeof(value)));
     failure = FAIL_MESSAGE_RECEIVE;
+    TEST_ASSERT_EQUAL_INT(0, simulith_transport_available(&port));
+    failure = POLL_WITHOUT_INPUT;
     TEST_ASSERT_EQUAL_INT(0, simulith_transport_available(&port));
 }
 

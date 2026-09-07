@@ -199,6 +199,11 @@ static void test_parse_args(void)
 
     char *help[] = {"director", "--help"};
     TEST_ASSERT_EQUAL_INT(-1, parse_args(2, help, &config));
+
+    /* A value-taking option at argv's boundary must not read past argv. */
+    char *missing_config[] = {"director", "--42-config"};
+    TEST_ASSERT_EQUAL_INT(0, parse_args(2, missing_config, &config));
+    TEST_ASSERT_EQUAL_STRING("./InOut", config.fortytwo_config);
 }
 
 static void test_component_loading_accepts_only_valid_plugins(void)
@@ -263,6 +268,38 @@ static void test_component_lifecycle_and_tick(void)
     TEST_ASSERT_EQUAL_INT(0, fake_context_valid);
     cleanup_components(&g_director_config);
     TEST_ASSERT_EQUAL_INT(1, fake_state.cleaned);
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
+}
+
+static void test_component_optional_interface_paths(void)
+{
+    static const component_interface_t no_init = {
+        .name = "no-init", .description = "no init", .init = NULL,
+        .tick = fake_tick, .cleanup = NULL, .backdoor = NULL};
+    static const component_interface_t no_tick = {
+        .name = "no-tick", .description = "no tick", .init = fake_init,
+        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+    static const component_interface_t complete = {
+        .name = "complete", .description = "complete", .init = fake_init,
+        .tick = fake_tick, .cleanup = fake_cleanup, .backdoor = NULL};
+
+    g_director_config.component_count = 5;
+    g_director_config.components[0].active = 0;
+    g_director_config.components[0].interface = &complete;
+    g_director_config.components[1].active = 1;
+    g_director_config.components[1].interface = NULL;
+    g_director_config.components[2].active = 1;
+    g_director_config.components[2].interface = &no_init;
+    g_director_config.components[3].active = 1;
+    g_director_config.components[3].interface = &no_tick;
+    g_director_config.components[4].active = 1;
+    g_director_config.components[4].interface = &complete;
+
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(4, g_director_config.threads_spawned);
+    on_tick(4321);
+    TEST_ASSERT_EQUAL_UINT64(4321, fake_tick_time);
+    cleanup_components(&g_director_config);
     TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
 }
 
@@ -394,18 +431,60 @@ static void test_backdoor_rejects_malformed_and_dispatches_valid_packet(void)
     send_backdoor_datagram(wrong_magic, sizeof(wrong_magic));
     on_tick(3);
 
+    static const uint8_t zero_target[] = {
+        'B', 'A', 'C', 'K', 'D', 'O', 'O', 'R', 0, 0, 1, 0, 0};
+    send_backdoor_datagram(zero_target, sizeof(zero_target));
+    on_tick(4);
+
+    uint8_t oversized_target[8 + 1 + 65 + 2 + 2] = {
+        'B', 'A', 'C', 'K', 'D', 'O', 'O', 'R', 65};
+    send_backdoor_datagram(oversized_target, sizeof(oversized_target));
+    on_tick(5);
+
+    static const uint8_t truncated_target[] = {
+        'B', 'A', 'C', 'K', 'D', 'O', 'O', 'R', 4, 'f'};
+    send_backdoor_datagram(truncated_target, sizeof(truncated_target));
+    on_tick(6);
+
     static const uint8_t truncated_payload[] = {
         'B', 'A', 'C', 'K', 'D', 'O', 'O', 'R', 4, 'f', 'a', 'k', 'e',
         0x12, 0x34, 0, 3, 0xaa};
     send_backdoor_datagram(truncated_payload, sizeof(truncated_payload));
-    on_tick(4);
+    on_tick(7);
     TEST_ASSERT_EQUAL_INT(0, fake_backdoor_calls);
 
     static const uint8_t valid[] = {
         'B', 'A', 'C', 'K', 'D', 'O', 'O', 'R', 4, 'f', 'a', 'k', 'e',
         0x12, 0x34, 0, 3, 0xaa, 0xbb, 0xcc};
+    /* Walk every optional component field before reaching the valid target. */
+    g_director_config.components[0].active = 0;
     send_backdoor_datagram(valid, sizeof(valid));
-    on_tick(5);
+    on_tick(8);
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = NULL;
+    send_backdoor_datagram(valid, sizeof(valid));
+    on_tick(9);
+    static const component_interface_t unnamed = {
+        .name = NULL, .description = "unnamed", .init = NULL,
+        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+    g_director_config.components[0].interface = &unnamed;
+    send_backdoor_datagram(valid, sizeof(valid));
+    on_tick(10);
+    static const component_interface_t other = {
+        .name = "other", .description = "other", .init = NULL,
+        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+    g_director_config.components[0].interface = &other;
+    send_backdoor_datagram(valid, sizeof(valid));
+    on_tick(11);
+    static const component_interface_t no_backdoor = {
+        .name = "fake", .description = "no backdoor", .init = NULL,
+        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+    g_director_config.components[0].interface = &no_backdoor;
+    send_backdoor_datagram(valid, sizeof(valid));
+    on_tick(12);
+    g_director_config.components[0].interface = &interface;
+    send_backdoor_datagram(valid, sizeof(valid));
+    on_tick(13);
 
     TEST_ASSERT_EQUAL_INT(1, fake_backdoor_calls);
     TEST_ASSERT_EQUAL_HEX16(0x1234, fake_backdoor_command);
@@ -418,6 +497,43 @@ static void test_telemetry_initialization(void)
 {
     TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
     cleanup_components(&g_director_config);
+
+    setenv("SIMULITH_GSW_HOST", "256.256.256.256", 1);
+    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    cleanup_components(&g_director_config);
+}
+
+static void test_tick_command_failure_and_boundary_paths(void)
+{
+    simulith_42_command_t command = {
+        .type = SIMULITH_42_CMD_WHEEL_TORQUE,
+        .valid = 1,
+        .cmd.wheel.enable_mask = 1,
+    };
+
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+
+    /* Enabled but not initialized covers the second half of both guards. */
+    g_director_config.enable_42 = 1;
+    g_director_config.fortytwo_initialized = 0;
+    on_tick(1);
+
+    /* A disconnected client makes batch transmission fail deterministically. */
+    g_director_config.fortytwo_initialized = 1;
+    g_director_config.verbose = 0;
+    TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
+    on_tick(2);
+    g_director_config.verbose = 1;
+    TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
+    on_tick(3);
+
+    /* Fill the director's fixed batch to exercise its capacity boundary. */
+    for (int i = 0; i < 16; ++i)
+        TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
+    on_tick(4);
+
+    g_director_config.fortytwo_initialized = 0;
+    cleanup_components(&g_director_config);
 }
 
 int main(void)
@@ -427,9 +543,11 @@ int main(void)
     RUN_TEST(test_component_loading_paths);
     RUN_TEST(test_component_loading_accepts_only_valid_plugins);
     RUN_TEST(test_component_lifecycle_and_tick);
+    RUN_TEST(test_component_optional_interface_paths);
     RUN_TEST(test_initialization_failures_and_disabled_42);
     RUN_TEST(test_backdoor_rejects_malformed_and_dispatches_valid_packet);
     RUN_TEST(test_telemetry_initialization);
+    RUN_TEST(test_tick_command_failure_and_boundary_paths);
     RUN_TEST(test_telemetry_serialization);
     RUN_TEST(test_live_42_tick_and_telemetry);
     RUN_TEST(test_tick_handles_42_state_failure);

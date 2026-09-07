@@ -27,6 +27,20 @@ target_compile_definitions(test_simulith PRIVATE
 add_dependencies(test_simulith simulith_server_standalone)
 add_test(NAME SimulithTests COMMAND test_simulith)
 
+add_executable(test_server_failures test_server_failures.c ../src/simulith_server.c ${UNITY_SRC})
+target_link_libraries(test_server_failures ${ZeroMQ_LIBRARIES})
+target_compile_definitions(test_server_failures PRIVATE SIMULITH_TESTING)
+target_link_options(test_server_failures PRIVATE
+    -Wl,--wrap=zmq_ctx_new
+    -Wl,--wrap=zmq_ctx_term
+    -Wl,--wrap=zmq_socket
+    -Wl,--wrap=zmq_bind
+    -Wl,--wrap=zmq_setsockopt
+    -Wl,--wrap=zmq_close
+    -Wl,--wrap=zmq_send
+    -Wl,--wrap=zmq_recv)
+add_test(NAME ServerFailureTests COMMAND test_server_failures)
+
 add_executable(test_client_failures test_client_failures.c ../src/simulith_client.c ${UNITY_SRC})
 target_link_libraries(test_client_failures ${ZeroMQ_LIBRARIES})
 target_compile_definitions(test_client_failures PRIVATE SIMULITH_TESTING)

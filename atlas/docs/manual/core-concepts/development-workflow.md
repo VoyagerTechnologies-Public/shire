@@ -130,16 +130,12 @@ Use the gates and evidence guidance in this workflow when moving from simulation
 | `make test-fsw` | Builds and runs cFS/application tests and produces coverage output. |
 | `make complexity` | Writes the informational `pmccabe` report to `build/coverage-complexity.txt`. |
 
-## Coverage baseline
+## Coverage reporting
 
-The GCC 14 coverage baseline established by these commands is:
-
-| Scope | Line | Branch | MC/DC | Policy |
-| --- | ---: | ---: | ---: | --- |
-| Deployed SHIRE FSW | 84.8% | 84.4% | 84.3% | Informational project baseline |
-| Repository component FSW | 97.5% | 88.0% | 87.1% | Included in deployed FSW |
-| Component simulators | 95.3% | 82.1% | 80.0% | No-regression baseline |
-| Simulith | 75.0% | 57.5% | 57.6% | Includes zero-hit standalone entry points |
+Current coverage results and historical trends are published in the
+[SHIRE Codecov project](https://app.codecov.io/gh/VoyagerTechnologies-Public/shire).
+Use the `fsw`, `component-sim`, and `simulith` flags to inspect each production
+scope independently.
 
 Coverage traces use an explicit production allowlist and merge an initial
 zero-count trace with executed counters, so compiled but unexecuted production

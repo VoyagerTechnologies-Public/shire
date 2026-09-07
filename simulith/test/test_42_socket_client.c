@@ -17,6 +17,9 @@ typedef struct
     char empty[64];
 } fake_42_t;
 
+static int recv_exact_bytes(int socket_fd, void *buffer, size_t length);
+static int recv_until_endmsg(int socket_fd, char *buffer, size_t capacity);
+
 static void *fake_42_server(void *arg)
 {
     fake_42_t *server = arg;
@@ -35,11 +38,17 @@ static void *fake_42_server(void *arg)
         "SC[0].Hvb = [13 14 15]\n";
     send(client, state, sizeof(state) - 1, 0);
 
-    char ack[8] = {0};
-    recv(client, ack, sizeof(ack), 0);
-    recv(client, server->batch, sizeof(server->batch) - 1, 0);
+    char ack[4] = {0};
+    if (recv_exact_bytes(client, ack, sizeof(ack)) != 0 ||
+        recv_until_endmsg(client, server->batch, sizeof(server->batch)) != 0) {
+        close(client);
+        return NULL;
+    }
     send(client, "Ack", 4, 0);
-    recv(client, server->empty, sizeof(server->empty) - 1, 0);
+    if (recv_until_endmsg(client, server->empty, sizeof(server->empty)) != 0) {
+        close(client);
+        return NULL;
+    }
     send(client, "Ack", 4, 0);
     close(client);
     return NULL;
@@ -65,6 +74,22 @@ static int recv_exact_bytes(int socket_fd, void *buffer, size_t length)
         received += (size_t)count;
     }
     return 0;
+}
+
+static int recv_until_endmsg(int socket_fd, char *buffer, size_t capacity)
+{
+    size_t used = 0;
+    buffer[0] = '\0';
+    while (used < capacity - 1) {
+        ssize_t count = recv(socket_fd, buffer + used, capacity - 1 - used, 0);
+        if (count <= 0)
+            return -1;
+        used += (size_t)count;
+        buffer[used] = '\0';
+        if (strstr(buffer, "[ENDMSG]\n"))
+            return 0;
+    }
+    return -1;
 }
 
 static void *close_before_command_ack_server(void *arg)
@@ -254,6 +279,14 @@ static void test_tcp_retry_failure_uses_configured_delay(void)
 
     setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "2", 1);
     setenv("SIMULITH_42_RECONNECT_DELAY_MS", "1", 1);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", port));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
+
+    /* Zero is normalized to one attempt, and an unset value uses the default. */
+    setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "0", 1);
+    setenv("SIMULITH_42_RECONNECT_DELAY_MS", "0", 1);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", port));
+    unsetenv("SIMULITH_42_RECONNECT_ATTEMPTS");
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", port));
     TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
 }
