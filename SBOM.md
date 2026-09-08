@@ -104,7 +104,7 @@ The source downloads and Git clone in CryptoLib's support tooling are not checks
 
 | Image | Pinning | Used by |
 |---|---|---|
-| `debian:bookworm-slim@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd` | Digest | `cfg/Dockerfile.base` |
+| `debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132` | Digest | `cfg/Dockerfile.base` |
 | `maven:3.9.9-eclipse-temurin-17` | Mutable tag | `yamcs/Dockerfile.yamcs` |
 | `ubuntu:noble-20250127` | Date tag, no digest | `comp/cryptolib/support/Dockerfile` |
 | `ghcr.io/haisamido/x-vnc:latest` | Mutable tag | `cfg/Dockerfile.42` default build argument |
@@ -113,12 +113,12 @@ The source downloads and Git clone in CryptoLib's support tooling are not checks
 
 | Image | Status |
 |---|---|
-| `ghcr.io/voyagertechnologies-public/shire-base:latest` | Built from `cfg/Dockerfile.base`; consumed by FSW, Simulith, and CryptoLib standalone images |
-| `ghcr.io/voyagertechnologies-public/shire-yamcs:latest` | Built from `yamcs/Dockerfile.yamcs`; consumed by `yamcs/Dockerfile.gsw` |
+| `ghcr.io/voyagertechnologies-public/shire-base:0.0.0` | Built from `cfg/Dockerfile.base`; primary toolchain image for local builds, CI, and runtime image Dockerfiles |
+| `ghcr.io/voyagertechnologies-public/shire-yamcs:0.0.0` | Built from `yamcs/Dockerfile.yamcs`; consumed by `yamcs/Dockerfile.gsw` |
 
 ### Direct packages in `cfg/Dockerfile.base`
 
-`build-essential`, `cmake`, `curl`, `gcovr`, `gdb`, `git`, `gpg`, `lcov`, `libcurl4-openssl-dev`, `libgcrypt20-dev`, `libsocketcan-dev`, `libzmq3-dev`, `pkg-config`, `python3`, and `python3-pip` are installed without version constraints. Their resolved versions depend on the pinned Debian image and repository state at build time.
+`build-essential`, `cmake`, `curl`, `gcovr`, `gdb`, `git`, `gpg`, `lcov`, `libcurl4-openssl-dev`, `libgcrypt20-dev`, `libsocketcan-dev`, `libzmq3-dev`, `pmccabe`, `pkg-config`, `python3`, and `python3-pip` are installed without version constraints. Their resolved versions depend on the pinned Debian image and repository state at build time.
 
 The 42 image additionally installs `libglu1-mesa-dev`, `freeglut3-dev`, `mesa-common-dev`, and `libglfw3-dev` without version constraints. The YAMCS image additionally installs `curl`, `python3`, and `python3-requests` without version constraints.
 

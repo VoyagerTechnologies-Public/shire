@@ -126,7 +126,25 @@ Use the gates and evidence guidance in this workflow when moving from simulation
 | `make` | Runs configuration, then builds simulation, FSW, and GSW. |
 | `make cli` | Builds 42, Simulith, the selected component simulator, the Director and Server images, and the selected host CLI image. |
 | `make test-sim` | Builds Simulith, runs simulator tests selected from the existing `build/build.yaml`, and produces combined simulator coverage. |
+| `make test-simulith` | Runs the standalone Simulith core suite and produces its coverage report. |
 | `make test-fsw` | Builds and runs cFS/application tests and produces coverage output. |
+| `make complexity` | Writes the informational `pmccabe` report to `build/coverage-complexity.txt`. |
+
+## Coverage reporting
+
+Current coverage results and historical trends are published in the
+[SHIRE Codecov project](https://app.codecov.io/gh/VoyagerTechnologies-Public/shire).
+Use the `fsw`, `component-sim`, and `simulith` flags to inspect each production
+scope independently.
+
+Coverage traces use an explicit production allowlist and merge an initial
+zero-count trace with executed counters, so compiled but unexecuted production
+sources remain in the denominator.
+Codecov receives separate `fsw`, `component-sim`, and `simulith` uploads.
+Project coverage is informational.
+Changed lines must meet the blocking 80% patch target.
+MC/DC and the sorted cyclomatic-complexity report are review artifacts rather
+than gates.
 
 ## What stays and what changes
 
@@ -220,7 +238,9 @@ Consumers must still validate wire protocols, identifiers, timing, device driver
 ## Automation status
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main` or `dev`.
-It defines separate Simulith, FSW, and CLI build jobs, runs the FSW and component simulator test builds, and uploads their coverage to Codecov.
+It defines separate Simulith, FSW, and CLI build jobs, runs the FSW, component
+simulator, and Simulith core test builds, and uploads their explicitly scoped
+coverage to Codecov.
 `.github/workflows/docs.yml` validates the Atlas on pull requests and pushes to `main` or `dev`.
 It publishes GitHub Pages only after a successful push build on `main`.
 

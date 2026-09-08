@@ -65,6 +65,16 @@ extern "C"
      */
     void simulith_server_run(void);
 
+    /** Request that a server loop running on another thread return. */
+    void simulith_server_request_stop(void);
+
+#ifdef SIMULITH_TESTING
+    /** Exercise the server's interactive command parser without running its loop. */
+    int simulith_server_process_cli_command_for_test(const char *command, int *paused, double *speed);
+    /** Force a broadcast timestamp to exercise periodic reporting deterministically. */
+    void simulith_server_broadcast_for_test(uint64_t time_ns);
+#endif
+
     /**
      * Cleanly shuts down the server.
      */
@@ -103,6 +113,9 @@ extern "C"
      * @param on_tick Callback to invoke each time a new tick is received.
      */
     void simulith_client_run_loop(simulith_tick_callback on_tick);
+
+    /** Request that a client loop running on another thread return. */
+    void simulith_client_request_stop(void);
 
     /**
      * Wait for next tick and send acknowledgment (non-blocking API for OSAL use).

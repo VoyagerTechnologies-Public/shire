@@ -32,6 +32,7 @@ extern "C" {
 #define MAX_COMPONENTS 32
 #define MAX_COMPONENT_LIBS 32
 #define UDP_PUBLISH_INTERVAL_TICKS 100 // 100 ticks = 1s
+#define SIMULITH_42_TELEMETRY_SIZE 276
 
 // Component registry entry
 typedef struct {
@@ -112,6 +113,13 @@ void cleanup_components(director_config_t* config);
  * @return 0 on success, -1 on error
  */
 int initialize_42(director_config_t* config);
+
+/** Initialize the director's UDP telemetry publisher. */
+int initialize_telemetry(void);
+
+/** Serialize the fixed-layout 42 truth telemetry packet. */
+size_t simulith_serialize_42_telemetry(const simulith_42_context_t *context,
+                                      uint8_t *packet, size_t packet_capacity);
 
 /**
  * Execute one 42 simulation step

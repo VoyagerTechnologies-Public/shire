@@ -2,7 +2,7 @@
 .PHONY: all build clean debug runtime start stop
 
 export BUILDDIR ?= $(CURDIR)/build
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 export RUNTIME_NAME ?= shire-comp-eps-cli
 export SHIRE_DIR ?= $(CURDIR)/../../..
 export TGTNAME ?= cpu1
@@ -30,7 +30,7 @@ debug:
 	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) /bin/bash
 
 runtime:
-	$(MAKE) clean build && docker build -t $(RUNTIME_NAME) -f ../support/Dockerfile.cli --build-arg BUILDDIR=$$(python3 -c "import os.path; print(os.path.relpath('$(BUILDDIR)', '$(SHIRE_DIR)'))") $(SHIRE_DIR)
+	$(MAKE) clean build && docker build -t $(RUNTIME_NAME):0.0.0 -f ../support/Dockerfile.cli --build-arg BUILDDIR=$$(python3 -c "import os.path; print(os.path.relpath('$(BUILDDIR)', '$(SHIRE_DIR)'))") $(SHIRE_DIR)
 
 start:
 	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_comp_run" $(BUILD_IMAGE) ./$(BUILDDIR)/eps_cli

@@ -13,7 +13,9 @@ CFG_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.abspath(os.path.join(CFG_DIR, "../build"))
 BUILD_YAML = os.path.join(BUILD_DIR, "build.yaml")
 ROOT_DIR = os.path.abspath(os.path.join(CFG_DIR, ".."))
-BUILD_IMAGE = "ghcr.io/voyagertechnologies-public/shire-base:latest"
+BUILD_IMAGE = os.environ.get(
+    "BUILD_IMAGE", "ghcr.io/voyagertechnologies-public/shire-base:0.0.0"
+)
 FSW_DIR = os.environ.get("FSW_DIR", "cfs")
 GSW_DIR = os.environ.get("GSW_DIR", "yamcs")
 

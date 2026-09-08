@@ -9,6 +9,7 @@ atlas/site
 atlas/.cache
 atlas/.venv
 build
+cfs/build-coverage-mission/
 tmp
 
 # AIs

@@ -1,6 +1,7 @@
 #include "simulith.h"
 #include <sched.h>
 #include <signal.h>
+#include <sys/select.h>
 
 #define MAX_CLIENTS 32
 
@@ -20,6 +21,30 @@ static ClientState client_states[MAX_CLIENTS] = {0};
 
 /* Test/debug helper: request server shutdown from other threads. */
 static volatile sig_atomic_t simulith_server_stop_requested = 0;
+
+static void sleep_for_microseconds(long microseconds)
+{
+    struct timespec delay = {
+        .tv_sec = (time_t)(microseconds / 1000000L),
+        .tv_nsec = (microseconds % 1000000L) * 1000L
+    };
+    while (nanosleep(&delay, &delay) != 0 && errno == EINTR)
+    {
+    }
+}
+
+static void close_server_resources(void)
+{
+    if (publisher)
+        zmq_close(publisher);
+    if (responder)
+        zmq_close(responder);
+    if (server_context)
+        zmq_ctx_term(server_context);
+    publisher      = NULL;
+    responder      = NULL;
+    server_context = NULL;
+}
 
 static int is_client_id_taken(const char *id)
 {
@@ -66,6 +91,7 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     if (!publisher || zmq_bind(publisher, pub_bind) != 0)
     {
         perror("Publisher socket setup failed");
+        close_server_resources();
         return -1;
     }
 
@@ -79,6 +105,7 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     if (!responder || zmq_bind(responder, rep_bind) != 0)
     {
         perror("Responder socket setup failed");
+        close_server_resources();
         return -1;
     }
 
@@ -134,6 +161,14 @@ static void broadcast_time(void)
     }
 }
 
+#ifdef SIMULITH_TESTING
+void simulith_server_broadcast_for_test(uint64_t time_ns)
+{
+    current_time_ns = time_ns;
+    broadcast_time();
+}
+#endif
+
 static int all_clients_responded(void)
 {
     int count = 0;
@@ -165,6 +200,50 @@ static void handle_ack(const char *client_id)
     }
     simulith_log("ACK received from unknown client: %s\n", client_id);
 }
+
+/* Keep command interpretation independent of stdin so it is deterministic and
+ * directly testable.  A non-zero return asks the caller to stop the server. */
+static int process_cli_command(const char *command, int *paused, double *speed)
+{
+    if (strncmp(command, "p", 1) == 0)
+    {
+        *paused = !*paused;
+        printf(*paused ? "Simulation paused.\n" : "Simulation resumed.\n");
+    }
+    else if (strncmp(command, "+", 1) == 0)
+    {
+        *speed *= 2.0;
+        if (*speed > 1024.0)
+            *speed = 1024.0;
+        g_attempted_speed = *speed;
+        printf("Attempted simulation speed: %.2fx\n", *speed);
+    }
+    else if (strncmp(command, "-", 1) == 0)
+    {
+        *speed /= 2.0;
+        if (*speed < 0.015625)
+            *speed = 0.015625;
+        g_attempted_speed = *speed;
+        printf("Attempted simulation speed: %.4fx\n", *speed);
+    }
+    else if (strncmp(command, "quit", 4) == 0)
+    {
+        printf("Exiting simulation.\n");
+        return 1;
+    }
+    else
+    {
+        printf("Unknown command. Use 'p', '+', '-', or 'quit'.\n");
+    }
+    return 0;
+}
+
+#ifdef SIMULITH_TESTING
+int simulith_server_process_cli_command_for_test(const char *command, int *paused, double *speed)
+{
+    return process_cli_command(command, paused, speed);
+}
+#endif
 
 void simulith_server_run(void)
 {
@@ -270,7 +349,7 @@ void simulith_server_run(void)
 
     printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), or '-' (slower).\n");
 
-    while (running)
+    while (running && !simulith_server_stop_requested)
     {
         // Check for CLI input (non-blocking)
         FD_ZERO(&readfds);
@@ -280,33 +359,11 @@ void simulith_server_run(void)
         int cli_ready = select(1, &readfds, NULL, NULL, &tv);
         if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
         {
-            if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
+            if (fgets(cli_buf, sizeof(cli_buf), stdin) &&
+                process_cli_command(cli_buf, &paused, &speed))
             {
-                if (strncmp(cli_buf, "p", 1) == 0) 
-                {
-                    paused = !paused;
-                    printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
-                } else if (strncmp(cli_buf, "+", 1) == 0) 
-                {
-                    speed *= 2.0;
-                    if (speed > 1024.0) speed = 1024.0;
-                    g_attempted_speed = speed;
-                    printf("Attempted simulation speed: %.2fx\n", speed);
-                } else if (strncmp(cli_buf, "-", 1) == 0) 
-                {
-                    speed /= 2.0;
-                    if (speed < 0.015625) speed = 0.015625;
-                    g_attempted_speed = speed;
-                    printf("Attempted simulation speed: %.4fx\n", speed);
-                } else if (strncmp(cli_buf, "quit", 4) == 0) 
-                {
-                    running = 0;
-                    printf("Exiting simulation.\n");
-                    break;
-                } else 
-                {
-                    printf("Unknown command. Use 'p', '+', or '-'.\n");
-                }
+                running = 0;
+                break;
             }
         }
 
@@ -318,7 +375,7 @@ void simulith_server_run(void)
             broadcast_time();
             reset_responses();
 
-            while (!all_clients_responded() && running) 
+            while (!all_clients_responded() && running && !simulith_server_stop_requested)
             {
                 char buffer[64] = {0};
                 int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, ZMQ_DONTWAIT);
@@ -345,7 +402,7 @@ void simulith_server_run(void)
                         sched_yield();
                     } else {
                         // At lower speeds, small sleep is fine
-                        usleep(1);
+                        sleep_for_microseconds(1);
                     }
                 }
                 
@@ -361,28 +418,10 @@ void simulith_server_run(void)
                     cli_ready = select(1, &readfds, NULL, NULL, &tv);
                     if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
                     {
-                        if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
+                        if (fgets(cli_buf, sizeof(cli_buf), stdin) &&
+                            process_cli_command(cli_buf, &paused, &speed))
                         {
-                            if (strncmp(cli_buf, "p", 1) == 0) 
-                            {
-                                paused = !paused;
-                                printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
-                            } else if (strncmp(cli_buf, "+", 1) == 0) 
-                            {
-                                speed *= 2.0;
-                                if (speed > 1024.0) speed = 1024.0;
-                                g_attempted_speed = speed;
-                                printf("Attempted simulation speed: %.2fx\n", speed);
-                            } else if (strncmp(cli_buf, "-", 1) == 0) 
-                            {
-                                speed /= 2.0;
-                                if (speed < 0.015625) speed = 0.015625;
-                                g_attempted_speed = speed;
-                                printf("Attempted simulation speed: %.4fx\n", speed);
-                            } else 
-                            {
-                                printf("Unknown command. Use 'p', '+', or '-'.\n");
-                            }
+                            running = 0;
                         }
                     }
                 }
@@ -428,24 +467,21 @@ void simulith_server_run(void)
         } else 
         {
             // If paused, sleep briefly to avoid busy loop
-            usleep(100000);
+            sleep_for_microseconds(100000);
         }
     }
 }
 
+void simulith_server_request_stop(void)
+{
+    simulith_server_stop_requested = 1;
+}
+
 void simulith_server_shutdown(void)
 {
-    /* Request the server loop to stop, then proceed to close sockets. */
-    simulith_server_stop_requested = 1;
+    /* Close resources after the owner loop has returned. */
+    simulith_server_request_stop();
 
-    if (publisher)
-        zmq_close(publisher);
-    if (responder)
-        zmq_close(responder);
-    if (server_context)
-        zmq_ctx_term(server_context);
-    publisher      = NULL;
-    responder      = NULL;
-    server_context = NULL;
+    close_server_resources();
     simulith_log("Simulith server shut down\n");
 }

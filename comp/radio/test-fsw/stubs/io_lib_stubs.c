@@ -1,145 +1,105 @@
-/*
-** IO_lib Stub Functions for Unit Testing
-*/
+/* IO_LIB generated-style stubs for radio unit testing. */
 
-#include "radio_unit_test_types.h"
-#include <string.h>
-#include <stdlib.h>
+#include "utgenstub.h"
 
-/*
-** Global stub variables for test control
-*/
-int32 UT_TM_SYNC_LibInit_ReturnValue = 0;
-int32 UT_TM_SDLP_InitChannel_ReturnValue = 0;
-int32 UT_TM_SDLP_StartFrame_ReturnValue = 0;
-int32 UT_TM_SDLP_AddPacket_ReturnValue = 0;
-bool  UT_TM_SDLP_FrameHasData_ReturnValue = true;
-int32 UT_TM_SYNC_Synchronize_ReturnValue = 1024;
-bool  UT_IO_LIB_Enable_Stubs = true;
+#include "io_lib_utils.h"
+#include "tm_sdlp.h"
+#include "tm_sync.h"
 
-/*
-** Stub for TM_SYNC_LibInit
-*/
 int32 TM_SYNC_LibInit(void)
 {
-    if (!UT_IO_LIB_Enable_Stubs)
-        return -1;
-        
-    return UT_TM_SYNC_LibInit_ReturnValue;
+    UT_GenStub_SetupReturnBuffer(TM_SYNC_LibInit, int32);
+    UT_GenStub_Execute(TM_SYNC_LibInit, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SYNC_LibInit, int32);
 }
 
-/*
-** Stub for TM_SDLP_InitChannel
-*/
-int32 TM_SDLP_InitChannel(uint8 channel_id)
+int32 TM_SDLP_InitChannel(TM_SDLP_FrameInfo_t *frame_info, uint8 *tf_buffer, uint8 *overflow_buffer,
+                          TM_SDLP_GlobalConfig_t *global_config, TM_SDLP_ChannelConfig_t *channel_config)
 {
-    if (!UT_IO_LIB_Enable_Stubs)
-        return -1;
-        
-    return UT_TM_SDLP_InitChannel_ReturnValue;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_InitChannel, int32);
+    UT_GenStub_AddParam(TM_SDLP_InitChannel, TM_SDLP_FrameInfo_t *, frame_info);
+    UT_GenStub_AddParam(TM_SDLP_InitChannel, uint8 *, tf_buffer);
+    UT_GenStub_AddParam(TM_SDLP_InitChannel, uint8 *, overflow_buffer);
+    UT_GenStub_AddParam(TM_SDLP_InitChannel, TM_SDLP_GlobalConfig_t *, global_config);
+    UT_GenStub_AddParam(TM_SDLP_InitChannel, TM_SDLP_ChannelConfig_t *, channel_config);
+    UT_GenStub_Execute(TM_SDLP_InitChannel, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_InitChannel, int32);
 }
 
-/*
-** Stub for TM_SDLP_StartFrame
-*/
-int32 TM_SDLP_StartFrame(uint8 channel_id)
+int32 TM_SDLP_StartFrame(TM_SDLP_FrameInfo_t *frame_info)
 {
-    if (!UT_IO_LIB_Enable_Stubs)
-        return -1;
-        
-    return UT_TM_SDLP_StartFrame_ReturnValue;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_StartFrame, int32);
+    UT_GenStub_AddParam(TM_SDLP_StartFrame, TM_SDLP_FrameInfo_t *, frame_info);
+    UT_GenStub_Execute(TM_SDLP_StartFrame, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_StartFrame, int32);
 }
 
-/*
-** Stub for TM_SDLP_AddPacket
-*/
-int32 TM_SDLP_AddPacket(uint8 channel_id, uint8* packet, uint16 packet_len)
+int32 TM_SDLP_AddPacket(TM_SDLP_FrameInfo_t *frame_info, CFE_MSG_Message_t *packet)
 {
-    if (!UT_IO_LIB_Enable_Stubs)
-        return -1;
-        
-    /* Simple stub - just validate parameters */
-    if (packet == NULL || packet_len == 0)
-        return -1;
-        
-    return UT_TM_SDLP_AddPacket_ReturnValue;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_AddPacket, int32);
+    UT_GenStub_AddParam(TM_SDLP_AddPacket, TM_SDLP_FrameInfo_t *, frame_info);
+    UT_GenStub_AddParam(TM_SDLP_AddPacket, CFE_MSG_Message_t *, packet);
+    UT_GenStub_Execute(TM_SDLP_AddPacket, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_AddPacket, int32);
 }
 
-/*
-** Stub for TM_SDLP_FrameHasData
-*/
-bool TM_SDLP_FrameHasData(uint8 channel_id)
+int32 TM_SDLP_FrameHasData(TM_SDLP_FrameInfo_t *frame_info)
 {
-    if (!UT_IO_LIB_Enable_Stubs)
-        return false;
-        
-    return UT_TM_SDLP_FrameHasData_ReturnValue;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_FrameHasData, int32);
+    UT_GenStub_AddParam(TM_SDLP_FrameHasData, TM_SDLP_FrameInfo_t *, frame_info);
+    UT_GenStub_Execute(TM_SDLP_FrameHasData, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_FrameHasData, int32);
 }
 
-/*
-** Stub for TM_SDLP_CompleteFrame
-*/
-uint8* TM_SDLP_CompleteFrame(uint8 channel_id, uint16* frame_len)
+int32 TM_SDLP_CompleteFrame(TM_SDLP_FrameInfo_t *frame_info, uint8 *master_channel_count, uint8 *ocf)
 {
-    /* Static buffer for frame data */
-    static uint8_t stub_frame_buffer[2048];
-    
-    if (!UT_IO_LIB_Enable_Stubs)
-        return NULL;
-        
-    if (frame_len != NULL)
-    {
-        *frame_len = 1024; /* Stub frame length */
-        
-        /* Fill with some test data */
-        memset(stub_frame_buffer, 0xAA, sizeof(stub_frame_buffer));
-    }
-    
-    return stub_frame_buffer;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_CompleteFrame, int32);
+    UT_GenStub_AddParam(TM_SDLP_CompleteFrame, TM_SDLP_FrameInfo_t *, frame_info);
+    UT_GenStub_AddParam(TM_SDLP_CompleteFrame, uint8 *, master_channel_count);
+    UT_GenStub_AddParam(TM_SDLP_CompleteFrame, uint8 *, ocf);
+    UT_GenStub_Execute(TM_SDLP_CompleteFrame, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_CompleteFrame, int32);
 }
 
-/*
-** Stub for TM_SYNC_Synchronize
-*/
-int32 TM_SYNC_Synchronize(uint8* cadu_buffer, char* asm_pattern, uint8 asm_size, uint16 frame_len, bool randomize)
+int32 TM_SYNC_Synchronize(uint8 *buffer, char *asm_pattern, uint8 asm_size, uint16 frame_length, bool randomize)
 {
-    if (!UT_IO_LIB_Enable_Stubs)
-        return -1;
-        
-    /* Simple stub - validate parameters and return frame length */
-    if (cadu_buffer == NULL || asm_pattern == NULL)
-        return -1;
-        
-    return UT_TM_SYNC_Synchronize_ReturnValue;
+    UT_GenStub_SetupReturnBuffer(TM_SYNC_Synchronize, int32);
+    UT_GenStub_AddParam(TM_SYNC_Synchronize, uint8 *, buffer);
+    UT_GenStub_AddParam(TM_SYNC_Synchronize, char *, asm_pattern);
+    UT_GenStub_AddParam(TM_SYNC_Synchronize, uint8, asm_size);
+    UT_GenStub_AddParam(TM_SYNC_Synchronize, uint16, frame_length);
+    UT_GenStub_AddParam(TM_SYNC_Synchronize, bool, randomize);
+    UT_GenStub_Execute(TM_SYNC_Synchronize, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SYNC_Synchronize, int32);
 }
 
-/* Generate a deterministic pseudo-random sequence into buffer for tests.
- * Keep it simple and deterministic so tests are repeatable.
- */
-void IO_LIB_UTIL_GenPseudoRandomSeq(uint8_t *buf, uint8_t seed, uint8_t len)
+int32 IO_LIB_UTIL_GenPseudoRandomSeq(uint8 *sequence, uint8 polynomial, uint8 seed)
 {
-    if (!buf) return;
-    for (uint32_t i = 0; i < (uint32_t)len; ++i)
-    {
-        buf[i] = (uint8_t)(seed + (uint8_t)i);
-    }
+    UT_GenStub_SetupReturnBuffer(IO_LIB_UTIL_GenPseudoRandomSeq, int32);
+    UT_GenStub_AddParam(IO_LIB_UTIL_GenPseudoRandomSeq, uint8 *, sequence);
+    UT_GenStub_AddParam(IO_LIB_UTIL_GenPseudoRandomSeq, uint8, polynomial);
+    UT_GenStub_AddParam(IO_LIB_UTIL_GenPseudoRandomSeq, uint8, seed);
+    UT_GenStub_Execute(IO_LIB_UTIL_GenPseudoRandomSeq, Basic, NULL);
+    return UT_GenStub_GetReturnValue(IO_LIB_UTIL_GenPseudoRandomSeq, int32);
 }
 
-/* Idle packet helpers used by radio_app. In unit tests we don't need
- * full SDLP behavior, so provide no-op implementations that preserve
- * the expected symbol names for linking.
- */
-void TM_SDLP_InitIdlePacket(void *IdlePacket, uint8_t *pattern, uint32_t frameSize, uint8_t repeat)
+int32 TM_SDLP_InitIdlePacket(CFE_MSG_Message_t *idle_packet, uint8 *pattern, uint16 buffer_length,
+                             uint32 pattern_bit_length)
 {
-    (void)IdlePacket;
-    (void)pattern;
-    (void)frameSize;
-    (void)repeat;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_InitIdlePacket, int32);
+    UT_GenStub_AddParam(TM_SDLP_InitIdlePacket, CFE_MSG_Message_t *, idle_packet);
+    UT_GenStub_AddParam(TM_SDLP_InitIdlePacket, uint8 *, pattern);
+    UT_GenStub_AddParam(TM_SDLP_InitIdlePacket, uint16, buffer_length);
+    UT_GenStub_AddParam(TM_SDLP_InitIdlePacket, uint32, pattern_bit_length);
+    UT_GenStub_Execute(TM_SDLP_InitIdlePacket, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_InitIdlePacket, int32);
 }
 
-void TM_SDLP_AddIdlePacket(void *frame_info, void *IdlePacket)
+int32 TM_SDLP_AddIdlePacket(TM_SDLP_FrameInfo_t *frame_info, CFE_MSG_Message_t *idle_packet)
 {
-    (void)frame_info;
-    (void)IdlePacket;
+    UT_GenStub_SetupReturnBuffer(TM_SDLP_AddIdlePacket, int32);
+    UT_GenStub_AddParam(TM_SDLP_AddIdlePacket, TM_SDLP_FrameInfo_t *, frame_info);
+    UT_GenStub_AddParam(TM_SDLP_AddIdlePacket, CFE_MSG_Message_t *, idle_packet);
+    UT_GenStub_Execute(TM_SDLP_AddIdlePacket, Basic, NULL);
+    return UT_GenStub_GetReturnValue(TM_SDLP_AddIdlePacket, int32);
 }
-

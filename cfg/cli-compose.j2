@@ -2,7 +2,7 @@
 # Usage: Render with orchestrator using active CLI component
 services:
   shire-42:
-    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-42-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -17,7 +17,7 @@ services:
       - /dev/shm:noexec,nosuid,size=500m
 
   shire-server:
-    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-server-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -36,7 +36,7 @@ services:
     privileged: false
 
   shire-director:
-    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('latest') }}
+    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
     container_name: shire-director-{{ spacecraft | default('default') }}
     networks:
       - shire-net-{{ spacecraft | default('default') }}
@@ -56,7 +56,7 @@ services:
       - /dev/shm:noexec,nosuid,size=100m
 
   shire-comp-{{ cli_component }}-cli:
-    image: shire-comp-{{ cli_component }}-cli:latest
+    image: shire-comp-{{ cli_component }}-cli:0.0.0
     container_name: shire-comp-{{ cli_component }}-cli
     networks:
       - shire-net-{{ spacecraft | default('default') }}

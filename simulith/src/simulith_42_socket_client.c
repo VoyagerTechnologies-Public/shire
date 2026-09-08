@@ -21,11 +21,36 @@
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <fcntl.h>
+#include <sys/select.h>
 #include <sys/un.h>
 
 #define SOCKET_BUFFER_SIZE 16384
 #define RECONNECT_ATTEMPTS 20
 #define RECONNECT_DELAY_MS 1000
+
+static unsigned int reconnect_attempts(void)
+{
+    const char *value = getenv("SIMULITH_42_RECONNECT_ATTEMPTS");
+    int attempts = value ? atoi(value) : RECONNECT_ATTEMPTS;
+    return attempts > 0 ? (unsigned int)attempts : 1U;
+}
+
+static unsigned int reconnect_delay_ms(void)
+{
+    const char *value = getenv("SIMULITH_42_RECONNECT_DELAY_MS");
+    int delay = value ? atoi(value) : RECONNECT_DELAY_MS;
+    return delay > 0 ? (unsigned int)delay : 0U;
+}
+
+static void wait_before_reconnect(void)
+{
+    unsigned int delay_ms = reconnect_delay_ms();
+    struct timeval delay = {
+        .tv_sec = (time_t)(delay_ms / 1000U),
+        .tv_usec = (suseconds_t)(delay_ms % 1000U) * 1000
+    };
+    (void)select(0, NULL, NULL, NULL, &delay);
+}
 
 typedef struct {
     int socket_fd;
@@ -52,7 +77,7 @@ static int connect_to_42(void)
     struct sockaddr_in server_addr;
     struct hostent *host;
     int sockfd;
-    int attempt;
+    unsigned int attempt;
     
     // Create socket
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -76,11 +101,12 @@ static int connect_to_42(void)
     // Setup server address
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    memcpy(&server_addr.sin_addr.s_addr, host->h_addr, (size_t)host->h_length);
+    memcpy(&server_addr.sin_addr.s_addr, host->h_addr_list[0], (size_t)host->h_length);
     server_addr.sin_port = htons((uint16_t)g_client.port);
     
     // Connect with retries
-    for (attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+    unsigned int attempts = reconnect_attempts();
+    for (attempt = 0; attempt != attempts; attempt++) {
         if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
             printf("[42-client] Connected to 42 at %s:%d\n", g_client.hostname, g_client.port);
             g_client.socket_fd = sockfd;
@@ -88,13 +114,13 @@ static int connect_to_42(void)
             return 0;
         }
         
-        if (attempt < RECONNECT_ATTEMPTS - 1) {
+        if (attempt + 1U != attempts) {
             //fprintf(stderr, "[42-client] Connection attempt %d failed, retrying...\n", attempt + 1);
-            usleep(RECONNECT_DELAY_MS * 1000);
+            wait_before_reconnect();
         }
     }
     
-    fprintf(stderr, "[42-client] Failed to connect to 42 after %d attempts\n", RECONNECT_ATTEMPTS);
+    fprintf(stderr, "[42-client] Failed to connect to 42 after %u attempts\n", attempts);
     close(sockfd);
     return -1;
 }
@@ -178,6 +204,15 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
     return 0;
 }
 
+#ifdef SIMULITH_TESTING
+int simulith_42_parse_state_for_test(const char *message, simulith_42_context_t *context)
+{
+    if (!message || !context)
+        return -1;
+    return parse_42_state(message, context);
+}
+#endif
+
 /*
  * Connect via Unix domain socket, used when both containers share a /tmp
  * volume (simulith_ipc).
@@ -185,7 +220,7 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
 static int connect_to_42_unix(const char *socket_path)
 {
     int sockfd;
-    int attempt;
+    unsigned int attempt;
     struct sockaddr_un addr;
     size_t path_len = strlen(socket_path);
 
@@ -195,7 +230,8 @@ static int connect_to_42_unix(const char *socket_path)
         return -1;
     }
 
-    for (attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+    unsigned int attempts = reconnect_attempts();
+    for (attempt = 0; attempt != attempts; attempt++) {
         sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (sockfd < 0) {
             fprintf(stderr, "[42-client] Error creating Unix socket: %s\n", strerror(errno));
@@ -214,12 +250,12 @@ static int connect_to_42_unix(const char *socket_path)
         }
 
         close(sockfd);
-        if (attempt < RECONNECT_ATTEMPTS - 1)
-            usleep(RECONNECT_DELAY_MS * 1000);
+        if (attempt + 1U != attempts)
+            wait_before_reconnect();
     }
 
-    fprintf(stderr, "[42-client] Failed to connect to 42 Unix socket %s after %d attempts\n",
-            socket_path, RECONNECT_ATTEMPTS);
+    fprintf(stderr, "[42-client] Failed to connect to 42 Unix socket %s after %u attempts\n",
+            socket_path, attempts);
     return -1;
 }
 
@@ -269,7 +305,6 @@ int simulith_42_request_state(simulith_42_context_t *context)
     
     if (!g_client.connected) {
         fprintf(stderr, "[42-client] Not connected to 42\n");
-        exit(1);
         return -1;
     }
     
@@ -287,7 +322,6 @@ int simulith_42_request_state(simulith_42_context_t *context)
     if (bytes_received == 0) {
         fprintf(stderr, "[42-client] Connection closed by 42\n");
         g_client.connected = 0;
-        exit(1);
         return -1;
     }
     
@@ -405,7 +439,7 @@ int simulith_42_send_command_batch(const simulith_42_command_t *commands, int co
         
         /* Read acknowledgment from 42 (TXRX mode expects Ack response) */
         ssize_t ack_received = recv(g_client.socket_fd, ack, 4, 0);
-        if (ack_received < 0) {
+        if (ack_received <= 0) {
             fprintf(stderr, "[42-client] Failed to receive Ack from 42\n");
             return -1;
         }
@@ -438,7 +472,7 @@ int simulith_42_send_empty_commands(void)
     
     // Read acknowledgment from 42
     ssize_t ack_received = recv(g_client.socket_fd, ack, 4, 0);
-    if (ack_received < 0) {
+    if (ack_received <= 0) {
         fprintf(stderr, "[42-client] Failed to receive Ack from 42\n");
         return -1;
     }

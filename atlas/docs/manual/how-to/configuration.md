@@ -57,7 +57,7 @@ make cfg
 ```
 
 This runs `cfg/shire-orchestrator.py` inside the configured SHIRE build image.
-The current default image reference uses the `latest` tag rather than an immutable digest.
+The current default image reference uses the `0.0.0` tag rather than an immutable digest.
 On the first run, the orchestrator creates `build/active.yaml` with DRM, `sat-1`, the nominal scenario, the Demo CLI, logging disabled, and graphics enabled.
 
 The orchestrator currently produces:

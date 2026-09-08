@@ -1,5 +1,9 @@
 # SHIRE
 
+[![CI](https://github.com/VoyagerTechnologies-Public/shire/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/VoyagerTechnologies-Public/shire/actions/workflows/ci.yml?query=branch%3Adev)
+[![Documentation](https://github.com/VoyagerTechnologies-Public/shire/actions/workflows/docs.yml/badge.svg?branch=dev)](https://github.com/VoyagerTechnologies-Public/shire/actions/workflows/docs.yml?query=branch%3Adev)
+[![Codecov](https://codecov.io/gh/VoyagerTechnologies-Public/shire/branch/dev/graph/badge.svg)](https://codecov.io/gh/VoyagerTechnologies-Public/shire)
+
 The Software & Hardware Integration Runtime Environment (SHIRE) is an open source simulation environment that emulates satellite flight hardware and interfaces in software.
 It lets teams develop, integrate, and test a complete mission from day one.
 

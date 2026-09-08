@@ -1,9 +1,9 @@
 # Makefile for SHIRE development
-.PHONY: 42 build clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold sim start stop test-fsw test-sim uninstall
+.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 
 # Common paths
 CFG_DIR := $(CURDIR)/cfg
@@ -43,6 +43,8 @@ cfg-cli: container
 
 clean:
 	$(MAKE) stop
+	$(MAKE) clean-fsw
+	rm -rf $(BUILD_DIR)/sim-coverage
 	@if docker image inspect $(BUILD_IMAGE) >/dev/null 2>&1; then \
 		$(MAKE) clean-42; \
 		rm -rf $(BUILDDIR_MISSION); \
@@ -56,6 +58,12 @@ clean:
 clean-cache:
 	docker builder prune -f
 	docker volume rm -f gsw-data simulith_ipc || true
+
+complexity: container
+	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) make build-complexity
+
+build-complexity:
+	./cfg/complexity-report.sh build/coverage-complexity.txt
 
 clean-42:
 	python3 cfg/shire-build.py clean-42
@@ -132,6 +140,7 @@ help:
 	@echo "  clean-fsw     - Clean FSW components"
 	@echo "  clean-gsw     - Clean GSW components"
 	@echo "  clean-sim     - Clean simulation components"
+	@echo "  complexity    - Generate the cyclomatic complexity report"
 	@echo "  container     - Build the Docker container"
 	@echo "  debug         - Start a debug shell in the container"
 	@echo "  docs-check    - Validate and build the Atlas"
@@ -145,6 +154,7 @@ help:
 	@echo "  stop          - Stop lab and CLI compose, clean up Docker images"
 	@echo "  test-fsw      - Build and run cFS FSW unit/coverage tests"
 	@echo "  test-sim      - Build and run component-simulator tests"
+	@echo "  test-simulith - Build and run Simulith core tests"
 	@echo "  uninstall     - Remove containers, images, volumes, and networks"
 
 list: cfg
@@ -177,6 +187,9 @@ test-fsw: clean-fsw cfg
 
 test-sim: clean-sim container
 	docker run --rm -v $(CURDIR):$(CURDIR) --user $(shell id -u):$(shell id -g) -w $(CURDIR)/simulith $(BUILD_IMAGE) make build-comp-test
+
+test-simulith: container
+	docker run --rm -v $(CURDIR):$(CURDIR) --user $(shell id -u):$(shell id -g) -w $(CURDIR)/simulith $(BUILD_IMAGE) make clean build-test
 
 uninstall: clean clean-cache
 	rm -rf $(BUILD_DIR) .container.stamp

@@ -5,7 +5,10 @@ The top level Makefile is the supported entry point for normal development.
 
 ## Build image
 
-The default build image is `ghcr.io/voyagertechnologies-public/shire-base:latest`.
+The default build image is `ghcr.io/voyagertechnologies-public/shire-base:0.0.0`.
+It contains GCC 14 and LCOV with branch and MC/DC support.
+The Base image workflow publishes this multi-architecture tag from `dev` and
+`main`, and also publishes immutable commit tags from `dev`.
 When `.container.stamp` needs rebuilding, `make container` first attempts to pull the image and builds `cfg/Dockerfile.base` locally if the pull fails.
 The stamp avoids repeating that work until the Dockerfile or `cfg/requirements.txt` changes.
 Changing `BUILD_IMAGE` alone does not invalidate the stamp.

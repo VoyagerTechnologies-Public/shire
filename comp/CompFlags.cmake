@@ -1,12 +1,15 @@
 # SHIRE-Lab Component Settings
 include(CheckCCompilerFlag)
 
-if(ENABLE_UNIT_TESTS)
+if(ENABLE_UNIT_TESTS OR SHIRE_COVERAGE)
     set(SHIRE_C_FLAGS
         # --- Diagnostics and coverage ---
         "-fdiagnostics-show-option"     # Show warning/diagnostic option in output
-        "-fprofile-arcs"                # Code coverage (gcov)
-        "-ftest-coverage"               # Code coverage (gcov)
+        "-O0"                           # Keep coverage mapped to source
+        "-g"                            # Retain useful report symbols
+        "--coverage"                    # Code coverage (gcov)
+        "-fcondition-coverage"          # Modified condition/decision coverage
+        "-fprofile-update=atomic"       # Thread-safe profile counters
     )
 else()
     set(SHIRE_C_FLAGS
@@ -53,6 +56,10 @@ else()
         "-D_FORTIFY_SOURCE=2"           # Enable buffer overflow protection (if supported)
         "-fstack-protector-strong"      # Enable stack protection
     )
+endif()
+
+if((ENABLE_UNIT_TESTS OR SHIRE_COVERAGE) AND CMAKE_COMPILER_IS_GNUCC)
+    add_link_options(--coverage)
 endif()
 
 # Example: Add target-specific flags
