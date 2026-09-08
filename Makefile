@@ -43,6 +43,8 @@ cfg-cli: container
 
 clean:
 	$(MAKE) stop
+	$(MAKE) clean-fsw
+	rm -rf $(BUILD_DIR)/sim-coverage
 	@if docker image inspect $(BUILD_IMAGE) >/dev/null 2>&1; then \
 		$(MAKE) clean-42; \
 		rm -rf $(BUILDDIR_MISSION); \
