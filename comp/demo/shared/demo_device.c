@@ -144,10 +144,8 @@ int32_t DEMO_RequestHK(uart_info_t *device, DEMO_Device_HK_tlm_t *data)
             if ((read_data[0] == DEMO_DEVICE_HDR_0) && (read_data[1] == DEMO_DEVICE_HDR_1) &&
                 (read_data[6] == DEMO_DEVICE_TRAILER_0) && (read_data[7] == DEMO_DEVICE_TRAILER_1))
             {
-                data->DeviceCounter |= read_data[2] << 8;
-                data->DeviceCounter |= read_data[3];
-                data->DeviceConfig  |= read_data[4] << 8;
-                data->DeviceConfig  |= read_data[5];
+                data->DeviceCounter = ((uint16_t)read_data[2] << 8) | (uint16_t)read_data[3];
+                data->DeviceConfig  = ((uint16_t)read_data[4] << 8) | (uint16_t)read_data[5];
                 #ifdef DEMO_CFG_DEBUG
                     OS_printf("  Header  = 0x%02x%02x  \n", read_data[0], read_data[1]);
                     OS_printf("  Counter = 0x%04x      \n", data->DeviceCounter);

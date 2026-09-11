@@ -137,7 +137,8 @@ void Test_DEMO_RequestHK_Success(void)
     DEMO_Device_HK_tlm_t data;
     
     /* Test successful HK parsing with valid headers and trailers */
-    memset(&data, 0, sizeof(data));
+    /* Preload stale bits to verify each HK response replaces prior values. */
+    memset(&data, 0xFF, sizeof(data));
     /* uart_flush returns success */
     UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
     /* uart_write_port returns correct byte count */
@@ -155,9 +156,10 @@ void Test_DEMO_RequestHK_Success(void)
     UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_CMD_SIZE);
     UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_HK_SIZE);
     UT_SetDataBuffer(UT_KEY(uart_read_port), combined_data, sizeof(combined_data), true);
-    DEMO_RequestHK(&device, &data);
+    int32_t status = DEMO_RequestHK(&device, &data);
     
     /* Verify data was parsed correctly */
+    UtAssert_True(status == OS_SUCCESS, "DEMO_RequestHK should succeed");
     UtAssert_True(data.DeviceCounter == 0x1234, "DeviceCounter should be 0x1234");
     UtAssert_True(data.DeviceConfig == 0x5678, "DeviceConfig should be 0x5678");
 }
