@@ -119,6 +119,7 @@ static void Test_TablesAndLifecycle(void)
 static void Test_RunAndTransport(void)
 {
     CFE_SB_Buffer_t packet = {0};
+    TO_LAB_WakeupCmd_t wakeup = {0};
     CFE_SB_MsgId_t mid;
     CFE_MSG_FcnCode_t fc;
     CFE_MSG_Size_t size = sizeof(packet);
@@ -126,8 +127,7 @@ static void Test_RunAndTransport(void)
     size_t encoded_size;
 
     UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
-    TO_LAB_process_commands();
-    TO_LAB_forward_telemetry();
+    UtAssert_INT32_EQ(TO_LAB_WakeupCmd(&wakeup), CFE_SUCCESS);
     TO_LAB_openTLM();
     UT_SetDefaultReturnValue(UT_KEY(OS_SocketOpen), -1);
     TO_LAB_openTLM();
@@ -136,6 +136,9 @@ static void Test_RunAndTransport(void)
     UtAssert_True(encoded == &packet, "passthrough encoder preserves buffer");
 
     mid = CFE_SB_ValueToMsgId(TO_LAB_SEND_HK_MID);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &mid, sizeof(mid), false);
+    TO_LAB_TaskPipe(&packet);
+    mid = CFE_SB_ValueToMsgId(TO_LAB_WAKEUP_MID);
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &mid, sizeof(mid), false);
     TO_LAB_TaskPipe(&packet);
     mid = CFE_SB_ValueToMsgId(TO_LAB_CMD_MID);
@@ -206,7 +209,6 @@ static void Test_RunLoopsAndForwarding(void)
 {
     CFE_SB_Buffer_t  packet = {0};
     CFE_SB_Buffer_t *packetPtr = &packet;
-    CFE_SB_MsgId_t  unknownMid = CFE_SB_ValueToMsgId(0x999);
     CFE_MSG_Size_t  packetSize = sizeof(packet);
     void           *tableAddress = &SubsTable;
 
@@ -214,13 +216,6 @@ static void Test_RunLoopsAndForwarding(void)
     UT_SetDeferredRetcode(UT_KEY(CFE_ES_RunLoop), 1, true);
     UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
     TO_LAB_AppMain();
-
-    Test_Setup();
-    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
-    UT_SetDeferredRetcode(UT_KEY(CFE_SB_ReceiveBuffer), 1, CFE_SUCCESS);
-    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &packetPtr, sizeof(packetPtr), false);
-    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &unknownMid, sizeof(unknownMid), false);
-    TO_LAB_process_commands();
 
     Test_Setup();
     TO_LAB_Global.downlink_on = false;
