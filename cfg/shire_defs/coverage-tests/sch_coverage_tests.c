@@ -27,7 +27,7 @@ static SCH_MessageEntry_t  MessageTable[SCH_MAX_MESSAGES];
 static int                 PthreadCreateResult;
 static void              *(*PthreadStartRoutine)(void *);
 static void                *PthreadStartArg;
-static bool                 StopTickThreadOnSecondWait;
+static bool                 StopTickThreadOnThirdWait;
 static unsigned int         TickWaitCount;
 
 int32 SCH_LibInit(void);
@@ -59,7 +59,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
 unsigned int CFE_PSP_WaitForSimulithTick(unsigned int ticks_to_wait)
 {
     TickWaitCount++;
-    if (StopTickThreadOnSecondWait && TickWaitCount == 2)
+    if (StopTickThreadOnThirdWait && TickWaitCount == 3)
     {
         SCH_CustomCleanup();
     }
@@ -97,7 +97,7 @@ static void SCH_Test_Setup(void)
     PthreadCreateResult       = 0;
     PthreadStartRoutine       = NULL;
     PthreadStartArg           = NULL;
-    StopTickThreadOnSecondWait = false;
+    StopTickThreadOnThirdWait  = false;
     TickWaitCount              = 0;
 }
 
@@ -474,13 +474,13 @@ static void Test_SCH_CustomLateInitFailures(void)
 
 static void Test_SCH_CustomTickThread(void)
 {
-    StopTickThreadOnSecondWait = true;
+    StopTickThreadOnThirdWait = true;
     UtAssert_INT32_EQ(SCH_CustomLateInit(), CFE_SUCCESS);
     UtAssert_True(PthreadStartRoutine != NULL, "tick thread start routine captured");
 
     PthreadStartRoutine(PthreadStartArg);
 
-    UtAssert_UINT32_EQ(TickWaitCount, 2);
+    UtAssert_UINT32_EQ(TickWaitCount, 3);
     UtAssert_STUB_COUNT(OS_BinSemGive, 1);
 }
 

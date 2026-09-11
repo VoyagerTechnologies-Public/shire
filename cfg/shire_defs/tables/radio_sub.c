@@ -8,12 +8,14 @@
 #include "radio_sub_tbl.h"
 
 /* cFS */
+#include "ci_lab_msgids.h"
 #include "cf_msgids.h"
 #include "ds_msgids.h"
 #include "fm_msgids.h"
 #include "lc_msgids.h"
 #include "sc_msgids.h"
 #include "sch_msgids.h"
+#include "to_lab_msgids.h"
 
 /* Components */
 #include "adcs_msgids.h"
@@ -41,7 +43,9 @@ RADIO_Subs_t RADIO_Subs = {.Subs = {
     {CFE_SB_MSGID_WRAP_VALUE(CFE_ES_MEMSTATS_TLM_MID), {0, 0}, 4},
 
     /* cFS */
+    {CFE_SB_MSGID_WRAP_VALUE(CI_LAB_HK_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(CF_CONFIG_TLM_MID), {0,0}, 4},
+    {CFE_SB_MSGID_WRAP_VALUE(CF_EOT_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(CF_HK_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(CF_PDU_TLM_MID), {0,0}, 32},
     {CFE_SB_MSGID_WRAP_VALUE(DS_HK_TLM_MID), {0,0}, 4},
@@ -53,6 +57,7 @@ RADIO_Subs_t RADIO_Subs = {.Subs = {
     {CFE_SB_MSGID_WRAP_VALUE(LC_HK_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(SC_HK_TLM_MID), {0,0}, 4},
     {CFE_SB_MSGID_WRAP_VALUE(SCH_HK_TLM_MID), {0,0}, 4},
+    {CFE_SB_MSGID_WRAP_VALUE(TO_LAB_HK_TLM_MID), {0,0}, 4},
 
     /* Components */
     {CFE_SB_MSGID_WRAP_VALUE(ADCS_HK_TLM_MID), {0, 0}, 16},
