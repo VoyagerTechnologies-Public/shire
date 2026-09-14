@@ -1,3 +1,10 @@
+/* Expose POSIX clock_gettime() declarations when this translation unit is
+ * compiled directly by component CLI targets rather than Simulith's CMake
+ * target, which already supplies this feature-test macro. */
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 /*
  * Generic Simulith Transport implementation using ZMQ
  */
