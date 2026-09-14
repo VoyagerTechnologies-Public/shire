@@ -23,9 +23,11 @@ double or halve the current requested rate.
 The Server reports simulated time, attempted speed, and achieved speed every 10
 seconds of simulated time regardless of the active synchronization transport.
 The interactive controls accept attempted rates from 1/64x through 1024x, but
-host performance determines the achieved rate. A request above the complete
-stack's measured unbounded throughput cannot be paced consistently; use
-`make perf` to verify that the host has sufficient margin for the desired rate.
+host performance determines the achieved rate.
+A request above the complete stack's measured unbounded throughput cannot be
+paced consistently.
+Use `make perf` to verify that the host has sufficient margin for the desired
+rate.
 To request 25x from startup instead of attaching to the console, run
 `SIMULITH_SPEED=25 make start`.
 
