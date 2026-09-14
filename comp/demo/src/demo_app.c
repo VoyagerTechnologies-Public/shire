@@ -64,7 +64,10 @@ void DEMO_AppMain(void)
     /*
     ** Disable component, which cleans up the interface, upon exit
     */
-    DEMO_Disable();
+    if (DEMO_AppData.HkTelemetryPkt.DeviceEnabled == DEMO_DEVICE_ENABLED)
+    {
+        DEMO_Disable();
+    }
 
     /*
     ** Performance log exit stamp
@@ -574,9 +577,6 @@ void DEMO_Configure(void)
     if (DEMO_AppData.HkTelemetryPkt.DeviceEnabled != DEMO_DEVICE_ENABLED)
     {
         status = OS_ERROR;
-        /* Increment command error count */
-        DEMO_AppData.HkTelemetryPkt.CommandErrorCount++;
-
         /* Send event logging failure of check to the console */
         CFE_EVS_SendEvent(DEMO_CMD_CONFIG_EN_ERR_EID, CFE_EVS_EventType_ERROR,
                           "DEMO: Configuration command invalid when device disabled");
@@ -586,9 +586,6 @@ void DEMO_Configure(void)
     if (cmd_ptr->DeviceCfg == 65535)
     {
         status = OS_ERROR;
-        /* Increment command error count */
-        DEMO_AppData.HkTelemetryPkt.CommandErrorCount++;
-
         /* Send event logging failure of check to the console */
         CFE_EVS_SendEvent(DEMO_CMD_CONFIG_VAL_ERR_EID, CFE_EVS_EventType_ERROR,
                           "DEMO: Configuration command with value %u is invalid", cmd_ptr->DeviceCfg);
@@ -619,6 +616,12 @@ void DEMO_Configure(void)
             CFE_EVS_SendEvent(DEMO_CMD_CONFIG_DEV_ERR_EID, CFE_EVS_EventType_ERROR,
                               "DEMO: Configuration command received: %u", cmd_ptr->DeviceCfg);
         }
+    }
+    else
+    {
+        /* Count the rejected packet once, even when it violates more than one
+         * validation rule. Individual events still identify every cause. */
+        DEMO_AppData.HkTelemetryPkt.CommandErrorCount++;
     }
     return;
 }

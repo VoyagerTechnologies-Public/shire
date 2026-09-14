@@ -27,8 +27,9 @@ target_compile_definitions(test_simulith PRIVATE
 add_dependencies(test_simulith simulith_server_standalone)
 add_test(NAME SimulithTests COMMAND test_simulith)
 
-add_executable(test_server_failures test_server_failures.c ../src/simulith_server.c ${UNITY_SRC})
-target_link_libraries(test_server_failures ${ZeroMQ_LIBRARIES})
+add_executable(test_server_failures test_server_failures.c ../src/simulith_server.c
+    ../src/simulith_shared_barrier.c ${UNITY_SRC})
+target_link_libraries(test_server_failures ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_server_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_server_failures PRIVATE
     -Wl,--wrap=zmq_ctx_new
@@ -41,8 +42,9 @@ target_link_options(test_server_failures PRIVATE
     -Wl,--wrap=zmq_recv)
 add_test(NAME ServerFailureTests COMMAND test_server_failures)
 
-add_executable(test_client_failures test_client_failures.c ../src/simulith_client.c ${UNITY_SRC})
-target_link_libraries(test_client_failures ${ZeroMQ_LIBRARIES})
+add_executable(test_client_failures test_client_failures.c ../src/simulith_client.c
+    ../src/simulith_shared_barrier.c ${UNITY_SRC})
+target_link_libraries(test_client_failures ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_client_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_client_failures PRIVATE
     -Wl,--wrap=zmq_ctx_new
@@ -75,12 +77,12 @@ target_link_options(test_time_failures PRIVATE
 add_test(NAME TimeFailureTests COMMAND test_time_failures)
 
 add_executable(test_transport test_transport.c ${UNITY_SRC})
-target_link_libraries(test_transport simulith ${ZeroMQ_LIBRARIES})
+target_link_libraries(test_transport simulith ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_transport PRIVATE SIMULITH_TESTING)
 add_test(NAME TransportTests COMMAND test_transport)
 
 add_executable(test_transport_failures test_transport_failures.c ../src/simulith_transport.c ${UNITY_SRC})
-target_link_libraries(test_transport_failures ${ZeroMQ_LIBRARIES})
+target_link_libraries(test_transport_failures ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_transport_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_transport_failures PRIVATE
     -Wl,--wrap=zmq_ctx_new
@@ -93,6 +95,11 @@ target_link_options(test_transport_failures PRIVATE
     -Wl,--wrap=zmq_msg_recv)
 add_test(NAME TransportFailureTests COMMAND test_transport_failures)
 
+add_executable(test_shared_barrier test_shared_barrier.c
+    ../src/simulith_shared_barrier.c ${UNITY_SRC})
+target_link_libraries(test_shared_barrier pthread)
+add_test(NAME SharedBarrierTests COMMAND test_shared_barrier)
+
 add_executable(test_42_socket_client test_42_socket_client.c ${UNITY_SRC})
 target_link_libraries(test_42_socket_client simulith pthread)
 target_compile_definitions(test_42_socket_client PRIVATE SIMULITH_TESTING)
@@ -103,16 +110,30 @@ target_link_libraries(test_director simulith_director_core)
 set(DIRECTOR_FIXTURE_DIR "${CMAKE_CURRENT_BINARY_DIR}/director-fixtures")
 
 add_library(director_fixture_valid MODULE director_component_fixture.c)
+add_library(director_fixture_duplicate MODULE director_component_fixture.c)
 add_library(director_fixture_null MODULE director_component_fixture.c)
 add_library(director_fixture_no_interface MODULE director_component_fixture.c)
+add_library(director_fixture_bad_version MODULE director_component_fixture.c)
+add_library(director_fixture_bad_size MODULE director_component_fixture.c)
 target_compile_definitions(director_fixture_null PRIVATE DIRECTOR_FIXTURE_NULL_INTERFACE)
 target_compile_definitions(director_fixture_no_interface PRIVATE DIRECTOR_FIXTURE_NO_INTERFACE)
+target_compile_definitions(director_fixture_bad_version PRIVATE DIRECTOR_FIXTURE_BAD_VERSION)
+target_compile_definitions(director_fixture_bad_size PRIVATE DIRECTOR_FIXTURE_BAD_SIZE)
 set_target_properties(
-    director_fixture_valid director_fixture_null director_fixture_no_interface
+    director_fixture_valid director_fixture_duplicate director_fixture_null director_fixture_no_interface
+    director_fixture_bad_version director_fixture_bad_size
     PROPERTIES PREFIX "" LIBRARY_OUTPUT_DIRECTORY "${DIRECTOR_FIXTURE_DIR}")
 
 add_dependencies(test_director
-    director_fixture_valid director_fixture_null director_fixture_no_interface)
+    director_fixture_valid director_fixture_duplicate director_fixture_null director_fixture_no_interface
+    director_fixture_bad_version director_fixture_bad_size)
+target_link_options(test_director PRIVATE
+    -Wl,--wrap=eventfd
+    -Wl,--wrap=pthread_create
+    -Wl,--wrap=pthread_mutex_init
+    -Wl,--wrap=pthread_condattr_init
+    -Wl,--wrap=pthread_condattr_setclock
+    -Wl,--wrap=pthread_cond_init)
 target_compile_definitions(test_director PRIVATE
     SIMULITH_TESTING
     DIRECTOR_FIXTURE_DIR="${DIRECTOR_FIXTURE_DIR}")
@@ -137,6 +158,26 @@ set_tests_properties(DirectorWithoutServerTest PROPERTIES
     ENVIRONMENT "SIMULITH_42_RECONNECT_ATTEMPTS=1;SIMULITH_42_RECONNECT_DELAY_MS=0;FORTYTWO_HOST=127.0.0.1;FORTYTWO_PORT=1;SIMULITH_GSW_HOST=127.0.0.1")
 add_test(NAME ServerInvalidClientCountTest COMMAND $<TARGET_FILE:simulith_server_standalone> 0)
 set_tests_properties(ServerInvalidClientCountTest PROPERTIES WILL_FAIL TRUE)
+add_test(NAME ServerHelpTest COMMAND $<TARGET_FILE:simulith_server_standalone> --help)
+add_test(NAME ServerInvalidSpeedTest COMMAND $<TARGET_FILE:simulith_server_standalone> --speed invalid)
+set_tests_properties(ServerInvalidSpeedTest PROPERTIES WILL_FAIL TRUE)
+add_test(NAME ServerInvalidEnvironmentSpeedTest COMMAND $<TARGET_FILE:simulith_server_standalone>)
+set_tests_properties(ServerInvalidEnvironmentSpeedTest PROPERTIES
+    WILL_FAIL TRUE ENVIRONMENT "SIMULITH_SPEED=invalid")
+add_test(NAME ServerInvalidDurationTest COMMAND $<TARGET_FILE:simulith_server_standalone> --duration 0)
+set_tests_properties(ServerInvalidDurationTest PROPERTIES WILL_FAIL TRUE)
+add_test(NAME ServerInvalidWarmupTest COMMAND $<TARGET_FILE:simulith_server_standalone> --warmup -1)
+set_tests_properties(ServerInvalidWarmupTest PROPERTIES WILL_FAIL TRUE)
+add_test(NAME ServerUnknownOptionTest COMMAND $<TARGET_FILE:simulith_server_standalone> --unknown)
+set_tests_properties(ServerUnknownOptionTest PROPERTIES WILL_FAIL TRUE)
+add_test(NAME ServerValidOptionsThenUnknownTest
+    COMMAND $<TARGET_FILE:simulith_server_standalone> 1 --speed max --duration 0.001 --warmup 0 --unknown)
+set_tests_properties(ServerValidOptionsThenUnknownTest PROPERTIES WILL_FAIL TRUE TIMEOUT 5)
+add_test(NAME ServerNumericSpeedAndMetricsThenUnknownTest
+    COMMAND $<TARGET_FILE:simulith_server_standalone> 1 --speed 25 --metrics-json /tmp/shire-unused-metrics.json --unknown)
+set_tests_properties(ServerNumericSpeedAndMetricsThenUnknownTest PROPERTIES
+    WILL_FAIL TRUE TIMEOUT 5
+    ENVIRONMENT "SIMULITH_METRICS_JSON=/tmp/shire-env-unused-metrics.json")
 
 # Prevent a failed socket/thread fixture from stalling CI indefinitely.
 set_tests_properties(

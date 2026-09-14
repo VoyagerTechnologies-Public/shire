@@ -5,6 +5,7 @@
 .DS_Store
 .vscode
 *.tar.gz
+__pycache__
 atlas/site
 atlas/.cache
 atlas/.venv

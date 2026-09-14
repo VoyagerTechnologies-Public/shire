@@ -14,6 +14,7 @@
 #include "sch_msg.h"
 #include "sch_msgids.h"
 #include "cfe_time_msg.h"
+#include "to_lab_msgids.h"
 
 #include "utassert.h"
 #include "utstubs.h"
@@ -29,15 +30,17 @@ static void              *(*PthreadStartRoutine)(void *);
 static void                *PthreadStartArg;
 static bool                 StopTickThreadOnThirdWait;
 static unsigned int         TickWaitCount;
+static int                  StartTicksResult;
+static int                  WaitParticipantsResult;
+static int                  CompleteTickResult;
+static int                  RegisterParticipantResult;
+static unsigned int         DeferredCompletionCount;
+static unsigned int         RegisterParticipantCount;
+static unsigned int         StopTicksCount;
+static bool                 AllowPeriodicGroundOutput;
+static uint32               PeriodicGroundOutputMessageId;
 
 int32 SCH_LibInit(void);
-
-/* Keep application cleanup deterministic when no real tick thread was started. */
-int pthread_cancel(pthread_t thread)
-{
-    (void)thread;
-    return 0;
-}
 
 int pthread_join(pthread_t thread, void **retval)
 {
@@ -55,15 +58,54 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
     return PthreadCreateResult;
 }
 
-/* sch_custom.c's Simulith wait is supplied by the PSP in flight. */
-unsigned int CFE_PSP_WaitForSimulithTick(unsigned int ticks_to_wait)
+/* The Shire scheduler backend receives its synchronization boundary from the Shire PSP. */
+int CFE_PSP_WaitForPendingSimulithTick(void)
 {
     TickWaitCount++;
     if (StopTickThreadOnThirdWait && TickWaitCount == 3)
     {
         SCH_CustomCleanup();
     }
-    return ticks_to_wait;
+    return 0;
+}
+
+void CFE_PSP_EnableDeferredTickCompletion(void)
+{
+    DeferredCompletionCount++;
+}
+
+int CFE_PSP_StartSynchronizedTicks(void)
+{
+    return StartTicksResult;
+}
+
+void CFE_PSP_StopSynchronizedTicks(void)
+{
+    StopTicksCount++;
+}
+
+int CFE_PSP_RegisterSimulithParticipant(uint32 participant_id, uint32 message_id)
+{
+    (void)participant_id;
+    (void)message_id;
+    RegisterParticipantCount++;
+    return RegisterParticipantResult;
+}
+
+int CFE_PSP_WaitForSimulithParticipants(void)
+{
+    return WaitParticipantsResult;
+}
+
+int CFE_PSP_CompleteSimulithTick(void)
+{
+    return CompleteTickResult;
+}
+
+bool CFE_PSP_AllowPeriodicGroundOutput(uint32_t message_id)
+{
+    PeriodicGroundOutputMessageId = message_id;
+    return AllowPeriodicGroundOutput;
 }
 
 static void SetNoisyFrameOnSemaphoreTake(void *user_obj, UT_EntryKey_t func_key, const UT_StubContext_t *context)
@@ -99,6 +141,15 @@ static void SCH_Test_Setup(void)
     PthreadStartArg           = NULL;
     StopTickThreadOnThirdWait  = false;
     TickWaitCount              = 0;
+    StartTicksResult           = 0;
+    WaitParticipantsResult     = 0;
+    CompleteTickResult         = 0;
+    RegisterParticipantResult  = 1;
+    DeferredCompletionCount    = 0;
+    RegisterParticipantCount   = 0;
+    StopTicksCount             = 0;
+    AllowPeriodicGroundOutput  = true;
+    PeriodicGroundOutputMessageId = 0;
 }
 
 static void SetMessageSize(CFE_MSG_Size_t size)
@@ -386,7 +437,8 @@ static void Test_SCH_Initialization(void)
     UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_SUCCESS);
     UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_SUCCESS);
     UT_SetDeferredRetcode(UT_KEY(OS_TimerCreate), 1, OS_ERROR);
-    UtAssert_INT32_EQ(SCH_AppInit(), OS_ERROR);
+    UtAssert_INT32_EQ(SCH_AppInit(), CFE_SUCCESS);
+    UtAssert_STUB_COUNT(OS_TimerCreate, 0);
 
     UT_ResetState(0);
     UtAssert_INT32_EQ(SCH_TimerInit(), CFE_SUCCESS);
@@ -395,8 +447,9 @@ static void Test_SCH_Initialization(void)
 
     UT_ResetState(0);
     UT_SetDeferredRetcode(UT_KEY(OS_TimerCreate), 1, OS_ERROR);
-    UtAssert_INT32_EQ(SCH_TimerInit(), OS_ERROR);
-    UtAssert_STUB_COUNT(OS_BinSemCreate, 0);
+    UtAssert_INT32_EQ(SCH_TimerInit(), CFE_SUCCESS);
+    UtAssert_STUB_COUNT(OS_TimerCreate, 0);
+    UtAssert_STUB_COUNT(OS_BinSemCreate, 1);
 
     UT_ResetState(0);
     UT_SetDeferredRetcode(UT_KEY(OS_BinSemCreate), 1, OS_ERROR);
@@ -418,7 +471,7 @@ static void Test_SCH_AppMainInitFailure(void)
     SCH_AppMain();
 
     UtAssert_STUB_COUNT(CFE_ES_ExitApp, 1);
-    UtAssert_STUB_COUNT(CFE_TIME_UnregisterSynchCallback, 1);
+    UtAssert_STUB_COUNT(CFE_TIME_UnregisterSynchCallback, 0);
     UtAssert_STUB_COUNT(CFE_ES_WriteToSysLog, 2);
 }
 
@@ -463,13 +516,15 @@ static void Test_SCH_AppMainFailures(void)
 
 static void Test_SCH_CustomLateInitFailures(void)
 {
-    UT_SetDeferredRetcode(UT_KEY(CFE_TIME_RegisterSynchCallback), 1, CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
+    StartTicksResult = -1;
     UtAssert_INT32_EQ(SCH_CustomLateInit(), CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
 
-    UT_ResetState(0);
+    StartTicksResult = 0;
     PthreadCreateResult = 1;
     UtAssert_INT32_EQ(SCH_CustomLateInit(), CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
     UtAssert_STUB_COUNT(CFE_EVS_SendEvent, 1);
+    UtAssert_UINT32_EQ(DeferredCompletionCount, 2);
+    UtAssert_UINT32_EQ(StopTicksCount, 1);
 }
 
 static void Test_SCH_CustomTickThread(void)
@@ -481,7 +536,55 @@ static void Test_SCH_CustomTickThread(void)
     PthreadStartRoutine(PthreadStartArg);
 
     UtAssert_UINT32_EQ(TickWaitCount, 3);
-    UtAssert_STUB_COUNT(OS_BinSemGive, 1);
+    UtAssert_STUB_COUNT(OS_BinSemGive, 2);
+    UtAssert_UINT32_EQ(StopTicksCount, 1);
+}
+
+static void Test_SCH_CustomCompletion(void)
+{
+    CFE_MSG_Message_t         Message;
+    CFE_SB_MsgId_t            MessageId;
+    SCH_CustomEntryDecision_t Decision;
+
+    memset(&Message, 0, sizeof(Message));
+
+    WaitParticipantsResult = -1;
+    UtAssert_INT32_EQ(SCH_CustomCompleteCurrentSlot(), CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
+
+    WaitParticipantsResult = 0;
+    CompleteTickResult = -1;
+    UtAssert_INT32_EQ(SCH_CustomCompleteCurrentSlot(), CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
+
+    CompleteTickResult = 0;
+    UtAssert_INT32_EQ(SCH_CustomCompleteCurrentSlot(), SCH_SUCCESS);
+
+    MessageId = CFE_SB_ValueToMsgId(0x1888);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MessageId, sizeof(MessageId), false);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(4, &Message, &Decision), CFE_SUCCESS);
+    UtAssert_True(Decision.Transmit, "ordinary scheduled message is transmitted");
+    UtAssert_True(!Decision.ProcessCommands, "ordinary message does not drain SCH pipe");
+    UtAssert_UINT32_EQ(RegisterParticipantCount, 1);
+
+    MessageId = CFE_SB_ValueToMsgId(SCH_SEND_HK_MID);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MessageId, sizeof(MessageId), false);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(5, &Message, &Decision), CFE_SUCCESS);
+    UtAssert_True(Decision.ProcessCommands, "SCH housekeeping drains its own pipe");
+
+    AllowPeriodicGroundOutput = false;
+    MessageId = CFE_SB_ValueToMsgId(TO_LAB_WAKEUP_MID);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MessageId, sizeof(MessageId), false);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(6, &Message, &Decision), CFE_SUCCESS);
+    UtAssert_True(!Decision.Transmit, "periodic ground output may be throttled");
+    UtAssert_UINT32_EQ(PeriodicGroundOutputMessageId, TO_LAB_WAKEUP_MID);
+
+    RegisterParticipantResult = 0;
+    MessageId = CFE_SB_ValueToMsgId(0x1889);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MessageId, sizeof(MessageId), false);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(7, &Message, &Decision),
+                      CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
+
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(8, NULL, &Decision), CFE_SB_BAD_ARGUMENT);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(8, &Message, NULL), CFE_SB_BAD_ARGUMENT);
 }
 
 static void Test_SCH_ScheduleExecution(void)
@@ -490,6 +593,7 @@ static void Test_SCH_ScheduleExecution(void)
     CFE_SB_Buffer_t      command;
     CFE_SB_Buffer_t     *command_ptr = &command;
     CFE_SB_MsgId_t       command_id  = CFE_SB_ValueToMsgId(0x0777);
+    CFE_SB_MsgId_t       schedule_message_ids[3] = {command_id, command_id, command_id};
     uint32               receive_count;
 
     memset(&entry, 0, sizeof(entry));
@@ -503,6 +607,8 @@ static void Test_SCH_ScheduleExecution(void)
     entry.Frequency    = 1;
     entry.Remainder    = 0;
     entry.MessageIndex = 1;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), schedule_message_ids,
+                     sizeof(schedule_message_ids), false);
     SCH_ProcessNextEntry(&entry, 1);
     UtAssert_UINT32_EQ(SCH_AppData.ScheduleActivitySuccessCount, 1);
     UT_SetDeferredRetcode(UT_KEY(CFE_SB_TransmitMsg), 1, CFE_SB_BAD_ARGUMENT);
@@ -753,6 +859,7 @@ void UtTest_Setup(void)
     UtTest_Add(Test_SCH_AppMainFailures, SCH_Test_Setup, NULL, "SCH main runtime failures");
     UtTest_Add(Test_SCH_CustomLateInitFailures, SCH_Test_Setup, NULL, "SCH custom startup failures");
     UtTest_Add(Test_SCH_CustomTickThread, SCH_Test_Setup, NULL, "SCH custom tick thread");
+    UtTest_Add(Test_SCH_CustomCompletion, SCH_Test_Setup, NULL, "SCH custom participant completion");
     UtTest_Add(Test_SCH_ScheduleExecution, SCH_Test_Setup, NULL, "SCH schedule execution");
     UtTest_Add(Test_SCH_ProcessScheduleTable, SCH_Test_Setup, NULL, "SCH schedule timing recovery");
     UtTest_Add(Test_SCH_ScheduleValidation, SCH_Test_Setup, NULL, "SCH schedule validation");

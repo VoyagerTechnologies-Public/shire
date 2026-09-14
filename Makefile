@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold perf perf-compare perf-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -149,6 +149,9 @@ help:
 	@echo "  gsw           - Build GSW (includes Docker image)"
 	@echo "  list          - List enabled components from configuration"
 	@echo "  mold          - Create new component from demo template (Usage: make mold COMP=<name>)"
+	@echo "  perf-smoke    - Build and run one short synchronized diagnostic trial"
+	@echo "  perf          - Run 1x/25x fidelity and three unbounded candidate trials"
+	@echo "  perf-compare  - Run perf and compare with BASELINE=<report.json>"
 	@echo "  sim           - Build Simulith and component simulators (includes Docker images)"
 	@echo "  start         - Start lab compose"
 	@echo "  stop          - Stop lab and CLI compose, clean up Docker images"
@@ -159,6 +162,16 @@ help:
 
 list: cfg
 	python3 cfg/shire-build.py list
+
+perf-smoke: build
+	python3 cfg/shire-perf.py --mode smoke
+
+perf: build
+	python3 cfg/shire-perf.py --mode perf
+
+perf-compare: build
+	@if [ -z "$(BASELINE)" ]; then echo "BASELINE=<report.json> is required"; exit 2; fi
+	python3 cfg/shire-perf.py --mode compare --baseline "$(BASELINE)"
 
 sim: cfg
 	python3 cfg/shire-build.py sim

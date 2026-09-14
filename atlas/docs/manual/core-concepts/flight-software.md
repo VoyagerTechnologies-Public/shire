@@ -2,7 +2,8 @@
 
 SHIRE uses NASA's core Flight System (cFS) as its DRM flight software framework.
 The current simulation target runs cFS on the SHIRE PSP/OSAL configuration inside the `shire-fsw` container.
-An alternate flight software framework would need its own build and runtime integration, Simulith timing client, device interfaces, and command and telemetry paths.
+An alternate flight software framework would need its own build and runtime integration, device interfaces, and command and telemetry paths.
+It needs a Simulith timing client only when it participates in the synchronized simulation.
 The repository does not currently include another integrated flight software framework.
 
 ## cFS architecture layers
@@ -53,6 +54,19 @@ The enabled CPU1 SHIRE PSP compiles the simulation implementations from `cfs/psp
 Linux HWLIB implementations also exist under `cfs/psp/fsw/hwlib/src/linux/`, but the disabled CPU2 cFS target does not currently assemble them into a validated board build.
 Moving to physical hardware therefore requires target specific PSP, OSAL, board support, driver, configuration, and deployment work.
 
+### Simulation and flight target boundary
+
+Simulith is a dependency of the `amd64-shire` simulation target, not of the flight applications or the default cFS target.
+The Shire toolchain explicitly selects the Shire PSP/OSAL, the Software Bus completion observer, and the Simulith-backed SCH clock and completion barrier.
+Those selections are absent from physical-target toolchains.
+
+Without the Shire selection, cFE compiles out the Software Bus observer call sites and SCH uses the portable clock backend based on cFE TIME and an OSAL timer.
+The scheduler application and component applications contain no direct Simulith calls.
+A physical target supplies its normal PSP, OSAL, and HWLIB drivers and neither links nor runs Simulith.
+
+The disabled `armv7l-linux` target already selects the portable `pc-linux` PSP and POSIX OSAL path and does not opt into either Shire extension.
+It remains disabled because the complete board image and physical drivers have not yet been validated, not because Simulith is required.
+
 ## Current mission content
 
 The baseline CPU1 startup script is `cfg/shire_defs/cpu1_cfe_es_startup.scr`.
@@ -86,6 +100,37 @@ Reusable applications add mission services:
 * **SC** executes absolute and relative command sequences.
 * **SCH** produces scheduled wakeups and commands.
 
+## Synchronized tick processing
+
+The SHIRE PSP participates only in the EXECUTE phase of each simulation tick.
+SCH releases exactly one schedule slot for that tick.
+The PSP registers the scheduled messages that require completion and considers a
+participant complete only after its consuming task has returned to the Software
+Bus receive boundary.
+It records registration-to-dispatch and dispatch-to-return latency separately so
+scheduler delay can be distinguished from application and device execution.
+
+Completion accounting also follows commands produced by scheduled work.
+When an active participant publishes a command packet, cFE Software Bus routing
+registers one child participant for every destination subscriber.
+The parent task can therefore finish without allowing simulation time to advance
+past command processing that is still queued downstream.
+Telemetry publication and ordinary asynchronous task traffic do not create
+these child records.
+
+The PSP rejects duplicate, stale, and future completion records.
+Missing work withholds EXECUTE completion.
+Watchdog output identifies the sequence, schedule entry, message ID, and
+claimed or running state that is holding EXECUTE.
+The next SCH slot is not released until the Server completes PREPARE, EXECUTE,
+and COMMIT for the current tick.
+
+Flight applications do not contain simulation-only behavior branches.
+Their shared device functions perform complete transactions through target-neutral
+HWLIB interfaces.
+The simulation implementations use blocking deadline-based transport, while a
+physical target supplies its own implementation of the same interface.
+
 ## Build and test
 
 From the repository root:
@@ -102,4 +147,4 @@ The presence of CPU2 and ARM toolchain definitions demonstrates cross build scaf
 See [Development Board](../how-to/development-board.md) for the currently documented board workflow.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

@@ -10,8 +10,8 @@ The generated DRM compose file currently defines six services:
 | Service | Current responsibility |
 | --- | --- |
 | `shire-42` | Runs the 42 dynamics and environment model with its VNC web interface exposed on port 5801 by default. |
-| `shire-director` | Loads configured component simulator `.so` libraries into the Director process, exchanges state and actuator commands with 42, runs simulator callbacks on worker threads, services simulator backdoor commands, and publishes 42 truth data. |
-| `shire-server` | Owns Simulith (middleware) simulation time and waits for acknowledgements from the Director and FSW before advancing the 10 ms simulation tick. |
+| `shire-director` | Loads configured component simulator `.so` libraries, runs ordered sensing and actuation callbacks plus concurrent device service workers, exchanges state and commands with 42, services simulator backdoor commands, and publishes 42 truth data. |
+| `shire-server` | Owns Simulith simulation time and advances the 10 ms tick only after all required PREPARE, EXECUTE, and COMMIT completions. |
 | `shire-fsw` | Runs the cFS mission build, including reusable cFS applications and the component applications selected for the spacecraft. |
 | `shire-cryptolib` | Applies security processing in the simulated radio command and telemetry path. |
 | `shire-gsw` | Runs YAMCS for commanding, telemetry, archives, procedures, displays, and CFDP file transfer with its web interface exposed on port 8090. |
@@ -81,7 +81,7 @@ flowchart TD
 ### Director initialization
 
 The Director loads and initializes the selected component libraries before it registers with the Server.
-It starts one worker thread for each loaded component and then attempts to connect to 42.
+It starts one device service worker for each loaded component and then attempts to connect to 42.
 The Director continues without 42 if that connection cannot be initialized, although 42 is expected in the default DRM.
 
 ```mermaid
@@ -92,7 +92,7 @@ sequenceDiagram
 
     Director->>Director: Load component libraries
     Director->>Director: Initialize components
-    Director->>Director: Start component worker threads
+    Director->>Director: Start component service workers
     Director->>FortyTwo: Attempt IPC connection
     alt 42 initializes
         FortyTwo-->>Director: Connection ready
@@ -148,18 +148,31 @@ Reducing `NUM_CLIENTS` can hide a failed service and is not a normal fix for the
 
 ## One simulation clock
 
-The Simulith Server broadcasts a tick and waits for each configured client to respond before it advances time.
-The Director responds after its tick callback completes.
-The cFS PSP responds when it receives the tick, then updates PSP time and wakes the waiting cFS timebases.
+The Simulith Server publishes sequence-numbered PREPARE, EXECUTE, and COMMIT
+phases and waits for every client registered for each phase before it advances
+time.
+The Director responds only after component sensing, device service, actuation,
+and the resulting 42 command commit complete.
+The cFS PSP responds after SCH, every registered scheduled participant, and any
+command work transitively published by those participants finish the current
+slot.
 The compose template sets `NUM_CLIENTS=2`: the cFS PSP registers `shire-fsw`, and the Director registers `shire-director`.
 
 On each Director tick, the current implementation:
 
-1. Requests the latest state from 42
-2. Wakes one worker thread per loaded component simulator and waits for all component ticks
-3. Sends queued actuator commands, or an empty command message, to 42
-4. Services one pending simulator backdoor datagram
-5. Periodically publishes 42 truth telemetry to YAMCS.
+1. Requests the latest state from 42 during PREPARE
+2. Calls each optional `on_tick` callback in a deterministic order on the
+   Director thread
+3. Releases EXECUTE so one worker per device-serving component blocks on socket
+   readiness and services transactions while the current FSW slot runs
+4. Ends EXECUTE only after SCH, scheduled participants, and transitive Software
+   Bus command consumers have returned
+5. Interrupts readiness waits, stops new service calls, and waits for every
+   active service callback to return
+6. Calls each optional `actuate` callback in a deterministic order during COMMIT
+7. Sends the complete actuator command batch, or an empty command message, to 42
+8. Services one pending simulator backdoor datagram
+9. Periodically publishes 42 truth telemetry to YAMCS.
 
 The complete tick includes work by both registered clients:
 
@@ -171,25 +184,32 @@ sequenceDiagram
     participant FortyTwo as 42
     participant YAMCS
 
-    Server->>FSW: Broadcast simulation tick
-    Server->>Director: Broadcast simulation tick
-    par Flight software time distribution
-        FSW-->>Server: Acknowledge tick receipt
-        Server-->>FSW: Accept acknowledgement
+    Server->>Director: PREPARE sequence and simulation time
+    Director->>FortyTwo: Request current state
+    FortyTwo-->>Director: Return dynamics and environment state
+    Director->>Director: Run ordered on_tick callbacks
+    Director-->>Server: Complete PREPARE
+    Server->>FSW: EXECUTE sequence and simulation time
+    Server->>Director: EXECUTE sequence and simulation time
+    par Flight software execution
         FSW->>FSW: Update PSP time and wake cFS timebases
-    and Director work
-        Director->>FortyTwo: Request current state
-        FortyTwo-->>Director: Return dynamics and environment state
-        Director->>Director: Tick loaded simulator callbacks on worker threads
-        Director->>Director: Collect component results and queued commands
-        Director->>FortyTwo: Send queued actuator commands
-        Director->>Director: Service one pending backdoor datagram
-        opt Every 100 Director ticks
-            Director->>YAMCS: Publish selected 42 truth telemetry
-        end
-        Director-->>Server: Acknowledge completed callback
+        FSW->>FSW: SCH completes one scheduled slot and participants finish
+        FSW-->>Server: Acknowledge completed tick
+    and Component device service
+        Director->>Director: Release concurrent device service workers
+        FSW->>Director: Complete synchronous device transactions
+        Director-->>Server: Complete EXECUTE release
     end
-    Server->>Server: Pace and advance after both acknowledgements
+    Server->>Director: COMMIT sequence and simulation time
+    Director->>Director: Quiesce service callbacks
+    Director->>Director: Run ordered actuate callbacks
+    Director->>FortyTwo: Commit queued actuator commands
+    Director->>Director: Service one pending backdoor datagram
+    opt Every 100 Director ticks
+        Director->>YAMCS: Publish selected 42 truth telemetry
+    end
+    Director-->>Server: Complete COMMIT
+    Server->>Server: Pace and advance after every required phase completion
 ```
 
 The server console accepts `p` to pause or resume, `+` to increase the attempted rate, and `-` to decrease it.
@@ -203,6 +223,8 @@ Linux device implementations are under `cfs/psp/fsw/hwlib/src/linux/`.
 
 Simulated UART, I2C, SPI, and GPIO interfaces use ZeroMQ pair sockets on IPC endpoints in the shared `/tmp` volume.
 A component simulator library loaded in the Director binds the endpoint for its configured device address, while the FSW side HWLIB implementation connects to the same endpoint.
+Each process shares one ZeroMQ context across its endpoints.
+Simulation drivers use blocking exact receives with monotonic deadlines rather than sleep and poll loops.
 This keeps the component protocol above HWLIB usable across simulated and physical targets, but hardware transition still requires target specific drivers, configuration, and validation.
 
 ## Ground links
@@ -255,4 +277,4 @@ It also builds the cFS and YAMCS runtime images and assembles the remaining simu
 See [Configuration](../how-to/configuration.md) for the exact inputs and generated outputs.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

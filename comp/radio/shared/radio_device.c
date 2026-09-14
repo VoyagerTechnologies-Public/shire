@@ -115,7 +115,7 @@ int32_t RADIO_CommandDevice(spi_info_t *device, uint8_t cmd, uint16_t payload_le
     uint8_t tx_buffer[2048]; /* Large enough for TM frame (1786) + header(1) + cmd(1) + len(2) + trailer(1) = 1791 */
     int32_t total_len;
     
-    if (device == NULL)
+    if (device == NULL || (payload_len > 0 && payload == NULL))
     {
         return OS_ERROR;
     }
@@ -187,12 +187,12 @@ int32_t RADIO_RequestHK(spi_info_t *device, RADIO_Device_HK_tlm_t *data)
         return status;
     }
     
-    /* Wait briefly for response */
-    OS_TaskDelay(RADIO_CFG_MS_TIMEOUT / 100); /* Convert ms to 10ms units */
-    
-    /* Read HK response */
+    /* Read the complete response with a bounded wait.  The HWLib backend owns
+     * the target-specific readiness behavior, so flight code neither guesses
+     * a device processing delay nor polls. */
     memset(tx_buffer, 0, sizeof(tx_buffer));
-    status = spi_read(device, rx_buffer, RADIO_DEVICE_HK_SIZE);
+    status = spi_read_timeout(device, rx_buffer, RADIO_DEVICE_HK_SIZE,
+                              RADIO_CFG_MS_TIMEOUT);
     if (status != RADIO_DEVICE_HK_SIZE)
     {
         OS_printf("RADIO_RequestHK: SPI read failed with error %d\n", status);
@@ -300,6 +300,14 @@ int32_t RADIO_ReceiveData(spi_info_t *device, uint8_t *data, uint16_t max_length
     {
         return OS_ERROR;
     }
+
+    if ((size_t)max_length > sizeof(rx_buffer) - 4U)
+    {
+        OS_printf("RADIO_ReceiveData: Requested length too large (%u bytes), max=%u\n",
+                  (unsigned int)max_length,
+                  (unsigned int)(sizeof(rx_buffer) - 4U));
+        return OS_ERROR;
+    }
     
     /* Build receive request payload (number of bytes to receive, uint16 big-endian) */
     payload[0] = (uint8_t)((max_length >> 8) & 0xFF);
@@ -312,25 +320,18 @@ int32_t RADIO_ReceiveData(spi_info_t *device, uint8_t *data, uint16_t max_length
         return status;
     }
 
-    /* Wait briefly for response (same pattern as RADIO_RequestHK) */
-    OS_TaskDelay(RADIO_CFG_MS_TIMEOUT / 100);
-
     #ifdef RADIO_CFG_DEBUG
     OS_printf("RADIO_ReceiveData: Requesting SPI read of %u bytes\n", max_length);
     #endif
-    /* Read entire response in a single call. The simulator may pad with zeros up to max_length. */
-    status = spi_read(device, rx_buffer, (uint32_t)(max_length + 4)); /* header(1)+len(2)+payload+trailer(1) */
+    /* Read the entire response once.  The backend blocks to its monotonic
+     * deadline rather than making the caller sleep and retry blindly. */
+    status = spi_read_timeout(device, rx_buffer,
+                              (uint32_t)(max_length + 4),
+                              RADIO_CFG_MS_TIMEOUT);
     if (status <= 0)
     {
-        /* Retry once after the full timeout; at >1x sim speed the larger response
-           buffer takes proportionally longer to arrive through the transport. */
-        OS_TaskDelay(RADIO_CFG_MS_TIMEOUT);
-        status = spi_read(device, rx_buffer, (uint32_t)(max_length + 4));
-        if (status <= 0)
-        {
-            OS_printf("RADIO_ReceiveData: SPI read failed with error %d\n", status);
-            return OS_ERROR;
-        }
+        OS_printf("RADIO_ReceiveData: SPI read failed with error %d\n", status);
+        return OS_ERROR;
     }
 
     int bytes_read = status;

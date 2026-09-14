@@ -8,8 +8,14 @@ add_cfe_coverage_test(sch shire
     "${sch_MISSION_DIR}/fsw/src/sch_app.c"
     "${sch_MISSION_DIR}/fsw/src/sch_cmds.c"
     "${sch_MISSION_DIR}/fsw/src/sch_custom.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../sch/sch_custom_shire.c"
 )
 
+foreach(target coverage-sch-shire-object coverage-sch-shire-testrunner)
+    target_include_directories(${target} PRIVATE
+        "${CFEPSP_SOURCE_DIR}/fsw/shire/inc"
+    )
+endforeach()
 target_link_libraries(coverage-sch-shire-testrunner pthread)
 
 add_cfe_coverage_test(io_lib shire
@@ -73,8 +79,8 @@ target_include_directories(coverage-io_lib-linux_sysmon-testrunner PRIVATE
 target_link_libraries(coverage-io_lib-linux_sysmon-testrunner pthread)
 
 # Exercise the SHIRE OSAL adapter against the real host pthread and signal
-# primitives.  The test supplies only the neighboring OSAL/PSP seams; the
-# binary semaphore and common adapter sources themselves are production code.
+# primitives.  The test supplies only neighboring OSAL seams; the binary
+# semaphore and common adapter sources themselves are production code.
 add_cfe_coverage_test(io_lib shire_osal_runtime
     "${CMAKE_CURRENT_SOURCE_DIR}/shire_osal_runtime_tests.c"
     "${OSAL_SOURCE_DIR}/src/os/shire/src/os-impl-binsem.c"
@@ -86,7 +92,6 @@ foreach(target coverage-io_lib-shire_osal_runtime-object coverage-io_lib-shire_o
         "${OSAL_SOURCE_DIR}/src/os/posix/inc"
         "${OSAL_SOURCE_DIR}/src/os/shared/inc"
         "${OSAL_SOURCE_DIR}/src/bsp/shared/inc"
-        "${CFEPSP_SOURCE_DIR}/fsw/shire/inc"
         "${CMAKE_SOURCE_DIR}/../../simulith/include"
     )
 endforeach()

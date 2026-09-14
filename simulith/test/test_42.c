@@ -154,6 +154,29 @@ static void test_set_mode_extra_and_defaults(void)
     TEST_ASSERT_EQUAL_FLOAT((float)1.0, (float)out.cmd.setmode.qrn[0]);
 }
 
+static void test_command_api_argument_guards_and_torque_only_thruster(void)
+{
+    const double vector3[3] = {0.0, 0.0, 0.0};
+    const double torque3[3] = {0.0, 1.0, 0.0};
+    const double vector4[4] = {0.0, 0.0, 0.0, 0.0};
+
+    TEST_ASSERT_EQUAL_INT(-1, dequeue_command(NULL));
+    simulith_42_get_command_queue_stats(NULL);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_mtb_command(-1, vector3, 1));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_wheel_command(-1, vector4, 1));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_thruster_command(
+                                  -1, vector3, torque3, 2));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_set_mode(-1, 0, NULL));
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_thruster_command(
+                                  0, vector3, torque3, 2));
+    simulith_42_command_t command;
+    TEST_ASSERT_EQUAL_INT(0, dequeue_command(&command));
+    simulith_42_cmd_queue_stats_t stats;
+    simulith_42_get_command_queue_stats(&stats);
+    TEST_ASSERT_GREATER_THAN_UINT64(0, stats.nonzero_actuator_commands);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -161,5 +184,6 @@ int main(void)
     RUN_TEST(test_queue_overflow);
     RUN_TEST(test_helper_wrappers);
     RUN_TEST(test_set_mode_extra_and_defaults);
+    RUN_TEST(test_command_api_argument_guards_and_torque_only_thruster);
     return UNITY_END();
 }

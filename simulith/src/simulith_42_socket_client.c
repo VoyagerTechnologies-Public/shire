@@ -10,6 +10,7 @@
  */
 
 #include "simulith_42_socket_client.h"
+#include "shire_ipc_protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,6 +60,7 @@ typedef struct {
     int port;
     char rx_buffer[SOCKET_BUFFER_SIZE];
     size_t rx_buffer_len;
+    int binary_mode;
 } fortytwo_socket_client_t;
 
 static fortytwo_socket_client_t g_client = {
@@ -66,8 +68,98 @@ static fortytwo_socket_client_t g_client = {
     .connected = 0,
     .hostname = "shire-42",
     .port = 5556,
-    .rx_buffer_len = 0
+    .rx_buffer_len = 0,
+    .binary_mode = 1
 };
+
+static int socket_read_all(int socket_fd, void *buffer, size_t length)
+{
+    unsigned char *cursor = buffer;
+    while (length > 0) {
+        ssize_t received = recv(socket_fd, cursor, length, 0);
+        if (received < 0 && errno == EINTR) continue;
+        if (received <= 0) return -1;
+        cursor += (size_t)received;
+        length -= (size_t)received;
+    }
+    return 0;
+}
+
+static int socket_write_all(int socket_fd, const void *buffer, size_t length)
+{
+    const unsigned char *cursor = buffer;
+    while (length > 0) {
+        ssize_t sent = send(socket_fd, cursor, length, MSG_NOSIGNAL);
+        if (sent < 0 && errno == EINTR) continue;
+        if (sent <= 0) return -1;
+        cursor += (size_t)sent;
+        length -= (size_t)sent;
+    }
+    return 0;
+}
+
+static int socket_read_text_frame(int socket_fd, char *buffer, size_t capacity)
+{
+    size_t used = 0;
+    if (!buffer || capacity < 2)
+        return -1;
+    while (used < capacity - 1) {
+        ssize_t received = recv(socket_fd, buffer + used, capacity - 1 - used, 0);
+        if (received < 0 && errno == EINTR) continue;
+        if (received <= 0) return -1;
+        used += (size_t)received;
+        buffer[used] = '\0';
+        if (strstr(buffer, "[ENDMSG]\n") != NULL)
+            return 0;
+    }
+    return -1;
+}
+
+static int receive_binary_state(simulith_42_context_t *context)
+{
+    shire_ipc_state_t state;
+    if (socket_read_all(g_client.socket_fd, &state, sizeof(state)) != 0)
+        return -1;
+    if (state.header.magic != SHIRE_IPC_MAGIC ||
+        state.header.version != SHIRE_IPC_VERSION ||
+        state.header.type != SHIRE_IPC_STATE ||
+        state.header.payload_size != sizeof(state) - sizeof(state.header))
+        return -1;
+
+    memset(context, 0, sizeof(*context));
+    context->sim_time = state.sim_time;
+    context->dyn_time = state.sim_time;
+    memcpy(context->qn, state.qn, sizeof(state.qn));
+    memcpy(context->wn, state.wn, sizeof(state.wn));
+    memcpy(context->pos_n, state.pos_n, sizeof(state.pos_n));
+    memcpy(context->vel_n, state.vel_n, sizeof(state.vel_n));
+    memcpy(context->sun_vector_body, state.sun_vector_body, sizeof(state.sun_vector_body));
+    memcpy(context->mag_field_body, state.mag_field_body, sizeof(state.mag_field_body));
+    memcpy(context->hvb, state.hvb, sizeof(state.hvb));
+    context->mass = state.mass;
+    memcpy(context->cm, state.cm, sizeof(state.cm));
+    memcpy(context->inertia, state.inertia, sizeof(state.inertia));
+    context->eclipse = state.eclipse;
+    context->atmo_density = state.atmo_density;
+    context->valid = 1;
+    context->spacecraft_id = 0;
+    context->exists = 1;
+    strcpy(context->label, "SC[0]");
+    return 0;
+}
+
+static int receive_binary_ack(void)
+{
+    shire_ipc_ack_t ack;
+    if (socket_read_all(g_client.socket_fd, &ack, sizeof(ack)) != 0 ||
+        ack.header.magic != SHIRE_IPC_MAGIC ||
+        ack.header.version != SHIRE_IPC_VERSION ||
+        ack.header.type != SHIRE_IPC_ACK ||
+        ack.header.payload_size != sizeof(ack) - sizeof(ack.header) ||
+        ack.status != 0)
+        return -1;
+    return 0;
+}
 
 /*
  * Connect to 42 IPC socket
@@ -268,8 +360,15 @@ static int connect_to_42_unix(const char *socket_path)
  */
 int simulith_42_init(const char *hostname, int port)
 {
+    const char *mode = getenv("FORTYTWO_IPC_MODE");
+    g_client.binary_mode = !mode || strcmp(mode, "text") != 0;
     if (hostname) {
         strncpy(g_client.hostname, hostname, sizeof(g_client.hostname) - 1);
+        g_client.hostname[sizeof(g_client.hostname) - 1] = '\0';
+    }
+    if (g_client.hostname[0] != '/' && (port <= 0 || port > UINT16_MAX)) {
+        fprintf(stderr, "[42-client] Invalid TCP port: %d\n", port);
+        return -1;
     }
     if (port > 0) {
         g_client.port = port;
@@ -300,36 +399,40 @@ int simulith_42_init(const char *hostname, int port)
  */
 int simulith_42_request_state(simulith_42_context_t *context)
 {
-    char ack[4];
-    ssize_t bytes_received;
+    static const char ack[4] = "Ack";
     
+    if (!context) {
+        fprintf(stderr, "[42-client] State destination is NULL\n");
+        return -1;
+    }
     if (!g_client.connected) {
         fprintf(stderr, "[42-client] Not connected to 42\n");
         return -1;
     }
+
+    if (g_client.binary_mode) {
+        if (receive_binary_state(context) != 0) {
+            fprintf(stderr, "[42-client] Invalid or incomplete binary state frame\n");
+            g_client.connected = 0;
+            return -1;
+        }
+        return 0;
+    }
     
     // Read state from 42 (blocking - waits for 42 to send next state)
     // This creates natural time synchronization with 42
-    bytes_received = recv(g_client.socket_fd, g_client.rx_buffer, 
-                         SOCKET_BUFFER_SIZE - 1, 0);  // Blocking read
-    
-    if (bytes_received < 0) {
-        fprintf(stderr, "[42-client] Error receiving from 42: %s\n", strerror(errno));
+    if (socket_read_text_frame(g_client.socket_fd, g_client.rx_buffer,
+                               sizeof(g_client.rx_buffer)) != 0) {
+        fprintf(stderr, "[42-client] Invalid, oversized, or incomplete text state frame\n");
         g_client.connected = 0;
         return -1;
     }
-    
-    if (bytes_received == 0) {
-        fprintf(stderr, "[42-client] Connection closed by 42\n");
-        g_client.connected = 0;
-        return -1;
-    }
-    
-    g_client.rx_buffer[bytes_received] = '\0';
-    
+
     // Send acknowledgment (42 expects "Ack" response)
-    strcpy(ack, "Ack");
-    send(g_client.socket_fd, ack, 4, 0);
+    if (socket_write_all(g_client.socket_fd, ack, sizeof(ack)) != 0) {
+        g_client.connected = 0;
+        return -1;
+    }
     
     // Parse the received state
     int parse_result = parse_42_state(g_client.rx_buffer, context);
@@ -364,7 +467,7 @@ int simulith_42_is_connected(void)
  */
 int simulith_42_send_command_batch(const simulith_42_command_t *commands, int count)
 {
-    char msg[2048];  /* Larger buffer for batched commands */
+    char msg[32768];
     size_t msg_len = 0;
     
     if (!g_client.connected) {
@@ -372,8 +475,65 @@ int simulith_42_send_command_batch(const simulith_42_command_t *commands, int co
         return -1;
     }
     
-    if (!commands || count <= 0) {
+    if (!commands || count <= 0 || count > SIMULITH_42_CMD_QUEUE_SIZE) {
         return -1;
+    }
+
+    if (g_client.binary_mode) {
+        shire_ipc_commands_t batch;
+        memset(&batch, 0, sizeof(batch));
+        batch.header.magic = SHIRE_IPC_MAGIC;
+        batch.header.version = SHIRE_IPC_VERSION;
+        batch.header.type = SHIRE_IPC_COMMANDS;
+        batch.header.payload_size = SHIRE_IPC_COMMANDS_PREFIX_SIZE;
+        for (int source = 0; source < count && batch.count < SHIRE_IPC_MAX_COMMANDS; ++source) {
+            const simulith_42_command_t *command = &commands[source];
+            if (!command->valid) continue;
+            shire_ipc_command_t *wire = &batch.commands[batch.count];
+            wire->spacecraft_id = command->spacecraft_id;
+            switch (command->type) {
+                case SIMULITH_42_CMD_WHEEL_TORQUE:
+                    wire->type = SHIRE_IPC_CMD_WHEEL;
+                    wire->enable_mask = (uint32_t)command->cmd.wheel.enable_mask;
+                    memcpy(wire->values, command->cmd.wheel.torque,
+                           sizeof(command->cmd.wheel.torque));
+                    break;
+                case SIMULITH_42_CMD_MTB_TORQUE:
+                    wire->type = SHIRE_IPC_CMD_MTB;
+                    wire->enable_mask = (uint32_t)command->cmd.mtb.enable_mask;
+                    memcpy(wire->values, command->cmd.mtb.dipole,
+                           sizeof(command->cmd.mtb.dipole));
+                    break;
+                case SIMULITH_42_CMD_THRUSTER:
+                    wire->type = SHIRE_IPC_CMD_THRUSTER;
+                    wire->enable_mask = (uint32_t)command->cmd.thruster.enable_mask;
+                    memcpy(wire->values, command->cmd.thruster.thrust,
+                           sizeof(command->cmd.thruster.thrust));
+                    memcpy(&wire->values[3], command->cmd.thruster.torque,
+                           sizeof(command->cmd.thruster.torque));
+                    break;
+                case SIMULITH_42_CMD_NONE:
+                case SIMULITH_42_CMD_SET_MODE:
+                case SIMULITH_42_CMD_COUNT:
+                default:
+                    fprintf(stderr, "[42-client] Unsupported binary command type %d\n",
+                            command->type);
+                    return -1;
+            }
+            batch.count++;
+        }
+        batch.header.payload_size = (uint32_t)
+            SHIRE_IPC_COMMANDS_PAYLOAD_SIZE(batch.count);
+        if (socket_write_all(g_client.socket_fd, &batch,
+                             SHIRE_IPC_COMMANDS_FRAME_SIZE(batch.count)) != 0) {
+            g_client.connected = 0;
+            return -1;
+        }
+        if (receive_binary_ack() != 0) {
+            g_client.connected = 0;
+            return -1;
+        }
+        return 0;
     }
     
     /* Build single message with all commands */
@@ -417,8 +577,9 @@ int simulith_42_send_command_batch(const simulith_42_command_t *commands, int co
             case SIMULITH_42_CMD_SET_MODE:
             case SIMULITH_42_CMD_COUNT:
             default:
-                /* Skip unsupported command types */
-                break;
+                fprintf(stderr, "[42-client] Unsupported text command type %d\n",
+                        cmd->type);
+                return -1;
         }
     }
     
@@ -431,16 +592,17 @@ int simulith_42_send_command_batch(const simulith_42_command_t *commands, int co
     /* Send the batched message to 42 */
     if (msg_len > 0) {
         char ack[4];
-        ssize_t sent = send(g_client.socket_fd, msg, msg_len, 0);
-        if (sent != (ssize_t)msg_len) {
+        if (socket_write_all(g_client.socket_fd, msg, msg_len) != 0) {
             fprintf(stderr, "[42-client] Failed to send batched commands\n");
+            g_client.connected = 0;
             return -1;
         }
         
         /* Read acknowledgment from 42 (TXRX mode expects Ack response) */
-        ssize_t ack_received = recv(g_client.socket_fd, ack, 4, 0);
-        if (ack_received <= 0) {
+        if (socket_read_all(g_client.socket_fd, ack, sizeof(ack)) != 0 ||
+            memcmp(ack, "Ack", sizeof(ack)) != 0) {
             fprintf(stderr, "[42-client] Failed to receive Ack from 42\n");
+            g_client.connected = 0;
             return -1;
         }
     }
@@ -460,20 +622,40 @@ int simulith_42_send_empty_commands(void)
     if (!g_client.connected) {
         return -1;
     }
+
+    if (g_client.binary_mode) {
+        shire_ipc_commands_t batch;
+        memset(&batch, 0, sizeof(batch));
+        batch.header.magic = SHIRE_IPC_MAGIC;
+        batch.header.version = SHIRE_IPC_VERSION;
+        batch.header.type = SHIRE_IPC_COMMANDS;
+        batch.header.payload_size = SHIRE_IPC_COMMANDS_PREFIX_SIZE;
+        if (socket_write_all(g_client.socket_fd, &batch,
+                             SHIRE_IPC_COMMANDS_FRAME_SIZE(0)) != 0) {
+            g_client.connected = 0;
+            return -1;
+        }
+        if (receive_binary_ack() != 0) {
+            g_client.connected = 0;
+            return -1;
+        }
+        return 0;
+    }
     
     // Just send ENDMSG marker
     size_t msg_len = (size_t)snprintf(msg, sizeof(msg), "[ENDMSG]\n");
     
-    ssize_t sent = send(g_client.socket_fd, msg, msg_len, 0);
-    if (sent != (ssize_t)msg_len) {
+    if (socket_write_all(g_client.socket_fd, msg, msg_len) != 0) {
         fprintf(stderr, "[42-client] Failed to send empty commands\n");
+        g_client.connected = 0;
         return -1;
     }
     
     // Read acknowledgment from 42
-    ssize_t ack_received = recv(g_client.socket_fd, ack, 4, 0);
-    if (ack_received <= 0) {
+    if (socket_read_all(g_client.socket_fd, ack, sizeof(ack)) != 0 ||
+        memcmp(ack, "Ack", sizeof(ack)) != 0) {
         fprintf(stderr, "[42-client] Failed to receive Ack from 42\n");
+        g_client.connected = 0;
         return -1;
     }
     

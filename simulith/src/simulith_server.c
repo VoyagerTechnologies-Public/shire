@@ -1,26 +1,84 @@
 #include "simulith.h"
-#include <sched.h>
+#include "simulith_shared_barrier.h"
+#include <ctype.h>
+#include <errno.h>
+#include <math.h>
 #include <signal.h>
 #include <sys/select.h>
 
 #define MAX_CLIENTS 32
+#define MAX_LATENCY_SAMPLES 10000
 
 typedef struct
 {
     char id[64];
     int  responded;
+    uint32_t phase_mask;
+    uint64_t completion_count[4];
+    uint64_t measured_completion_count[4];
+    uint64_t completion_latency_max_ns[4];
+    uint64_t completion_latency_samples[4][MAX_LATENCY_SAMPLES];
+    size_t completion_latency_sample_count[4];
 } ClientState;
 
 static void       *server_context             = NULL;
 static void       *publisher                  = NULL;
 static void       *responder                  = NULL;
+static simulith_shared_barrier_t shared_barrier = {.fd = -1, .slot = -1};
+static int          use_shared_barrier          = 0;
 static uint64_t    current_time_ns            = 0;
 static uint64_t    tick_interval_ns           = 0;
 static int         expected_clients           = 0;
 static ClientState client_states[MAX_CLIENTS] = {0};
+static uint64_t     current_sequence           = 0;
+static double       configured_speed           = 1.0;
+static uint64_t     configured_duration_ns     = 0;
+static uint64_t     configured_warmup_ns       = 0;
+static char         configured_metrics_path[512] = {0};
+static uint64_t     completed_ticks            = 0;
+static uint64_t     measured_ticks_completed   = 0;
+static uint64_t     protocol_errors            = 0;
+static uint64_t     duplicate_completions      = 0;
+static uint64_t     stale_completions          = 0;
+static uint64_t     future_completions         = 0;
+static uint64_t     tick_latency_total_ns      = 0;
+static uint64_t     tick_latency_min_ns        = UINT64_MAX;
+static uint64_t     tick_latency_max_ns        = 0;
+static uint64_t     run_start_real_ns          = 0;
+static uint64_t     measurement_start_real_ns  = 0;
+static uint64_t     measurement_end_real_ns    = 0;
+static uint64_t     active_tick_start_ns       = 0;
+static uint64_t     active_phase_start_ns      = 0;
+static simulith_phase_t current_phase           = SIMULITH_PHASE_PREPARE;
+static uint64_t     completion_count           = 0;
+static uint64_t     tick_latency_samples[MAX_LATENCY_SAMPLES];
+static size_t       tick_latency_sample_count  = 0;
+static double       g_attempted_speed          = 1.0;
+static uint64_t     g_last_log_real_ns         = 0;
+static uint64_t     g_last_log_sim_ns          = 0;
+static uint64_t     watchdog_interval_ns       = 1000000000ULL;
 
 /* Test/debug helper: request server shutdown from other threads. */
 static volatile sig_atomic_t simulith_server_stop_requested = 0;
+
+static uint64_t monotonic_ns(void)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+static const char *phase_name(simulith_phase_t phase)
+{
+    switch (phase)
+    {
+        case SIMULITH_PHASE_PREPARE: return "prepare";
+        case SIMULITH_PHASE_EXECUTE: return "execute";
+        case SIMULITH_PHASE_COMMIT: return "commit";
+        case SIMULITH_PHASE_STOP: return "stop";
+        default: return "invalid";
+    }
+}
 
 static void sleep_for_microseconds(long microseconds)
 {
@@ -43,6 +101,7 @@ static void close_server_resources(void)
         zmq_ctx_term(server_context);
     publisher      = NULL;
     responder      = NULL;
+    simulith_shared_barrier_close(&shared_barrier);
     server_context = NULL;
 }
 
@@ -59,12 +118,28 @@ static int is_client_id_taken(const char *id)
     return 0;
 }
 
+static int valid_client_id(const char *id)
+{
+    if (!id || id[0] == '\0')
+        return 0;
+    for (const unsigned char *cursor = (const unsigned char *)id; *cursor; ++cursor)
+        if (!isalnum(*cursor) && *cursor != '-' && *cursor != '_' && *cursor != '.')
+            return 0;
+    return 1;
+}
+
 int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_count, uint64_t interval_ns)
 {
     /* Clear any previous stop request so a fresh server run isn't short-circuited. */
     simulith_server_stop_requested = 0;
 
     // Validate parameters
+    if (!pub_bind || !rep_bind)
+    {
+        simulith_log("Invalid server endpoint\n");
+        return -1;
+    }
+
     if (client_count <= 0 || client_count > MAX_CLIENTS)
     {
         simulith_log("Invalid client count: %d (must be between 1 and %d)\n", client_count, MAX_CLIENTS);
@@ -79,6 +154,34 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
 
     expected_clients = client_count;
     tick_interval_ns = interval_ns;
+    current_time_ns = 0;
+    current_sequence = 0;
+    completed_ticks = 0;
+    measured_ticks_completed = 0;
+    completion_count = 0;
+    tick_latency_sample_count = 0;
+    protocol_errors = duplicate_completions = stale_completions = future_completions = 0;
+    tick_latency_total_ns = tick_latency_max_ns = 0;
+    tick_latency_min_ns = UINT64_MAX;
+    run_start_real_ns = 0;
+    measurement_start_real_ns = 0;
+    measurement_end_real_ns = 0;
+    g_last_log_real_ns = 0;
+    g_last_log_sim_ns = 0;
+    watchdog_interval_ns = 1000000000ULL;
+    const char *watchdog_seconds = getenv("SIMULITH_WATCHDOG_SECONDS");
+    if (watchdog_seconds && watchdog_seconds[0] != '\0')
+    {
+        char *end = NULL;
+        double seconds = strtod(watchdog_seconds, &end);
+        const double maximum_seconds = (double)UINT64_MAX / 1000000000.0;
+        if (end && *end == '\0' && isfinite(seconds) && seconds > 0.0 &&
+            seconds <= maximum_seconds)
+            watchdog_interval_ns = (uint64_t)(seconds * 1000000000.0);
+    }
+    const char *sync_transport = getenv("SIMULITH_SYNC_TRANSPORT");
+    use_shared_barrier = rep_bind && strncmp(rep_bind, "ipc://", 6) == 0 &&
+        (!sync_transport || strcmp(sync_transport, "zmq") != 0);
 
     server_context = zmq_ctx_new();
     if (!server_context)
@@ -120,43 +223,88 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     zmq_setsockopt(responder, ZMQ_RCVHWM, &rcvhwm, sizeof(rcvhwm));
     zmq_setsockopt(responder, ZMQ_LINGER, &linger, sizeof(linger));
 
+    if (use_shared_barrier && simulith_shared_barrier_create(&shared_barrier) != 0)
+    {
+        simulith_log("Unable to create shared synchronization barrier\n");
+        close_server_resources();
+        return -1;
+    }
+
     // Initialize client states
     for (int i = 0; i < MAX_CLIENTS; ++i)
     {
         client_states[i].id[0]     = '\0';
         client_states[i].responded = 0;
+        client_states[i].phase_mask = 0;
+        memset(client_states[i].completion_count, 0, sizeof(client_states[i].completion_count));
+        memset(client_states[i].measured_completion_count, 0,
+               sizeof(client_states[i].measured_completion_count));
+        memset(client_states[i].completion_latency_max_ns, 0,
+               sizeof(client_states[i].completion_latency_max_ns));
+        memset(client_states[i].completion_latency_sample_count, 0,
+               sizeof(client_states[i].completion_latency_sample_count));
     }
 
     simulith_log("Simulith server initialized. Clients expected: %d\n", expected_clients);
     return 0;
 }
 
-// Global for speed tracking
-static double g_attempted_speed = 1.0;
-static uint64_t g_last_log_real_ns = 0;
-
-static void broadcast_time(void)
+int simulith_server_configure(double speed, uint64_t duration_ns, const char *metrics_json_path)
 {
-    static uint64_t last_log_time = 0;
-    static const uint64_t LOG_INTERVAL_NS = 10000000000; // Log every 10 seconds
-
-    zmq_send(publisher, &current_time_ns, sizeof(current_time_ns), 0);
-
-    // Only log time broadcasts every LOG_INTERVAL_NS
-    if (current_time_ns - last_log_time >= LOG_INTERVAL_NS) 
+    if (!isfinite(speed) || speed < 0.0)
+        return -1;
+    configured_speed = speed;
+    configured_duration_ns = duration_ns;
+    configured_metrics_path[0] = '\0';
+    if (metrics_json_path && metrics_json_path[0] != '\0')
     {
-        // Calculate actual speed (sim seconds per real second)
-        struct timespec now_ts;
-        clock_gettime(CLOCK_MONOTONIC, &now_ts);
-        uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + (uint64_t)now_ts.tv_nsec;
-        double sim_elapsed = (double)(current_time_ns - last_log_time) / 1e9;
+        if (strlen(metrics_json_path) >= sizeof(configured_metrics_path))
+            return -1;
+        strcpy(configured_metrics_path, metrics_json_path);
+    }
+    return 0;
+}
+
+int simulith_server_configure_warmup(uint64_t warmup_ns)
+{
+    if (configured_duration_ns > 0 && warmup_ns >= configured_duration_ns)
+        return -1;
+    configured_warmup_ns = warmup_ns;
+    return 0;
+}
+
+static void broadcast_phase(simulith_phase_t phase)
+{
+    simulith_tick_message_t tick = {
+        .magic = SIMULITH_PROTOCOL_MAGIC,
+        .version = SIMULITH_PROTOCOL_VERSION,
+        .phase = phase,
+        .sequence = current_sequence,
+        .time_ns = current_time_ns
+    };
+    if (!use_shared_barrier)
+        zmq_send(publisher, &tick, sizeof(tick), 0);
+}
+
+static void log_simulation_progress(void)
+{
+    static const uint64_t LOG_INTERVAL_NS = 10000000000ULL;
+
+    if (current_time_ns - g_last_log_sim_ns >= LOG_INTERVAL_NS)
+    {
+        uint64_t now_real_ns = monotonic_ns();
+        double sim_elapsed = (double)(current_time_ns - g_last_log_sim_ns) / 1e9;
         double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
         double actual_speed = (real_elapsed > 0.0) ? (sim_elapsed / real_elapsed) : 0.0;
 
-        simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
-            (double)current_time_ns / 1e9, g_attempted_speed, actual_speed);
+        if (g_attempted_speed > 0.0)
+            simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
+                (double)current_time_ns / 1e9, g_attempted_speed, actual_speed);
+        else
+            simulith_log("  Simulation time: %.3f seconds | Attempted speed: max | Actual: %.2fx\n",
+                (double)current_time_ns / 1e9, actual_speed);
 
-        last_log_time = current_time_ns;
+        g_last_log_sim_ns = current_time_ns;
         g_last_log_real_ns = now_real_ns;
     }
 }
@@ -165,19 +313,20 @@ static void broadcast_time(void)
 void simulith_server_broadcast_for_test(uint64_t time_ns)
 {
     current_time_ns = time_ns;
-    broadcast_time();
+    broadcast_phase(SIMULITH_PHASE_PREPARE);
+    log_simulation_progress();
 }
 #endif
 
-static int all_clients_responded(void)
+static int all_phase_participants_responded(void)
 {
-    int count = 0;
     for (int i = 0; i < expected_clients; ++i)
     {
-        if (client_states[i].responded)
-            count++;
+        if ((client_states[i].phase_mask & SIMULITH_PHASE_BIT(current_phase)) != 0 &&
+            !client_states[i].responded)
+            return 0;
     }
-    return count == expected_clients;
+    return 1;
 }
 
 static void reset_responses(void)
@@ -188,52 +337,173 @@ static void reset_responses(void)
     }
 }
 
-static void handle_ack(const char *client_id)
+static void record_completion(int index)
 {
+    client_states[index].responded = 1;
+    uint64_t latency_ns = monotonic_ns() - active_phase_start_ns;
+    client_states[index].completion_count[current_phase]++;
+    completion_count++;
+    if (current_time_ns >= configured_warmup_ns)
+    {
+        client_states[index].measured_completion_count[current_phase]++;
+        if (latency_ns > client_states[index].completion_latency_max_ns[current_phase])
+            client_states[index].completion_latency_max_ns[current_phase] = latency_ns;
+        if (client_states[index].completion_latency_sample_count[current_phase] < MAX_LATENCY_SAMPLES)
+            client_states[index].completion_latency_samples[current_phase][
+                client_states[index].completion_latency_sample_count[current_phase]++] = latency_ns;
+    }
+}
+
+static uint32_t required_phase_mask(void)
+{
+    uint32_t mask = 0;
+    for (int i = 0; i < expected_clients; ++i)
+        if ((client_states[i].phase_mask & SIMULITH_PHASE_BIT(current_phase)) != 0)
+            mask |= UINT32_C(1) << i;
+    return mask;
+}
+
+static int record_shared_completions(uint32_t completed_mask)
+{
+    int recorded = 0;
+    for (int i = 0; i < expected_clients; ++i)
+        if ((completed_mask & (UINT32_C(1) << i)) != 0 &&
+            (client_states[i].phase_mask & SIMULITH_PHASE_BIT(current_phase)) != 0 &&
+            !client_states[i].responded)
+        {
+            record_completion(i);
+            recorded++;
+        }
+    return recorded;
+}
+
+static const char *handle_completion(const char *message)
+{
+    unsigned long sequence = 0;
+    unsigned phase = 0;
+    char client_id[64] = {0};
+    int consumed = 0;
+    if (sscanf(message, "COMPLETE %lu %u %63s %n", &sequence, &phase,
+               client_id, &consumed) != 3 || message[consumed] != '\0')
+    {
+        protocol_errors++;
+        simulith_log("Rejected malformed completion: %s\n", message);
+        return "ERR_PROTOCOL";
+    }
+
+    if ((uint64_t)sequence < current_sequence)
+    {
+        stale_completions++;
+        simulith_log("Rejected stale completion from %s: got %lu, current %lu\n",
+                     client_id, sequence, (unsigned long)current_sequence);
+        return "ERR_STALE";
+    }
+    if ((uint64_t)sequence > current_sequence)
+    {
+        future_completions++;
+        simulith_log("Rejected future completion from %s: got %lu, current %lu\n",
+                     client_id, sequence, (unsigned long)current_sequence);
+        return "ERR_FUTURE";
+    }
+
     for (int i = 0; i < expected_clients; ++i)
     {
         if (client_states[i].id[0] != '\0' && strcmp(client_states[i].id, client_id) == 0)
         {
-            client_states[i].responded = 1;
-            return;
+            if (phase != (unsigned)current_phase ||
+                (client_states[i].phase_mask & SIMULITH_PHASE_BIT(current_phase)) == 0)
+            {
+                protocol_errors++;
+                simulith_log("Rejected wrong phase from %s for tick %lu: got %u expected %u\n",
+                             client_id, sequence, phase, (unsigned)current_phase);
+                return "ERR_PHASE";
+            }
+            if (client_states[i].responded)
+            {
+                duplicate_completions++;
+                simulith_log("Rejected duplicate completion from %s for tick %lu\n",
+                             client_id, sequence);
+                return "ERR_DUPLICATE";
+            }
+            record_completion(i);
+            return "ACK";
         }
     }
-    simulith_log("ACK received from unknown client: %s\n", client_id);
+    protocol_errors++;
+    simulith_log("Completion received from unknown participant: %s\n", client_id);
+    return "ERR_UNKNOWN";
 }
 
 /* Keep command interpretation independent of stdin so it is deterministic and
  * directly testable.  A non-zero return asks the caller to stop the server. */
 static int process_cli_command(const char *command, int *paused, double *speed)
 {
-    if (strncmp(command, "p", 1) == 0)
+    char action[16] = {0};
+    char argument[32] = {0};
+    char extra[2] = {0};
+    int fields = sscanf(command, " %15s %31s %1s", action, argument, extra);
+
+    if (fields == 1 && strcmp(action, "p") == 0)
     {
         *paused = !*paused;
         printf(*paused ? "Simulation paused.\n" : "Simulation resumed.\n");
     }
-    else if (strncmp(command, "+", 1) == 0)
+    else if (fields == 1 && strcmp(action, "+") == 0)
     {
-        *speed *= 2.0;
-        if (*speed > 1024.0)
-            *speed = 1024.0;
+        if (*speed > 0.0)
+        {
+            *speed *= 2.0;
+            if (*speed > 1024.0)
+                *speed = 1024.0;
+        }
         g_attempted_speed = *speed;
-        printf("Attempted simulation speed: %.2fx\n", *speed);
+        if (*speed > 0.0)
+            printf("Attempted simulation speed: %.2fx\n", *speed);
+        else
+            printf("Attempted simulation speed: max\n");
     }
-    else if (strncmp(command, "-", 1) == 0)
+    else if (fields == 1 && strcmp(action, "-") == 0)
     {
-        *speed /= 2.0;
+        if (*speed <= 0.0)
+            *speed = 1024.0;
+        else
+            *speed /= 2.0;
         if (*speed < 0.015625)
             *speed = 0.015625;
         g_attempted_speed = *speed;
         printf("Attempted simulation speed: %.4fx\n", *speed);
     }
-    else if (strncmp(command, "quit", 4) == 0)
+    else if (fields == 2 && strcmp(action, "speed") == 0)
+    {
+        double requested_speed = 0.0;
+        if (strcmp(argument, "max") != 0)
+        {
+            char *end = NULL;
+            errno = 0;
+            requested_speed = strtod(argument, &end);
+            if (errno != 0 || !end || *end != '\0' ||
+                !isfinite(requested_speed) || requested_speed < 0.015625 ||
+                requested_speed > 1024.0)
+            {
+                printf("Invalid speed. Use a factor from 0.015625 through 1024, or 'max'.\n");
+                return 0;
+            }
+        }
+        *speed = requested_speed;
+        g_attempted_speed = *speed;
+        if (*speed > 0.0)
+            printf("Attempted simulation speed: %.2fx\n", *speed);
+        else
+            printf("Attempted simulation speed: max\n");
+    }
+    else if (fields == 1 && strcmp(action, "quit") == 0)
     {
         printf("Exiting simulation.\n");
         return 1;
     }
     else
     {
-        printf("Unknown command. Use 'p', '+', '-', or 'quit'.\n");
+        printf("Unknown command. Use 'p', '+', '-', 'speed <factor|max>', or 'quit'.\n");
     }
     return 0;
 }
@@ -251,6 +521,7 @@ void simulith_server_run(void)
 
     // Wait for all clients to send "READY"
     int ready_clients = 0;
+    int session_shared_transport = -1;
     while (ready_clients < expected_clients)
     {
         if (simulith_server_stop_requested) {
@@ -258,27 +529,85 @@ void simulith_server_run(void)
             return;
         }
 
-        char buffer[64] = {0};
+        char buffer[96] = {0};
         int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, 0);
         if (size > 0)
         {
+            if ((size_t)size >= sizeof(buffer))
+            {
+                simulith_log("Rejected oversized handshake\n");
+                zmq_send(responder, "ERR", 3, 0);
+                continue;
+            }
             buffer[size] = '\0';
 
-            // Parse READY message
-            char *space = strchr(buffer, ' ');
-            if (!space || strncmp(buffer, "READY", 5) != 0)
+            char client_id[64] = {0};
+            unsigned phase_mask = 0;
+            char transport[16] = {0};
+            const char *id_start = strncmp(buffer, "READY ", 6) == 0 ? buffer + 6 : "";
+            size_t id_length = strcspn(id_start, " \t\r\n");
+            int consumed = 0;
+            int ready_fields = sscanf(buffer, "READY %63s %u %15s %n", client_id,
+                                      &phase_mask, transport, &consumed);
+            if (ready_fields == 3 && buffer[consumed] != '\0')
+                ready_fields = 0;
+            else if (ready_fields == 2)
+            {
+                consumed = 0;
+                if (sscanf(buffer, "READY %63s %u %n", client_id, &phase_mask,
+                           &consumed) != 2 || buffer[consumed] != '\0')
+                    ready_fields = 0;
+            }
+            else if (ready_fields == 1)
+            {
+                consumed = 0;
+                if (sscanf(buffer, "READY %63s %n", client_id, &consumed) != 1 ||
+                    buffer[consumed] != '\0')
+                    ready_fields = 0;
+            }
+            if (ready_fields < 1 || id_length == 0 || id_length >= sizeof(client_id))
             {
                 simulith_log("Invalid handshake message: %s\n", buffer);
                 zmq_send(responder, "ERR", 3, 0);
                 continue;
             }
-
-            // Extract client ID (skip "READY " prefix)
-            char *client_id = space + 1;
-            if (strlen(client_id) == 0)
+            if (!valid_client_id(client_id))
             {
-                simulith_log("Empty client ID in handshake\n");
+                simulith_log("Invalid client ID: %s\n", client_id);
                 zmq_send(responder, "ERR", 3, 0);
+                continue;
+            }
+            if (ready_fields == 1)
+                phase_mask = strcmp(client_id, "shire-fsw") == 0 ?
+                    SIMULITH_PHASE_MASK_EXECUTE : SIMULITH_PHASE_MASK_COMMIT;
+            const unsigned valid_mask = SIMULITH_PHASE_MASK_PREPARE |
+                                        SIMULITH_PHASE_MASK_EXECUTE |
+                                        SIMULITH_PHASE_MASK_COMMIT;
+            if (phase_mask == 0 || (phase_mask & ~valid_mask) != 0)
+            {
+                simulith_log("Invalid phase mask from %s: %u\n", client_id, phase_mask);
+                zmq_send(responder, "ERR", 3, 0);
+                continue;
+            }
+
+            int requested_shared = ready_fields >= 3 && strcmp(transport, "shared") == 0;
+            if (ready_fields >= 3 && strcmp(transport, "shared") != 0 &&
+                strcmp(transport, "zmq") != 0)
+            {
+                simulith_log("Client %s requested unknown synchronization transport\n", client_id);
+                zmq_send(responder, "ERR TRANSPORT", 13, 0);
+                continue;
+            }
+            if (requested_shared && !use_shared_barrier)
+            {
+                simulith_log("Client %s requested unavailable shared transport\n", client_id);
+                zmq_send(responder, "ERR TRANSPORT", 13, 0);
+                continue;
+            }
+            if (session_shared_transport >= 0 && requested_shared != session_shared_transport)
+            {
+                simulith_log("Client %s requested a mixed synchronization transport\n", client_id);
+                zmq_send(responder, "ERR TRANSPORT", 13, 0);
                 continue;
             }
 
@@ -309,12 +638,19 @@ void simulith_server_run(void)
             }
 
             // Register client
-            strncpy(client_states[slot].id, client_id, sizeof(client_states[slot].id) - 1);
-            client_states[slot].id[sizeof(client_states[slot].id) - 1] = '\0';
+            snprintf(client_states[slot].id, sizeof(client_states[slot].id), "%s", client_id);
             client_states[slot].responded                              = 0;
+            client_states[slot].phase_mask = phase_mask;
+            session_shared_transport = requested_shared;
             ready_clients++;
 
-            zmq_send(responder, "ACK", 3, 0);
+            char ready_reply[32];
+            int ready_reply_length;
+            if (ready_fields >= 2)
+                ready_reply_length = snprintf(ready_reply, sizeof(ready_reply), "ACK %d", slot);
+            else
+                ready_reply_length = snprintf(ready_reply, sizeof(ready_reply), "ACK");
+            zmq_send(responder, ready_reply, (size_t)ready_reply_length, 0);
             simulith_log("Registered client %s (%d/%d)\n", client_id, ready_clients, expected_clients);
         }
         else
@@ -333,6 +669,8 @@ void simulith_server_run(void)
         }
     }
 
+    use_shared_barrier = session_shared_transport == 1;
+
     simulith_log("All clients ready. Starting time broadcast.\n");
 
     // Reset client responded flags for tick ACKs
@@ -341,13 +679,19 @@ void simulith_server_run(void)
     // CLI state
     int paused = 0;
     int running = 1;
-    double speed = 1.0; // 1.0 = real time
+    double speed = configured_speed; // zero means unbounded
     g_attempted_speed = speed;
     fd_set readfds;
     struct timeval tv;
     char cli_buf[32];
 
-    printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), or '-' (slower).\n");
+    printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), '-' (slower), or 'speed <factor|max>'.\n");
+    run_start_real_ns = monotonic_ns();
+    g_last_log_real_ns = run_start_real_ns;
+    g_last_log_sim_ns = current_time_ns;
+    measurement_start_real_ns = configured_warmup_ns == 0 ? run_start_real_ns : 0;
+    uint64_t next_tick_deadline_ns = run_start_real_ns;
+    double pacing_speed = speed;
 
     while (running && !simulith_server_stop_requested)
     {
@@ -369,112 +713,272 @@ void simulith_server_run(void)
 
         if (!paused) 
         {
-            struct timespec start_ts, end_ts;
-            clock_gettime(CLOCK_MONOTONIC, &start_ts);
+            uint64_t tick_start_ns = monotonic_ns();
+            active_tick_start_ns = tick_start_ns;
+            log_simulation_progress();
+            if (current_time_ns == configured_warmup_ns && speed > 0.0)
+                next_tick_deadline_ns = tick_start_ns;
 
-            broadcast_time();
-            reset_responses();
-
-            while (!all_clients_responded() && running && !simulith_server_stop_requested)
+            for (current_phase = SIMULITH_PHASE_PREPARE;
+                 current_phase <= SIMULITH_PHASE_COMMIT && running &&
+                 !simulith_server_stop_requested;
+                 current_phase = (simulith_phase_t)(current_phase + 1))
             {
-                char buffer[64] = {0};
-                int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, ZMQ_DONTWAIT);
-                if (size > 0) 
+                reset_responses();
+                active_phase_start_ns = monotonic_ns();
+                uint64_t last_watchdog_ns = active_phase_start_ns;
+                if (use_shared_barrier)
                 {
-                    buffer[size] = '\0';
-                    handle_ack(buffer);
-                    zmq_send(responder, "ACK", 3, 0);
-                }
-                else if (errno == EAGAIN)
-                {
-                    // No message available, yield CPU more aggressively for high speed
-                    if (speed >= 256.0) {
-                        // At extreme speeds, pure busy wait with minimal overhead
-                        continue;
-                    } else if (speed >= 128.0) {
-                        // At very high speeds, don't yield at all - busy wait
-                        continue;
-                    } else if (speed >= 64.0) {
-                        // At high speeds, minimal yield
-                        sched_yield();
-                    } else if (speed >= 16.0) {
-                        // At medium speeds, minimal yield
-                        sched_yield();
-                    } else {
-                        // At lower speeds, small sleep is fine
-                        sleep_for_microseconds(1);
+                    if (simulith_shared_barrier_publish(&shared_barrier, current_sequence,
+                                                        current_time_ns, current_phase,
+                                                        required_phase_mask()) != 0)
+                    {
+                        simulith_log("Unable to publish tick %lu phase %s to shared barrier\n",
+                                     (unsigned long)current_sequence, phase_name(current_phase));
+                        running = 0;
+                        break;
                     }
                 }
-                
-                // Check for CLI input during wait (much less frequently at high speeds)
-                static int cli_check_counter = 0;
-                int cli_check_interval = (speed >= 256.0) ? 50000 : (speed >= 128.0) ? 20000 : (speed >= 64.0) ? 10000 : (speed >= 16.0) ? 1000 : 100;
-                if (++cli_check_counter % cli_check_interval == 0)
+                else
+                    broadcast_phase(current_phase);
+
+                while (!all_phase_participants_responded() && running &&
+                       !simulith_server_stop_requested)
                 {
+                    char buffer[160] = {0};
+                    int made_progress = 0;
+
+                    if (use_shared_barrier)
+                    {
+                        uint32_t completed = simulith_shared_barrier_wait(
+                            &shared_barrier, required_phase_mask(), 10);
+                        made_progress = record_shared_completions(completed) > 0;
+                    }
+
+                    if (!use_shared_barrier)
+                    {
+                        int size = zmq_recv(responder, buffer, sizeof(buffer) - 1, ZMQ_DONTWAIT);
+                        if (size > 0)
+                        {
+                            if ((size_t)size >= sizeof(buffer))
+                            {
+                                protocol_errors++;
+                                zmq_send(responder, "ERR_PROTOCOL", 12, 0);
+                                continue;
+                            }
+                            buffer[size] = '\0';
+                            const char *reply = handle_completion(buffer);
+                            zmq_send(responder, reply, strlen(reply), 0);
+                            made_progress = 1;
+                        }
+                        else
+                        {
+                            zmq_pollitem_t item = {.socket = responder, .events = ZMQ_POLLIN};
+                            int poll_status = zmq_poll(&item, 1, 200);
+                            if (poll_status > 0 && (item.revents & ZMQ_POLLIN) != 0)
+                                size = zmq_recv(responder, buffer, sizeof(buffer) - 1, 0);
+                            if (size > 0)
+                            {
+                                if ((size_t)size >= sizeof(buffer))
+                                {
+                                    protocol_errors++;
+                                    zmq_send(responder, "ERR_PROTOCOL", 12, 0);
+                                    continue;
+                                }
+                                buffer[size] = '\0';
+                                const char *reply = handle_completion(buffer);
+                                zmq_send(responder, reply, strlen(reply), 0);
+                                made_progress = 1;
+                            }
+                        }
+                    }
+
+                    if (!made_progress)
+                    {
+                        uint64_t now_ns = monotonic_ns();
+                        if (now_ns - last_watchdog_ns >= watchdog_interval_ns)
+                        {
+                            simulith_log("Tick %lu phase %s stalled; waiting for",
+                                         (unsigned long)current_sequence,
+                                         phase_name(current_phase));
+                            for (int i = 0; i < expected_clients; ++i)
+                            {
+                                if ((client_states[i].phase_mask & SIMULITH_PHASE_BIT(current_phase)) != 0 &&
+                                    !client_states[i].responded)
+                                    simulith_log(" %s/%s", client_states[i].id,
+                                                 phase_name(current_phase));
+                            }
+                            simulith_log("\n");
+                            last_watchdog_ns = now_ns;
+                        }
+                    }
+
                     FD_ZERO(&readfds);
                     FD_SET(0, &readfds);
                     tv.tv_sec = 0;
                     tv.tv_usec = 0;
                     cli_ready = select(1, &readfds, NULL, NULL, &tv);
-                    if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
-                    {
-                        if (fgets(cli_buf, sizeof(cli_buf), stdin) &&
-                            process_cli_command(cli_buf, &paused, &speed))
-                        {
-                            running = 0;
-                        }
-                    }
+                    if (cli_ready > 0 && FD_ISSET(0, &readfds) &&
+                        fgets(cli_buf, sizeof(cli_buf), stdin) &&
+                        process_cli_command(cli_buf, &paused, &speed))
+                        running = 0;
                 }
+            }
+
+            if (current_phase <= SIMULITH_PHASE_COMMIT)
+                break;
+
+            uint64_t completion_ns = monotonic_ns();
+            uint64_t tick_latency_ns = completion_ns - tick_start_ns;
+            completed_ticks++;
+            if (current_time_ns >= configured_warmup_ns)
+            {
+                measured_ticks_completed++;
+                if (measurement_start_real_ns == 0)
+                    measurement_start_real_ns = tick_start_ns;
+                tick_latency_total_ns += tick_latency_ns;
+                if (tick_latency_ns < tick_latency_min_ns) tick_latency_min_ns = tick_latency_ns;
+                if (tick_latency_ns > tick_latency_max_ns) tick_latency_max_ns = tick_latency_ns;
+                if (tick_latency_sample_count < MAX_LATENCY_SAMPLES)
+                    tick_latency_samples[tick_latency_sample_count++] = tick_latency_ns;
             }
 
             // Sleep to simulate real time (adjusted by speed), accounting for processing time
             if (speed > 0.0) 
             {
-                clock_gettime(CLOCK_MONOTONIC, &end_ts);
-                /* Use signed 64-bit for intermediate differences to avoid sign-conversion warnings */
-                int64_t sec_diff = (int64_t)end_ts.tv_sec - (int64_t)start_ts.tv_sec;
-                int64_t nsec_diff = (int64_t)end_ts.tv_nsec - (int64_t)start_ts.tv_nsec;
-                uint64_t elapsed_ns = (uint64_t)(sec_diff * 1000000000LL + nsec_diff);
                 uint64_t target_ns = (uint64_t)((double)tick_interval_ns / speed);
-                
-                if (elapsed_ns < target_ns) 
+                if (speed < pacing_speed || speed > pacing_speed)
                 {
-                    uint64_t sleep_ns = target_ns - elapsed_ns;
-                    
-                    // At very high speeds, skip sleep entirely for maximum performance
-                    if (speed >= 256.0) {
-                        // No sleep - run as fast as possible with maximum performance
-                    } else if (speed >= 128.0) {
-                        // No sleep - run as fast as possible
-                    } else if (speed >= 64.0) {
-                        // Very short busy wait for precise timing
-                        struct timespec start_wait, now_wait;
-                        clock_gettime(CLOCK_MONOTONIC, &start_wait);
-                        do {
-                            clock_gettime(CLOCK_MONOTONIC, &now_wait);
-                        } while (((int64_t)now_wait.tv_sec - (int64_t)start_wait.tv_sec) * 1000000000LL +
-                                ((int64_t)now_wait.tv_nsec - (int64_t)start_wait.tv_nsec) < (int64_t)sleep_ns);
-                    } else {
-                        // Normal nanosleep for lower speeds
-                        struct timespec ts;
-                        ts.tv_sec = (time_t)(sleep_ns / 1000000000ULL);
-                        ts.tv_nsec = (long)(sleep_ns % 1000000000ULL);
-                        nanosleep(&ts, NULL);
+                    next_tick_deadline_ns = completion_ns;
+                    pacing_speed = speed;
+                }
+                next_tick_deadline_ns += target_ns;
+                if (completion_ns < next_tick_deadline_ns)
+                {
+                    struct timespec deadline = {
+                        .tv_sec = (time_t)(next_tick_deadline_ns / 1000000000ULL),
+                        .tv_nsec = (long)(next_tick_deadline_ns % 1000000000ULL)
+                    };
+                    while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL) != 0 &&
+                           errno == EINTR)
+                    {
                     }
                 }
             }
+            if (current_time_ns >= configured_warmup_ns)
+                measurement_end_real_ns = monotonic_ns();
             current_time_ns += tick_interval_ns;
+            current_sequence++;
+            if (configured_duration_ns > 0 && current_time_ns >= configured_duration_ns)
+                running = 0;
         } else 
         {
             // If paused, sleep briefly to avoid busy loop
             sleep_for_microseconds(100000);
+            next_tick_deadline_ns = monotonic_ns();
         }
     }
+
+    /* Release every connected client on normal duration, interactive quit,
+     * watchdog-driven shutdown, or a phase error. */
+    if (ready_clients == expected_clients && publisher)
+    {
+        if (use_shared_barrier)
+            simulith_shared_barrier_stop(&shared_barrier);
+        else
+            broadcast_phase(SIMULITH_PHASE_STOP);
+        sleep_for_microseconds(10000);
+    }
+}
+
+static int compare_uint64(const void *left, const void *right)
+{
+    const uint64_t a = *(const uint64_t *)left;
+    const uint64_t b = *(const uint64_t *)right;
+    return (a > b) - (a < b);
+}
+
+static double percentile_us(uint64_t *values, size_t count, double percentile)
+{
+    if (count == 0)
+        return 0.0;
+    qsort(values, count, sizeof(values[0]), compare_uint64);
+    size_t index = (size_t)(percentile * (double)(count - 1));
+    return (double)values[index] / 1000.0;
+}
+
+static void write_metrics(FILE *stream)
+{
+    uint64_t now_ns = monotonic_ns();
+    uint64_t total_elapsed_ns = run_start_real_ns > 0 ? now_ns - run_start_real_ns : 0;
+    uint64_t elapsed_ns = measurement_start_real_ns > 0 && measurement_end_real_ns >= measurement_start_real_ns ?
+        measurement_end_real_ns - measurement_start_real_ns : 0;
+    uint64_t measured_ticks = measured_ticks_completed;
+    uint64_t measured_simulated_ns = measured_ticks * tick_interval_ns;
+    double achieved = elapsed_ns > 0 ? (double)measured_simulated_ns / (double)elapsed_ns : 0.0;
+    double mean_latency_us = measured_ticks > 0 ?
+        (double)tick_latency_total_ns / (double)measured_ticks / 1000.0 : 0.0;
+    double min_latency_us = measured_ticks > 0 ? (double)tick_latency_min_ns / 1000.0 : 0.0;
+    char requested_speed[32];
+    if (configured_speed <= 0.0)
+        strcpy(requested_speed, "\"max\"");
+    else
+        snprintf(requested_speed, sizeof(requested_speed), "%.9f", configured_speed);
+    fprintf(stream,
+            "{\"schema_version\":1,\"ticks\":%lu,\"simulated_ns\":%lu,"
+            "\"warmup_ns\":%lu,\"measured_ticks\":%lu,\"measured_simulated_ns\":%lu,"
+            "\"startup_and_run_wall_ns\":%lu,\"wall_ns\":%lu,"
+            "\"requested_speed\":%s,\"achieved_speed\":%.9f,"
+            "\"tick_latency_us\":{\"min\":%.3f,\"mean\":%.3f,\"p50\":%.3f,"
+            "\"p95\":%.3f,\"p99\":%.3f,\"max\":%.3f},"
+            "\"completions\":%lu,\"protocol_errors\":%lu,"
+            "\"duplicate_completions\":%lu,\"stale_completions\":%lu,"
+            "\"future_completions\":%lu,\"participants\":[",
+            (unsigned long)completed_ticks, (unsigned long)current_time_ns,
+            (unsigned long)configured_warmup_ns, (unsigned long)measured_ticks,
+            (unsigned long)measured_simulated_ns, (unsigned long)total_elapsed_ns,
+            (unsigned long)elapsed_ns, requested_speed,
+            achieved, min_latency_us, mean_latency_us,
+            percentile_us(tick_latency_samples, tick_latency_sample_count, 0.50),
+            percentile_us(tick_latency_samples, tick_latency_sample_count, 0.95),
+            percentile_us(tick_latency_samples, tick_latency_sample_count, 0.99),
+            (double)tick_latency_max_ns / 1000.0,
+            (unsigned long)completion_count,
+            (unsigned long)protocol_errors, (unsigned long)duplicate_completions,
+            (unsigned long)stale_completions, (unsigned long)future_completions);
+    int participant_index = 0;
+    for (int i = 0; i < expected_clients; ++i)
+    {
+        for (simulith_phase_t phase = SIMULITH_PHASE_PREPARE;
+             phase <= SIMULITH_PHASE_COMMIT;
+             phase = (simulith_phase_t)(phase + 1))
+        {
+            if ((client_states[i].phase_mask & SIMULITH_PHASE_BIT(phase)) == 0)
+                continue;
+            if (participant_index++ > 0) fputc(',', stream);
+            fprintf(stream,
+                    "{\"id\":\"%s\",\"phase\":\"%s\",\"count\":%lu,\"measured_count\":%lu,"
+                    "\"latency_us\":{\"p50\":%.3f,\"p95\":%.3f,\"p99\":%.3f,\"max\":%.3f}}",
+                    client_states[i].id, phase_name(phase),
+                    (unsigned long)client_states[i].completion_count[phase],
+                    (unsigned long)client_states[i].measured_completion_count[phase],
+                    percentile_us(client_states[i].completion_latency_samples[phase],
+                                  client_states[i].completion_latency_sample_count[phase], 0.50),
+                    percentile_us(client_states[i].completion_latency_samples[phase],
+                                  client_states[i].completion_latency_sample_count[phase], 0.95),
+                    percentile_us(client_states[i].completion_latency_samples[phase],
+                                  client_states[i].completion_latency_sample_count[phase], 0.99),
+                    (double)client_states[i].completion_latency_max_ns[phase] / 1000.0);
+        }
+    }
+    fputs("]}\n", stream);
 }
 
 void simulith_server_request_stop(void)
 {
     simulith_server_stop_requested = 1;
+    if (use_shared_barrier)
+        simulith_shared_barrier_stop(&shared_barrier);
 }
 
 void simulith_server_shutdown(void)
@@ -482,6 +986,22 @@ void simulith_server_shutdown(void)
     /* Close resources after the owner loop has returned. */
     simulith_server_request_stop();
 
+    simulith_log("SIMULITH_METRICS ");
+    write_metrics(stdout);
+    if (configured_metrics_path[0] != '\0')
+    {
+        FILE *metrics = fopen(configured_metrics_path, "w");
+        if (metrics)
+        {
+            write_metrics(metrics);
+            fclose(metrics);
+        }
+        else
+        {
+            simulith_log("Unable to write metrics file %s: %s\n",
+                         configured_metrics_path, strerror(errno));
+        }
+    }
     close_server_resources();
     simulith_log("Simulith server shut down\n");
 }

@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -65,11 +66,6 @@ DEFINE_ADAPTER_INIT(OS_Posix_StreamAPI_Impl_Init, OS_OBJECT_TYPE_OS_STREAM)
 DEFINE_ADAPTER_INIT(OS_Posix_DirAPI_Impl_Init, OS_OBJECT_TYPE_OS_DIR)
 DEFINE_ADAPTER_INIT(OS_Posix_FileSysAPI_Impl_Init, OS_OBJECT_TYPE_OS_FILESYS)
 DEFINE_ADAPTER_INIT(OS_Posix_CondVarAPI_Impl_Init, OS_OBJECT_TYPE_OS_CONDVAR)
-
-void CFE_PSP_GetSimulithTimespec(struct timespec *ts)
-{
-    clock_gettime(CLOCK_REALTIME, ts);
-}
 
 static OS_object_token_t MakeToken(osal_index_t index)
 {
@@ -192,7 +188,12 @@ static void *IdleThread(void *arg)
 static void Test_TimeAndShutdownAdapters(void)
 {
     struct timespec before;
+    struct timespec after;
     struct timespec delayed;
+    int64_t         before_ns;
+    int64_t         after_ns;
+    int64_t         delayed_ns;
+    const int64_t   requested_delay_ns = INT64_C(2501) * INT64_C(1000000);
     struct sigaction action = {0};
     sigset_t         blocked;
     sigset_t         previous;
@@ -200,8 +201,14 @@ static void Test_TimeAndShutdownAdapters(void)
 
     clock_gettime(CLOCK_REALTIME, &before);
     OS_Posix_CompAbsDelayTime(2501, &delayed);
-    UtAssert_True(delayed.tv_sec > before.tv_sec || delayed.tv_nsec > before.tv_nsec,
-                  "absolute deadline advances");
+    clock_gettime(CLOCK_REALTIME, &after);
+    before_ns = (int64_t)before.tv_sec * INT64_C(1000000000) + before.tv_nsec;
+    after_ns = (int64_t)after.tv_sec * INT64_C(1000000000) + after.tv_nsec;
+    delayed_ns = (int64_t)delayed.tv_sec * INT64_C(1000000000) + delayed.tv_nsec;
+    UtAssert_True(delayed_ns >= before_ns + requested_delay_ns,
+                  "deadline uses CLOCK_REALTIME and includes the full delay");
+    UtAssert_True(delayed_ns <= after_ns + requested_delay_ns,
+                  "deadline was sampled no later than the post-call clock");
     UtAssert_True(delayed.tv_nsec >= 0 && delayed.tv_nsec < 1000000000L,
                   "absolute deadline is normalized");
 

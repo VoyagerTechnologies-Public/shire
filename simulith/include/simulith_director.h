@@ -33,6 +33,19 @@ extern "C" {
 #define MAX_COMPONENT_LIBS 32
 #define UDP_PUBLISH_INTERVAL_TICKS 100 // 100 ticks = 1s
 #define SIMULITH_42_TELEMETRY_SIZE 276
+#define SIMULITH_SCENARIO_MAX_COMMANDS 32
+#define SIMULITH_SCENARIO_MAX_PACKET_SIZE 2048
+
+typedef struct
+{
+    uint64_t sequence;
+    char host[128];
+    uint16_t port;
+    struct sockaddr_in destination;
+    uint8_t packet[SIMULITH_SCENARIO_MAX_PACKET_SIZE];
+    size_t packet_length;
+    int injected;
+} simulith_scenario_command_t;
 
 // Component registry entry
 typedef struct {
@@ -40,6 +53,7 @@ typedef struct {
     component_state_t* state;
     void* lib_handle;
     int active;
+    int phase_status;
 } component_entry_t;
 
 // Director configuration structure
@@ -50,6 +64,14 @@ typedef struct
     int time_step_ms;
     int duration_s;
     int verbose;
+    char scenario_file[256];
+    simulith_scenario_command_t scenario_commands[SIMULITH_SCENARIO_MAX_COMMANDS];
+    size_t scenario_command_count;
+    uint64_t scenario_digest;
+    uint64_t scenario_injected;
+    uint64_t scenario_errors;
+    int scenario_socket;
+    int scenario_socket_initialized;
     
     // 42 integration
     int enable_42;
@@ -64,14 +86,22 @@ typedef struct
     void* lib_handles[MAX_COMPONENT_LIBS];
     int lib_count;
 
-    // Parallel component tick thread pool
+    // Concurrent device-service workers; PREPARE and ACTUATE stay ordered.
     pthread_t         component_threads[MAX_COMPONENTS];
-    pthread_barrier_t tick_barrier;
-    pthread_mutex_t   tick_mutex;       /* guards tick_epoch, threads_exit, and cond wait */
-    pthread_cond_t    tick_cond;        /* workers sleep here between ticks */
-    uint64_t          tick_epoch;       /* incremented under tick_mutex each tick */
+    int               component_thread_started[MAX_COMPONENTS];
+    int               component_interrupt_fds[MAX_COMPONENTS];
+    uint64_t          component_wait_epochs[MAX_COMPONENTS];
+    pthread_mutex_t   tick_mutex;
+    pthread_cond_t    tick_cond;
+    uint64_t          execute_epoch;
     int               threads_exit;     /* set to 1 under tick_mutex to stop workers */
+    int               execute_active;   /* service device I/O until COMMIT */
+    size_t            active_service_callbacks;
     int               threads_spawned;  /* number of live worker threads */
+    int               worker_sync_initialized;
+    uint64_t          component_phase_errors;
+    uint64_t          component_service_errors;
+    uint64_t          shared_tick_sequence;
     uint64_t          shared_tick_time_ns;
     simulith_42_context_t shared_context_42;
 } director_config_t;
@@ -117,6 +147,13 @@ int initialize_42(director_config_t* config);
 /** Initialize the director's UDP telemetry publisher. */
 int initialize_telemetry(void);
 
+/** Load and validate the optional versioned scenario file. */
+int initialize_scenario(director_config_t *config);
+
+/** Inject commands scheduled for this COMMIT sequence exactly once. */
+int director_inject_scenario_commands(director_config_t *config,
+                                      uint64_t sequence);
+
 /** Serialize the fixed-layout 42 truth telemetry packet. */
 size_t simulith_serialize_42_telemetry(const simulith_42_context_t *context,
                                       uint8_t *packet, size_t packet_capacity);
@@ -137,6 +174,10 @@ void cleanup_42(void);
  * @param tick_time_ns Current simulation time in nanoseconds
  */
 void on_tick(uint64_t tick_time_ns);
+int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns);
+int director_execute_tick(uint64_t sequence, uint64_t tick_time_ns);
+int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns);
+void director_write_terminal_metrics(void);
 
 // Global director configuration (for callback access)
 extern director_config_t g_director_config;

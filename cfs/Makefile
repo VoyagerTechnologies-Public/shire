@@ -68,10 +68,10 @@ debug:
 runtime:
 	$(MAKE) clean build
 	@mkdir -p ../build/$(MISSION)/$(SPACECRAFT)/lib
-	@if [ -f "../build/$(MISSION)/$(SPACECRAFT)/sim/libsimulith.so" ]; then \
-		cp "../build/$(MISSION)/$(SPACECRAFT)/sim/libsimulith.so" "../build/$(MISSION)/$(SPACECRAFT)/lib/libsimulith.so"; \
-	elif [ -f "../build/$(MISSION)/$(SPACECRAFT)/fsw/amd64-shire/default_cpu1/simulith/libsimulith.so" ]; then \
+	@if [ -f "../build/$(MISSION)/$(SPACECRAFT)/fsw/amd64-shire/default_cpu1/simulith/libsimulith.so" ]; then \
 		cp "../build/$(MISSION)/$(SPACECRAFT)/fsw/amd64-shire/default_cpu1/simulith/libsimulith.so" "../build/$(MISSION)/$(SPACECRAFT)/lib/libsimulith.so"; \
+	elif [ -f "../build/$(MISSION)/$(SPACECRAFT)/sim/libsimulith.so" ]; then \
+		cp "../build/$(MISSION)/$(SPACECRAFT)/sim/libsimulith.so" "../build/$(MISSION)/$(SPACECRAFT)/lib/libsimulith.so"; \
 	fi
 	cd .. && docker build -t $(RUNTIME_FSW_IMAGE_NAME):$(SPACECRAFT) -f ${CURDIR}/tools/Dockerfile.fsw --build-arg SPACECRAFT=$(SPACECRAFT) --build-arg MISSION=$(MISSION) .
 

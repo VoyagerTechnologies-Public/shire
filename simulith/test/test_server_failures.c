@@ -1,10 +1,15 @@
 #include "simulith.h"
+#include "simulith_shared_barrier.h"
 #include "unity.h"
+#include "test_sleep.h"
 
 #include <errno.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <zmq.h>
 
 typedef enum
@@ -93,6 +98,8 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
         NULL,
         "BAD READY",
         "READY ",
+        "READY triple 1 zmq trailing",
+        "READY single trailing",
         "READY first",
         "READY second",
     };
@@ -114,7 +121,7 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
     size_t message_length = strlen(message);
     TEST_ASSERT_LESS_OR_EQUAL_size_t(length, message_length);
     memcpy(buffer, message, message_length);
-    if (call == 5)
+    if (call == 7)
         simulith_server_request_stop();
     return (int)message_length;
 }
@@ -127,11 +134,23 @@ void setUp(void)
     close_calls = 0;
     term_calls = 0;
     send_calls = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_configure(1.0, 0, NULL));
 }
 
 void tearDown(void)
 {
     simulith_server_shutdown();
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_configure(0.0, 0, NULL));
+    simulith_server_shutdown();
+}
+
+static void test_server_reports_shared_barrier_creation_failure(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, mkdir(SIMULITH_SHARED_BARRIER_PATH, 0700));
+    TEST_ASSERT_EQUAL_INT(-1,
+                          simulith_server_init("pub", "ipc://rep", 1, 1));
+    TEST_ASSERT_EQUAL_INT(0, rmdir(SIMULITH_SHARED_BARRIER_PATH));
 }
 
 static void test_server_context_creation_failure(void)
@@ -140,6 +159,22 @@ static void test_server_context_creation_failure(void)
     TEST_ASSERT_EQUAL_INT(-1, simulith_server_init("pub", "rep", 1, 1));
     TEST_ASSERT_EQUAL_INT(0, close_calls);
     TEST_ASSERT_EQUAL_INT(0, term_calls);
+}
+
+static void test_server_rejects_invalid_endpoints_and_metrics_path(void)
+{
+    TEST_ASSERT_EQUAL_INT(-1, simulith_server_init(NULL, "rep", 1, 1));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_server_init("pub", NULL, 1, 1));
+
+    char oversized[513];
+    memset(oversized, 'x', sizeof(oversized) - 1);
+    oversized[sizeof(oversized) - 1] = '\0';
+    TEST_ASSERT_EQUAL_INT(-1, simulith_server_configure(1.0, 0, oversized));
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_configure(
+                                 1.0, 0,
+                                 "/tmp/shire-missing-directory/metrics.json"));
+    simulith_server_shutdown();
 }
 
 static void test_server_publisher_creation_failure_cleans_context(void)
@@ -163,14 +198,17 @@ static void test_server_rejects_malformed_handshakes_before_two_clients_join(voi
     failure = SCRIPT_HANDSHAKES;
     TEST_ASSERT_EQUAL_INT(0, simulith_server_init("pub", "rep", 2, 1));
     simulith_server_run();
-    TEST_ASSERT_EQUAL_INT(6, receive_calls);
-    TEST_ASSERT_EQUAL_INT(4, send_calls);
+    TEST_ASSERT_EQUAL_INT(8, receive_calls);
+    /* Four malformed handshakes, two READY acknowledgements, and STOP. */
+    TEST_ASSERT_EQUAL_INT(7, send_calls);
 }
 
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_server_context_creation_failure);
+    RUN_TEST(test_server_rejects_invalid_endpoints_and_metrics_path);
+    RUN_TEST(test_server_reports_shared_barrier_creation_failure);
     RUN_TEST(test_server_publisher_creation_failure_cleans_context);
     RUN_TEST(test_server_responder_creation_failure_cleans_publisher);
     RUN_TEST(test_server_rejects_malformed_handshakes_before_two_clients_join);

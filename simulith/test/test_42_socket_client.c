@@ -1,7 +1,9 @@
 #include "simulith_42_socket_client.h"
+#include "shire_ipc_protocol.h"
 #include "unity.h"
 
 #include <pthread.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,8 +19,41 @@ typedef struct
     char empty[64];
 } fake_42_t;
 
+typedef struct
+{
+    int listen_fd;
+    shire_ipc_commands_t batch;
+    shire_ipc_commands_t empty;
+} fake_binary_42_t;
+
+typedef enum
+{
+    BINARY_BAD_STATE_HEADER,
+    BINARY_TRUNCATED_STATE,
+    BINARY_BAD_BATCH_ACK,
+    BINARY_BAD_EMPTY_ACK,
+} binary_fault_t;
+
+typedef struct
+{
+    int listen_fd;
+    binary_fault_t fault;
+} faulty_binary_42_t;
+
 static int recv_exact_bytes(int socket_fd, void *buffer, size_t length);
 static int recv_until_endmsg(int socket_fd, char *buffer, size_t capacity);
+
+static int recv_binary_commands(int socket_fd, shire_ipc_commands_t *frame)
+{
+    memset(frame, 0, sizeof(*frame));
+    if (recv_exact_bytes(socket_fd, &frame->header,
+                         sizeof(frame->header)) != 0 ||
+        frame->header.payload_size >
+            sizeof(*frame) - sizeof(frame->header))
+        return -1;
+    return recv_exact_bytes(socket_fd, &frame->count,
+                            frame->header.payload_size);
+}
 
 static void *fake_42_server(void *arg)
 {
@@ -35,7 +70,8 @@ static void *fake_42_server(void *arg)
         "Orb[0].VelN = [7 8 9]\n"
         "SC[0].svb = [0 0 1]\n"
         "SC[0].bvb = [10 11 12]\n"
-        "SC[0].Hvb = [13 14 15]\n";
+        "SC[0].Hvb = [13 14 15]\n"
+        "[ENDMSG]\n";
     send(client, state, sizeof(state) - 1, 0);
 
     char ack[4] = {0};
@@ -50,6 +86,82 @@ static void *fake_42_server(void *arg)
         return NULL;
     }
     send(client, "Ack", 4, 0);
+    close(client);
+    return NULL;
+}
+
+static void *fake_binary_42_server(void *arg)
+{
+    fake_binary_42_t *server = arg;
+    int client = accept(server->listen_fd, NULL, NULL);
+    if (client < 0) return NULL;
+    shire_ipc_state_t state;
+    memset(&state, 0, sizeof(state));
+    state.header.magic = SHIRE_IPC_MAGIC;
+    state.header.version = SHIRE_IPC_VERSION;
+    state.header.type = SHIRE_IPC_STATE;
+    state.header.payload_size = (uint32_t)(sizeof(state) - sizeof(state.header));
+    state.sim_time = 12.5;
+    state.qn[0] = 1.0;
+    state.pos_n[2] = 6.0;
+    state.sun_vector_body[2] = 1.0;
+    state.mass = 42.25;
+    state.cm[1] = 0.125;
+    state.inertia[2][2] = 9.5;
+    state.eclipse = 1;
+    state.atmo_density = 1.25e-12;
+    send(client, &state, sizeof(state), 0);
+    shire_ipc_ack_t ack;
+    memset(&ack, 0, sizeof(ack));
+    ack.header.magic = SHIRE_IPC_MAGIC;
+    ack.header.version = SHIRE_IPC_VERSION;
+    ack.header.type = SHIRE_IPC_ACK;
+    ack.header.payload_size = (uint32_t)(sizeof(ack) - sizeof(ack.header));
+    if (recv_binary_commands(client, &server->batch) == 0)
+        send(client, &ack, sizeof(ack), 0);
+    if (recv_binary_commands(client, &server->empty) == 0)
+        send(client, &ack, sizeof(ack), 0);
+    close(client);
+    return NULL;
+}
+
+static void *faulty_binary_42_server(void *arg)
+{
+    faulty_binary_42_t *server = arg;
+    int client = accept(server->listen_fd, NULL, NULL);
+    if (client < 0)
+        return NULL;
+
+    shire_ipc_state_t state;
+    memset(&state, 0, sizeof(state));
+    state.header.magic = SHIRE_IPC_MAGIC;
+    state.header.version = SHIRE_IPC_VERSION;
+    state.header.type = SHIRE_IPC_STATE;
+    state.header.payload_size = (uint32_t)(sizeof(state) - sizeof(state.header));
+    if (server->fault == BINARY_BAD_STATE_HEADER)
+        state.header.magic = 0;
+    size_t state_size = server->fault == BINARY_TRUNCATED_STATE ?
+        sizeof(state) / 2U : sizeof(state);
+    send(client, &state, state_size, 0);
+    if (server->fault == BINARY_BAD_STATE_HEADER ||
+        server->fault == BINARY_TRUNCATED_STATE)
+    {
+        close(client);
+        return NULL;
+    }
+
+    shire_ipc_commands_t commands;
+    if (recv_binary_commands(client, &commands) == 0)
+    {
+        shire_ipc_ack_t ack;
+        memset(&ack, 0, sizeof(ack));
+        ack.header.magic = SHIRE_IPC_MAGIC;
+        ack.header.version = SHIRE_IPC_VERSION;
+        ack.header.type = SHIRE_IPC_ACK;
+        ack.header.payload_size = (uint32_t)(sizeof(ack) - sizeof(ack.header));
+        ack.status = 1;
+        send(client, &ack, sizeof(ack), 0);
+    }
     close(client);
     return NULL;
 }
@@ -99,7 +211,7 @@ static void *close_before_command_ack_server(void *arg)
     if (client < 0)
         return NULL;
     static const char state[] =
-        "TIME 2026-001-00:00:01.0\nSC[0].svb = [1 0 0]\n";
+        "TIME 2026-001-00:00:01.0\nSC[0].svb = [1 0 0]\n[ENDMSG]\n";
     char buffer[2048];
     send(client, state, sizeof(state) - 1, 0);
     if (recv_exact_bytes(client, buffer, 4) == 0)
@@ -141,6 +253,7 @@ static int open_tcp_listener(uint16_t *port)
 
 void setUp(void)
 {
+    setenv("FORTYTWO_IPC_MODE", "text", 1);
     simulith_42_cleanup();
     setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "1", 1);
     setenv("SIMULITH_42_RECONNECT_DELAY_MS", "0", 1);
@@ -149,6 +262,7 @@ void setUp(void)
 void tearDown(void)
 {
     simulith_42_cleanup();
+    unsetenv("FORTYTWO_IPC_MODE");
 }
 
 static void test_parse_state_fields_and_eclipse(void)
@@ -172,10 +286,13 @@ static void test_unconnected_and_invalid_connections(void)
     long_path[0] = '/';
     long_path[sizeof(long_path) - 1] = '\0';
 
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_request_state(NULL));
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_request_state(&context));
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_empty_commands());
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch(&command, 1));
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_init(long_path, 0));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", 0));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", 65536));
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("256.256.256.256", 1));
     setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "2", 1);
     setenv("SIMULITH_42_RECONNECT_DELAY_MS", "1", 1);
@@ -225,6 +342,8 @@ static void test_unix_connection_state_and_commands(void)
     commands[2].valid = 0;
     commands[3].valid = 1;
     commands[3].type = SIMULITH_42_CMD_SET_MODE;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch(commands, 4));
+    commands[3].valid = 0;
     TEST_ASSERT_EQUAL_INT(0, simulith_42_send_command_batch(commands, 4));
     TEST_ASSERT_EQUAL_INT(0, simulith_42_send_empty_commands());
 
@@ -262,6 +381,9 @@ static void test_tcp_connection_and_unsupported_command(void)
         .valid = 1,
         .type = SIMULITH_42_CMD_COUNT,
     };
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_command_batch(&unsupported, 1));
+    unsupported.type = SIMULITH_42_CMD_WHEEL_TORQUE;
+    unsupported.cmd.wheel.enable_mask = 1;
     TEST_ASSERT_EQUAL_INT(0, simulith_42_send_command_batch(&unsupported, 1));
     TEST_ASSERT_EQUAL_INT(0, simulith_42_send_empty_commands());
 
@@ -289,6 +411,135 @@ static void test_tcp_retry_failure_uses_configured_delay(void)
     unsetenv("SIMULITH_42_RECONNECT_ATTEMPTS");
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_init("127.0.0.1", port));
     TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
+}
+
+static void test_binary_state_and_command_frames(void)
+{
+    setenv("FORTYTWO_IPC_MODE", "binary", 1);
+    uint16_t port = 0;
+    int listen_fd = open_tcp_listener(&port);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, listen_fd);
+    fake_binary_42_t server = {.listen_fd = listen_fd};
+    pthread_t thread;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL, fake_binary_42_server, &server));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init("127.0.0.1", port));
+
+    simulith_42_context_t context;
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_request_state(&context));
+    TEST_ASSERT_FLOAT_WITHIN(0.000001f, 12.5f, (float)context.sim_time);
+    TEST_ASSERT_FLOAT_WITHIN(0.000001f, 6.0f, (float)context.pos_n[2]);
+    TEST_ASSERT_TRUE(fabs(context.mass - 42.25) < 1.0e-12);
+    TEST_ASSERT_TRUE(fabs(context.cm[1] - 0.125) < 1.0e-12);
+    TEST_ASSERT_TRUE(fabs(context.inertia[2][2] - 9.5) < 1.0e-12);
+    TEST_ASSERT_EQUAL_INT(1, context.eclipse);
+    TEST_ASSERT_TRUE(fabs(context.atmo_density - 1.25e-12) < 1.0e-20);
+
+    simulith_42_command_t unsupported = {
+        .type = SIMULITH_42_CMD_SET_MODE,
+        .valid = 1,
+    };
+    TEST_ASSERT_EQUAL_INT(-1,
+                          simulith_42_send_command_batch(&unsupported, 1));
+
+    simulith_42_command_t commands[4] = {
+        {
+            .type = SIMULITH_42_CMD_WHEEL_TORQUE,
+            .spacecraft_id = 0,
+            .valid = 1,
+            .cmd.wheel = {.torque = {1.25, 0.0, 0.0, 0.0}, .enable_mask = 1},
+        },
+        {
+            .type = SIMULITH_42_CMD_MTB_TORQUE,
+            .spacecraft_id = 0,
+            .valid = 1,
+            .cmd.mtb = {.dipole = {0.0, 2.5, 0.0}, .enable_mask = 2},
+        },
+        {
+            .type = SIMULITH_42_CMD_THRUSTER,
+            .spacecraft_id = 0,
+            .valid = 1,
+            .cmd.thruster = {
+                .thrust = {3.0, 0.0, 0.0},
+                .torque = {0.0, 0.0, 4.0},
+                .enable_mask = 5,
+            },
+        },
+        {.valid = 0},
+    };
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_command_batch(commands, 4));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_empty_commands());
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+    TEST_ASSERT_EQUAL_UINT32(SHIRE_IPC_MAGIC, server.batch.header.magic);
+    TEST_ASSERT_EQUAL_UINT32(SHIRE_IPC_COMMANDS_PAYLOAD_SIZE(3),
+                             server.batch.header.payload_size);
+    TEST_ASSERT_EQUAL_UINT32(3, server.batch.count);
+    TEST_ASSERT_EQUAL_UINT32(SHIRE_IPC_CMD_WHEEL, server.batch.commands[0].type);
+    TEST_ASSERT_FLOAT_WITHIN(0.000001f, 1.25f,
+                             (float)server.batch.commands[0].values[0]);
+    TEST_ASSERT_EQUAL_UINT32(SHIRE_IPC_CMD_MTB, server.batch.commands[1].type);
+    TEST_ASSERT_EQUAL_UINT32(2, server.batch.commands[1].enable_mask);
+    TEST_ASSERT_FLOAT_WITHIN(0.000001f, 2.5f,
+                             (float)server.batch.commands[1].values[1]);
+    TEST_ASSERT_EQUAL_UINT32(SHIRE_IPC_CMD_THRUSTER,
+                             server.batch.commands[2].type);
+    TEST_ASSERT_EQUAL_UINT32(5, server.batch.commands[2].enable_mask);
+    TEST_ASSERT_FLOAT_WITHIN(0.000001f, 3.0f,
+                             (float)server.batch.commands[2].values[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.000001f, 4.0f,
+                             (float)server.batch.commands[2].values[5]);
+    TEST_ASSERT_EQUAL_UINT32(0, server.empty.count);
+    TEST_ASSERT_EQUAL_UINT32(SHIRE_IPC_COMMANDS_PAYLOAD_SIZE(0),
+                             server.empty.header.payload_size);
+    close(listen_fd);
+}
+
+static void test_binary_protocol_rejects_bad_state_and_ack_frames(void)
+{
+    for (binary_fault_t fault = BINARY_BAD_STATE_HEADER;
+         fault <= BINARY_BAD_EMPTY_ACK; ++fault)
+    {
+        setenv("FORTYTWO_IPC_MODE", "binary", 1);
+        uint16_t port = 0;
+        int listen_fd = open_tcp_listener(&port);
+        TEST_ASSERT_GREATER_OR_EQUAL_INT(0, listen_fd);
+        faulty_binary_42_t server = {.listen_fd = listen_fd, .fault = fault};
+        pthread_t thread;
+        TEST_ASSERT_EQUAL_INT(0, pthread_create(
+                                      &thread, NULL, faulty_binary_42_server,
+                                      &server));
+        TEST_ASSERT_EQUAL_INT(0, simulith_42_init("127.0.0.1", port));
+
+        simulith_42_context_t context;
+        if (fault <= BINARY_TRUNCATED_STATE)
+        {
+            TEST_ASSERT_EQUAL_INT(-1, simulith_42_request_state(&context));
+            TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
+        }
+        else
+        {
+            TEST_ASSERT_EQUAL_INT(0, simulith_42_request_state(&context));
+            if (fault == BINARY_BAD_BATCH_ACK)
+            {
+                simulith_42_command_t command = {
+                    .type = SIMULITH_42_CMD_WHEEL_TORQUE,
+                    .valid = 1,
+                    .cmd.wheel.enable_mask = 1,
+                };
+                TEST_ASSERT_EQUAL_INT(-1,
+                                      simulith_42_send_command_batch(
+                                          &command, 1));
+            }
+            else
+            {
+                TEST_ASSERT_EQUAL_INT(-1,
+                                      simulith_42_send_empty_commands());
+            }
+            TEST_ASSERT_EQUAL_INT(0, simulith_42_is_connected());
+        }
+        TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+        simulith_42_cleanup();
+        close(listen_fd);
+    }
 }
 
 static void test_tcp_peer_disconnect_marks_connection_closed(void)
@@ -345,6 +596,8 @@ int main(void)
     RUN_TEST(test_unix_connection_state_and_commands);
     RUN_TEST(test_tcp_connection_and_unsupported_command);
     RUN_TEST(test_tcp_retry_failure_uses_configured_delay);
+    RUN_TEST(test_binary_state_and_command_frames);
+    RUN_TEST(test_binary_protocol_rejects_bad_state_and_ack_frames);
     RUN_TEST(test_tcp_peer_disconnect_marks_connection_closed);
     RUN_TEST(test_command_acknowledgement_eof_is_an_error);
     return UNITY_END();

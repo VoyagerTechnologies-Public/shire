@@ -22,3 +22,20 @@ SET(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE   NEVER)
 SET(CFE_SYSTEM_PSPNAME      "shire")
 SET(OSAL_SYSTEM_BSPTYPE     "shire-linux")
 SET(OSAL_SYSTEM_OSTYPE      "shire")
+
+# Enable deterministic Software Bus delivery accounting only for the SHIRE
+# simulation target. Generic and physical-flight targets compile the observer
+# call sites out entirely.
+SET(CFE_SB_OBSERVER_SOURCE
+    "${CMAKE_SOURCE_DIR}/../psp/fsw/shire/src/cfe_psp_sb_observer.c")
+SET(CFE_SB_OBSERVER_INCLUDE_DIRS
+    "${CMAKE_SOURCE_DIR}/../psp/fsw/shire/inc"
+    "${CMAKE_SOURCE_DIR}/../../simulith/include")
+
+# Replace SCH's normal OSAL-timer backend with the SHIRE synchronized clock
+# and completion barrier. Physical targets do not set these variables and use
+# the portable default implementation from the SCH application.
+SET(SCH_CUSTOM_PLATFORM_SOURCE
+    "${CMAKE_SOURCE_DIR}/../../cfg/shire_defs/sch/sch_custom_shire.c")
+SET(SCH_CUSTOM_PLATFORM_INCLUDE_DIRS
+    "${CMAKE_SOURCE_DIR}/../psp/fsw/shire/inc")

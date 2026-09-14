@@ -41,6 +41,10 @@ After generation, review and update at least:
    * `comp/<name>/shared/`, `src/`, `cli/`, and `sim/`
    * `support/device_config.yaml` and `support/device_config.j2`
    * Unique UART/I2C/SPI/GPIO endpoint selection
+   * Simulator `create`, optional `on_tick`, paired `wait_for_service`/`service`,
+     optional `actuate`, and `destroy` responsibilities
+   * Multi-tick operations represented as component state rather than a bus
+     transaction that waits for future simulation time
 2. **cFS identity and build**
    * Unique command, request, telemetry, and performance IDs
    * `cfg/shire_defs/targets.cmake`
@@ -60,6 +64,13 @@ The generated UART handle and message IDs are merely less likely to collide with
 They are not allocated from a registry and do not prove uniqueness.
 Search the entire repository before accepting any identifier.
 
+Keep the generated component interface at the current API  version unless the
+shared ABI itself changes.
+Do not add a new callback or change a callback signature for component-local
+behavior that can be represented in private state.
+See [Components](components.md#simulator-callback-contract) for the phase and
+ownership rules inherited from Demo.
+
 ## Validate the result
 
 ```bash
@@ -75,4 +86,4 @@ Inspect `build/build.yaml`, the rendered `device_cfg.h`, the generated CPU1 star
 Continue with the [Development Workflow](../core-concepts/development-workflow.md) to move through CLI simulation, cFS simulation, focused hardware checkout, simulator reconciliation, and board cFS integration.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

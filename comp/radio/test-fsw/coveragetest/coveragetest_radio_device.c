@@ -277,6 +277,8 @@ void Test_RADIO_ReceiveData_HeaderTrailerErrors(void)
     UtAssert_True(RADIO_ReceiveData(NULL, data, sizeof(data), &actual) != OS_SUCCESS, "RADIO: ReceiveData should return error with NULL device pointer");
     UtAssert_True(RADIO_ReceiveData(&device, NULL, sizeof(data), &actual) != OS_SUCCESS, "RADIO: ReceiveData should return error with NULL data buffer");
     UtAssert_True(RADIO_ReceiveData(&device, data, sizeof(data), NULL) != OS_SUCCESS, "RADIO: ReceiveData should return error with NULL actual length pointer");
+    UtAssert_True(RADIO_ReceiveData(&device, data, 2045, &actual) != OS_SUCCESS,
+                  "RADIO: ReceiveData should reject a request larger than its transaction buffer");
 
     /* Simulate RADIO_CommandDevice failing */
     UT_SetDefaultReturnValue(UT_KEY(RADIO_CommandDevice), OS_ERROR);
@@ -844,16 +846,9 @@ void Test_RADIO_CommandDevice_NullPayloadButLenNonZero(void)
 {
     spi_info_t device;
 
-    /* payload_len > 0 but payload pointer is NULL: function should still build packet and attempt write */
-    UT_SetDeferredRetcode(UT_KEY(spi_write), 1, SPI_ERROR);
+    /* A nonzero length requires a valid payload pointer. */
     UtAssert_True(RADIO_CommandDevice(&device, 0x05, 3, NULL) != OS_SUCCESS,
-                  "RADIO_CommandDevice should fail when spi_write returns error even if payload is NULL");
-    UT_ResetState(0);
-
-    /* success path: spi_write returns full expected length */
-    UT_SetDeferredRetcode(UT_KEY(spi_write), 1, 8); /* total_len = 5 + payload_len(3) = 8 */
-    UtAssert_True(RADIO_CommandDevice(&device, 0x05, 3, NULL) == OS_SUCCESS,
-                  "RADIO_CommandDevice should succeed when spi_write returns expected length even with NULL payload pointer");
+                  "RADIO_CommandDevice should reject a NULL nonempty payload");
     UT_ResetState(0);
 }
 
@@ -862,15 +857,16 @@ void Test_RADIO_CommandDevice_MaxPayload(void)
     spi_info_t device;
     /* Exercise the maximum allowed payload length boundary */
     const size_t max_payload = 2048 - 5; /* matches tx_buffer in production */
+    static uint8_t payload[2048 - 4];
 
     /* Success path: spi_write returns the exact total length */
     UT_SetDeferredRetcode(UT_KEY(spi_write), 1, (int)(5 + max_payload));
-    UtAssert_True(RADIO_CommandDevice(&device, 0x10, (uint16_t)max_payload, NULL) == OS_SUCCESS,
+    UtAssert_True(RADIO_CommandDevice(&device, 0x10, (uint16_t)max_payload, payload) == OS_SUCCESS,
                   "RADIO_CommandDevice should succeed for payload_len == max_payload");
     UT_ResetState(0);
 
     /* Error path: payload one byte too large */
-    UtAssert_True(RADIO_CommandDevice(&device, 0x10, (uint16_t)(max_payload + 1), NULL) != OS_SUCCESS,
+    UtAssert_True(RADIO_CommandDevice(&device, 0x10, (uint16_t)(max_payload + 1), payload) != OS_SUCCESS,
                   "RADIO_CommandDevice should fail when payload_len exceeds buffer max");
 }
 

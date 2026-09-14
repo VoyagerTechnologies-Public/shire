@@ -53,6 +53,7 @@ Coverage reports show which code executed and do not establish that an acceptanc
 | YAMCS | `cd yamcs && make test` | Tests supplied by the YAMCS submodule build |
 | Focused component integration | `make cli` followed by `make cli-start` | CLI and simulator protocol checkout without cFS or YAMCS |
 | DRM integration | `make` followed by `make start` | Manual observation of the generated flight, ground, security, dynamics, and simulation stack |
+| Synchronized performance | `make perf` and `make perf-compare BASELINE=<report.json>` | Active ADCS and radio workload with pacing, throughput, exact-count, and terminal-state acceptance |
 | Component procedures | `comp/*/gsw/procedures/*.ycs` | Repeatable YAMCS component command sequences |
 | DRM procedures | `yamcs/src/main/yamcs/procedures/*.ycs` | Repeatable YAMCS system command sequences |
 | Published scenario | `atlas/docs/scenarios/commissioning.md` | Manual commissioning workflow, expected results, limitations, and evidence guidance |
@@ -60,7 +61,9 @@ Coverage reports show which code executed and do not establish that an acceptanc
 | Repository CI | `.github/workflows/ci.yml` | Simulith, flight software, and CLI builds plus flight software and component simulator tests |
 
 The CI test jobs upload flight software and simulator coverage to Codecov.
-The current CI does not run the Simulith core test target, the YAMCS submodule test target, or a complete DRM scenario.
+The current CI does not run the Simulith core test target, the YAMCS submodule test target, a complete DRM scenario, or the workstation performance gate.
+The synchronized performance matrix remains a developer-run activity because its
+acceptance threshold is tied to the current 22 logical CPU workstation.
 The documentation workflow validates the Atlas on pull requests and pushes to `main` or `dev`.
 It publishes the Atlas only from a successful `main` build.
 
@@ -87,6 +90,15 @@ Every verification result must retain:
 For an integrated run, also record which YAMCS command links were enabled.
 YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
 Record the selected interface when the command transport path is part of the evidence.
+For a performance record, retain the complete performance report rather than only a
+throughput value.
+See [Synchronized Simulation Performance](../manual/how-to/performance.md) for
+the current accepted workload and report interpretation.
+The report captures the scenario digest, Software Bus deliveries, application
+success-event acceptance counts, deterministic command counts, explicitly
+accounted wall-clock output, participant and device counts, scheduling policy,
+resource samples, phase latencies, queue
+errors, and terminal-state digest needed to interpret the result.
 
 ## Planned verification by requirement group
 
@@ -127,7 +139,7 @@ It does not mean the requirement has passed verification.
 ## Current verification gaps
 
 No checked in VCRM maps all 45 requirements to controlled results.
-No complete DRM scenario runs in CI.
+No complete DRM scenario or synchronized performance matrix runs in CI.
 Current YAMCS stacks do not contain complete requirement assertions for commissioning, nominal operations, CFDP, or contingency response.
 The CryptoLib setup is a development configuration and does not establish an operational security implementation.
 No checked in evidence demonstrates `SIM-004` or `DRM-005` with a physical component.
@@ -185,4 +197,4 @@ Use the [Concept of Operations](concept-of-operations.md) page for the current o
 Use the [Scenarios](../scenarios/overview.md) section for representative workflows and evidence guidance.
 
 ***
-Last reviewed: 20260819
+Last reviewed: 20260913

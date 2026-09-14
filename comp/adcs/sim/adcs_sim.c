@@ -3,15 +3,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* ADCS follows the component lifecycle directly: PREPARE samples 42 truth,
+ * EXECUTE services UART commands, and ACTUATE computes and queues the final
+ * wheel/MTB outputs using the latest command state. All mutable data and the
+ * UART endpoint belong to the instance allocated by create(). */
+
 /* Forward declarations for component registration exports so -Wmissing-prototypes is happy
     (the REGISTER_COMPONENT macro expands to an exported getter symbol). */
 const component_interface_t* get_adcs_sim_component_interface(void);
 const component_interface_t* get_component_interface(void);
 
-// Globals
-static adcs_sim_state_t* g_state = NULL;
-static transport_port_t g_uart_port = {0};
-static double g_inertial_target[3] = {1.0, 0.0, 0.0};
+#define ADCS_SENSOR_UPDATE_PERIOD_NS \
+    (1000000000ULL / ADCS_SIM_UPDATE_RATE_HZ)
+#define ADCS_CONTROL_UPDATE_PERIOD_NS \
+    ((uint64_t)(1000000000.0 / ADCS_CONTROLLER_UPDATE_RATE_HZ))
+
+typedef enum
+{
+    ADCS_COMMAND_ERROR = -1,
+    ADCS_COMMAND_SUCCESS = 0,
+    ADCS_COMMAND_REJECTED = 1
+} adcs_command_result_t;
 
 // ADCS Controller Utility Functions
 static void cross_product(const double a[3], const double b[3], double result[3]) {
@@ -46,9 +58,9 @@ static void quat_mul(const double a[4], const double b[4], double out[4]) {
 
 
 // ADCS B-dot Detumbling Controller
-static void adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42) {
+static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42) {
     if (!context_42 || !context_42->valid) {
-        return;
+        return COMPONENT_SUCCESS;
     }
     
     // B-dot detumble: M = -k * (w x B) to remove angular momentum
@@ -80,11 +92,12 @@ static void adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_cont
         else if (dipole_cmd[i] < -ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = -ADCS_MTB_MAX_DIPOLE;
     }
     
-    simulith_42_send_mtb_command(0, dipole_cmd, 0x07); // Enable all 3 MTBs
+    int status = simulith_42_send_mtb_command(0, dipole_cmd, 0x07);
     #ifdef ADCS_CFG_DEBUG
     printf("ADCS B-DOT: w=[%.6f,%.6f,%.6f] b=[%.6f,%.6f,%.6f] gain=%.3f dipole=[%.6f,%.6f,%.6f]\n",
            w[0], w[1], w[2], b[0], b[1], b[2], detumble_gain, dipole_cmd[0], dipole_cmd[1], dipole_cmd[2]);
     #endif
+    return status == 0 ? COMPONENT_SUCCESS : COMPONENT_ERROR;
 }
 
 // Robust inertial->body rotation that tests both quaternion conventions and
@@ -119,10 +132,11 @@ static void rotate_inertial_to_body_safe(const double q[4], const double vin[3],
 }
 
 // Align body +X axis (1,0,0) with the provided vector expressed in body frame
-static void adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42,
-                                         const double vec_body[3], double dt, const char* tag)
+static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42,
+                                        const double vec_body[3], double dt, const char* tag)
 {
-    if (!context_42 || !context_42->valid) return;
+    (void)dt;
+    if (!context_42 || !context_42->valid) return COMPONENT_SUCCESS;
 
     // Target axis is +X
     double target_body[3] = {1.0, 0.0, 0.0};
@@ -132,7 +146,7 @@ static void adcs_point_vector_controller(adcs_sim_state_t* state, const simulith
     double vmag = vector_magnitude(v);
     if (vmag < 1e-6) {
         printf("ADCS %s: Invalid input vector magnitude %.6f\n", tag ? tag : "POINT", vmag);
-        return;
+        return COMPONENT_SUCCESS;
     }
     normalize_vector(v);
 
@@ -180,14 +194,17 @@ static void adcs_point_vector_controller(adcs_sim_state_t* state, const simulith
             if (dipole_cmd[i] > ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = ADCS_MTB_MAX_DIPOLE;
             else if (dipole_cmd[i] < -ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = -ADCS_MTB_MAX_DIPOLE;
         }
-        simulith_42_send_mtb_command(0, dipole_cmd, 0x07);
+        if (simulith_42_send_mtb_command(0, dipole_cmd, 0x07) != 0)
+            return COMPONENT_ERROR;
     } else {
         double zero_dipole[3] = {0.0,0.0,0.0};
-        simulith_42_send_mtb_command(0, zero_dipole, 0x00);
+        if (simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+            return COMPONENT_ERROR;
     }
 
     double wheel_torques[4] = {control_torque[0], control_torque[1], control_torque[2], 0.0};
-    simulith_42_send_wheel_command(0, wheel_torques, 0x07);
+    if (simulith_42_send_wheel_command(0, wheel_torques, 0x07) != 0)
+        return COMPONENT_ERROR;
 
     #ifdef ADCS_CFG_DEBUG
     printf("ADCS %s: Wheel torques=[%.6f,%.6f,%.6f] (max=%.6f)\n",
@@ -203,13 +220,15 @@ static void adcs_point_vector_controller(adcs_sim_state_t* state, const simulith
     printf("ADCS %s: Error_axis=[%.6f,%.6f,%.6f] angle=%.1f deg (mag=%.6f)\n",
            tag ? tag : "POINT", axis_norm[0], axis_norm[1], axis_norm[2], angle_error * 57.2958, error_magnitude);
     #endif
+    return COMPONENT_SUCCESS;
 }
 
 // ADCS Hybrid Sun Pointing Controller with Momentum Management
-static void adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42, double dt) {
+static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42, double dt) {
+    (void)dt;
     if (!context_42 || !context_42->valid) {
         printf("ADCS HYBRID: No valid 42 context\n");
-        return;
+        return COMPONENT_SUCCESS;
     }
     
     if (context_42->eclipse) {
@@ -217,10 +236,11 @@ static void adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const s
         printf("ADCS HYBRID: In eclipse - maintaining current attitude\n");
         #endif
         // In eclipse, just do rate damping with MTBs
-        adcs_bdot_controller(state, context_42);
+        if (adcs_bdot_controller(state, context_42) != COMPONENT_SUCCESS)
+            return COMPONENT_ERROR;
         double zero_torques_local[4] = {0.0, 0.0, 0.0, 0.0};
-        simulith_42_send_wheel_command(0, zero_torques_local, 0x07);
-        return;
+        return simulith_42_send_wheel_command(0, zero_torques_local, 0x07) == 0 ?
+            COMPONENT_SUCCESS : COMPONENT_ERROR;
     }
     
     // Check current angular rates
@@ -238,7 +258,7 @@ static void adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const s
         printf("ADCS HYBRID: Invalid sun vector magnitude %.6f, context_42->valid=%d, svb=[%.6f,%.6f,%.6f]\n", 
                    sun_mag, context_42 ? context_42->valid : -1,
                    sun_body[0], sun_body[1], sun_body[2]);
-        return;
+        return COMPONENT_SUCCESS;
     }
     normalize_vector(sun_body);
     
@@ -349,7 +369,8 @@ static void adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const s
             else if (dipole_cmd[i] < -ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = -ADCS_MTB_MAX_DIPOLE;
         }
         
-        simulith_42_send_mtb_command(0, dipole_cmd, 0x07); // Enable all 3 MTBs
+        if (simulith_42_send_mtb_command(0, dipole_cmd, 0x07) != 0)
+            return COMPONENT_ERROR;
         
         #ifdef ADCS_CFG_DEBUG
         printf("ADCS MTB: gain=%.4f, dipole=[%.4f,%.4f,%.4f]\n",
@@ -358,14 +379,16 @@ static void adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const s
     } else {
         // Low rates and unsaturated wheels - disable MTBs
         double zero_dipole[3] = {0.0, 0.0, 0.0};
-        simulith_42_send_mtb_command(0, zero_dipole, 0x00);
+        if (simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+            return COMPONENT_ERROR;
         #ifdef ADCS_CFG_DEBUG
         printf("ADCS MTB: Disabled (low rates, unsaturated wheels)\n");
         #endif
     }
     
     double wheel_torques[4] = {control_torque[0], control_torque[1], control_torque[2], 0.0};
-    simulith_42_send_wheel_command(0, wheel_torques, 0x07);
+    if (simulith_42_send_wheel_command(0, wheel_torques, 0x07) != 0)
+        return COMPONENT_ERROR;
     
     #ifdef ADCS_CFG_DEBUG           
     printf("ADCS NOS3-STYLE: Wheel torques=[%.6f,%.6f,%.6f] (max=%.6f)\n",
@@ -379,57 +402,58 @@ static void adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const s
     printf("ADCS PROGRESS: Pointing error %.1f deg (target: 0 deg)\n", 
            acos(fmax(-1.0, fmin(1.0, sun_dot_target))) * 57.2958);
     #endif
+    return COMPONENT_SUCCESS;
 }
 
 // Main ADCS Controller Update
-static void adcs_controller_update(adcs_sim_state_t* state, const simulith_42_context_t* context_42, double current_time) 
+static int adcs_controller_update(adcs_sim_state_t* state,
+                                  const simulith_42_context_t* context_42,
+                                  uint64_t tick_time_ns)
 {
-    double dt = 0.0;
-    double required_dt = 1.0 / ADCS_CONTROLLER_UPDATE_RATE_HZ;
+    double dt = 1.0 / ADCS_CONTROLLER_UPDATE_RATE_HZ;
     double nadir_body[3];
-    double nadir_inertial[3] = { -context_42->pos_n[0], -context_42->pos_n[1], -context_42->pos_n[2] };
+    double nadir_inertial[3];
     double tgt_body[3];
     double zero_dipole[3] = {0.0, 0.0, 0.0};
     double zero_torques[4] = {0.0, 0.0, 0.0, 0.0};
 
-    if (!state->controller_active) {
-        return;
+    if (!state->controller_active || !context_42 || !context_42->valid) {
+        return COMPONENT_SUCCESS;
     }
+    for (int i = 0; i < 3; ++i)
+        nadir_inertial[i] = -context_42->pos_n[i];
 
-    if (state->last_control_time > 0.0) 
+    if (!state->control_deadline_valid)
     {
-        dt = current_time - state->last_control_time;
-        if (dt < 0.0) 
-        {
-            // Time went backwards or invalid — resync timer but do not run controller
-            state->last_control_time = current_time;
-            return;
-        }
-    } else 
-    {
-        // First tick: initialize timer but do NOT force immediate control execution.
-        // This avoids running the controller when the simulator time is paused.
-        state->last_control_time = current_time;
-        return;
+        state->next_control_update_ns = tick_time_ns +
+                                        ADCS_CONTROL_UPDATE_PERIOD_NS;
+        state->control_deadline_valid = 1U;
+        return COMPONENT_SUCCESS;
     }
 
-    // Only run controller at specified rate
-    if (dt < required_dt) {
-        return;
-    }
+    if (tick_time_ns < state->next_control_update_ns)
+        return COMPONENT_SUCCESS;
 
-    // Update control time
-    state->last_control_time = current_time;
+    uint64_t periods = ((tick_time_ns - state->next_control_update_ns) /
+                        ADCS_CONTROL_UPDATE_PERIOD_NS) + 1U;
+    dt *= (double)periods;
+    if (periods > (UINT64_MAX - state->next_control_update_ns) /
+                  ADCS_CONTROL_UPDATE_PERIOD_NS)
+        state->next_control_update_ns = UINT64_MAX;
+    else
+        state->next_control_update_ns +=
+            periods * ADCS_CONTROL_UPDATE_PERIOD_NS;
     
     #ifdef ADCS_CFG_DEBUG
     printf("ADCS CONTROLLER: Running mode %d at time %.3f (dt=%.3f)\n", 
-           state->current_mode, current_time, dt);
+           state->current_mode, (double)tick_time_ns / 1e9, dt);
     #endif
     
     switch (state->current_mode) {
         case 0: // Disabled
-            simulith_42_send_wheel_command(0, zero_torques, 0x00);
-            simulith_42_send_mtb_command(0, zero_dipole, 0x00);
+            if (simulith_42_send_wheel_command(0, zero_torques, 0x07) != 0 ||
+                simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+                return COMPONENT_ERROR;
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS CONTROLLER: Disabled mode - zero commands sent\n");
             #endif
@@ -439,51 +463,50 @@ static void adcs_controller_update(adcs_sim_state_t* state, const simulith_42_co
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS CONTROLLER: B-dot detumble mode\n");
             #endif
-            adcs_bdot_controller(state, context_42);
+            if (adcs_bdot_controller(state, context_42) != COMPONENT_SUCCESS)
+                return COMPONENT_ERROR;
             /* reuse zero_torques declared at function scope */
-            simulith_42_send_wheel_command(0, zero_torques, 0x00);
+            if (simulith_42_send_wheel_command(0, zero_torques, 0x07) != 0)
+                return COMPONENT_ERROR;
             break;
             
         case 2: // Hybrid sun pointing with momentum management
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS CONTROLLER: Hybrid sun pointing mode\n");
             #endif
-            adcs_hybrid_sun_pointing_controller(state, context_42, dt);
-            break;
+            return adcs_hybrid_sun_pointing_controller(state, context_42, dt);
 
         case 3: // Nadir pointing - point +X toward nadir (assume nadir is -position vector)
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS CONTROLLER: Nadir pointing mode\n");
             #endif
             rotate_inertial_to_body_safe(context_42->qn, nadir_inertial, nadir_body);
-            adcs_point_vector_controller(state, context_42, nadir_body, dt, "NADIR");
-            break;
+            return adcs_point_vector_controller(state, context_42, nadir_body, dt, "NADIR");
 
-        case 4: // Target-track - inertial target follows g_inertial_target (rotated into body)
+        case 4: // Target-track - rotate the instance-owned inertial target into body
             #ifdef ADCS_CFG_DEBUG    
             printf("ADCS CONTROLLER: Target-track mode\n");
             #endif
-            rotate_inertial_to_body_safe(context_42->qn, g_inertial_target, tgt_body);
-            adcs_point_vector_controller(state, context_42, tgt_body, dt, "TRACK");
-            break;
+            rotate_inertial_to_body_safe(context_42->qn, state->inertial_target, tgt_body);
+            return adcs_point_vector_controller(state, context_42, tgt_body, dt, "TRACK");
 
         case 5: // Inertial pointing - keep body +X aligned to a fixed inertial direction
             #ifdef ADCS_CFG_DEBUG    
             printf("ADCS CONTROLLER: Inertial pointing mode\n");
             #endif
-            rotate_inertial_to_body_safe(context_42->qn, g_inertial_target, tgt_body);
-            adcs_point_vector_controller(state, context_42, tgt_body, dt, "INERTIAL");
-            break;
+            rotate_inertial_to_body_safe(context_42->qn, state->inertial_target, tgt_body);
+            return adcs_point_vector_controller(state, context_42, tgt_body, dt, "INERTIAL");
             
         default:
             printf("ADCS CONTROLLER: Mode %d not implemented\n", state->current_mode);
-            break;
+            return COMPONENT_SUCCESS;
     }
+    return COMPONENT_SUCCESS;
 }
 
-static void send_housekeeping(adcs_sim_state_t* state)
+static int send_housekeeping(adcs_sim_state_t* state)
 {
-    if (!state) return;
+    if (!state) return SIMULITH_TRANSPORT_ERROR;
     uint8_t response[ADCS_DEVICE_HK_SIZE];
     uint8_t *ptr = response;
 
@@ -596,12 +619,14 @@ static void send_housekeeping(adcs_sim_state_t* state)
            state->hk.Eclipse, state->hk.Mode, state->hk.Target);
     #endif
 
-    simulith_transport_send((transport_port_t*)&g_uart_port, response, (size_t)sizeof(response));
+    return simulith_transport_send(&state->uart_port, response,
+                                   (size_t)sizeof(response)) == (int)sizeof(response) ?
+        SIMULITH_TRANSPORT_SUCCESS : SIMULITH_TRANSPORT_ERROR;
 }
 
-static void send_adcs_data(adcs_sim_state_t* state)
+static int send_adcs_data(adcs_sim_state_t* state)
 {
-    if (!state) return;
+    if (!state) return SIMULITH_TRANSPORT_ERROR;
     uint8_t response[10];
     response[0] = ADCS_DEVICE_HDR_0;
     response[1] = ADCS_DEVICE_HDR_1;
@@ -613,16 +638,22 @@ static void send_adcs_data(adcs_sim_state_t* state)
     response[7] = (uint8_t)(state->data.Chan3 & 0xFF);
     response[8] = ADCS_DEVICE_TRAILER_0;
     response[9] = ADCS_DEVICE_TRAILER_1;
-    simulith_transport_send((transport_port_t*)&g_uart_port, response, (size_t)sizeof(response));
+    return simulith_transport_send(&state->uart_port, response,
+                                   (size_t)sizeof(response)) == (int)sizeof(response) ?
+        SIMULITH_TRANSPORT_SUCCESS : SIMULITH_TRANSPORT_ERROR;
 }
 
-static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t length)
+static adcs_command_result_t handle_command(adcs_sim_state_t* state,
+                                            const uint8_t* data,
+                                            size_t length)
 {
-    if (!state || !data || length < ADCS_DEVICE_CMD_SIZE) 
-    {  // Check for minimum command size
+    if (!state || !data)
+        return ADCS_COMMAND_ERROR;
+    if (length != ADCS_DEVICE_CMD_SIZE)
+    {
         printf("ADCS SIM: Invalid command parameters: state=%p, data=%p, length=%zu\n", 
                (void*)state, (const void*)data, length);
-        return;
+        return ADCS_COMMAND_REJECTED;
     }
     
     uint16_t header  = ((uint16_t) data[0] << 8) | data[1];
@@ -634,21 +665,23 @@ static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t 
     if (header != ADCS_DEVICE_HDR) 
     {
         printf("ADCS SIM: Invalid command header (0x%04X)\n", header);
-        return;
+        return ADCS_COMMAND_REJECTED;
     }
 
     // Validate trailer
     if (trailer != ADCS_DEVICE_TRAILER) 
     {
         printf("ADCS SIM: Invalid command trailer (0x%04X)\n", trailer);
-        return;
+        return ADCS_COMMAND_REJECTED;
     }
 
     // Echo command back
     #ifdef ADCS_CFG_DEBUG
     printf("ADCS SIM: handle_command: Echo command back to UART: ID=%d, Payload=0x%08X\n", cmd_id, payload);
     #endif
-    simulith_transport_send((transport_port_t*)&g_uart_port, data, length);
+    if (simulith_transport_send(&state->uart_port, data, length) !=
+        (int)length)
+        return ADCS_COMMAND_ERROR;
 
     // Process command
     switch (cmd_id)
@@ -664,7 +697,8 @@ static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t 
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS SIM: Processing GET_HK command\n");
             #endif
-            send_housekeeping(state);
+            if (send_housekeeping(state) != SIMULITH_TRANSPORT_SUCCESS)
+                return ADCS_COMMAND_ERROR;
             break;
 
         case ADCS_DEVICE_GET_CSS_CMD:
@@ -679,7 +713,8 @@ static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t 
             printf("ADCS SIM: Processing GET_DATA command ID=%u\n", cmd_id);
             #endif
             /* For now, all sensor frames use the three-channel payload. */
-            send_adcs_data(state);
+            if (send_adcs_data(state) != SIMULITH_TRANSPORT_SUCCESS)
+                return ADCS_COMMAND_ERROR;
             break;
 
         case ADCS_DEVICE_SET_MODE_CMD:
@@ -693,11 +728,14 @@ static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t 
             // Activate/deactivate controller based on mode
             if (state->current_mode == 0) {
                 state->controller_active = 0;
+                state->control_deadline_valid = 0;
+                state->actuator_reset_pending = 1U;
                 #ifdef ADCS_CFG_DEBUG
                 printf("ADCS CONTROLLER: Deactivated (mode 0)\n");
                 #endif
             } else {
                 state->controller_active = 1;
+                state->control_deadline_valid = 0;
                 // Reset controller state for new mode
                 for (int i = 0; i < 3; i++) {
                     state->prev_attitude_error[i] = 0.0;
@@ -714,12 +752,12 @@ static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t 
             #endif
             /* Store target id in hk.Target */
             state->hk.Target = payload & 0xFFFF;
-            /* Simple mapping: payload 1 = +X inertial, 2 = -X inertial, 3 = custom (keeps previous)
-               We set global inertial target in inertial frame; it will be rotated to body each tick */
+            /* Payload 1 selects +X inertial, 2 selects -X inertial, and 3
+             * retains the instance's manually configured target. */
             if ((payload & 0xFFFF) == 1) {
-                g_inertial_target[0] = 1.0; g_inertial_target[1] = 0.0; g_inertial_target[2] = 0.0;
+                state->inertial_target[0] = 1.0; state->inertial_target[1] = 0.0; state->inertial_target[2] = 0.0;
             } else if ((payload & 0xFFFF) == 2) {
-                g_inertial_target[0] = -1.0; g_inertial_target[1] = 0.0; g_inertial_target[2] = 0.0;
+                state->inertial_target[0] = -1.0; state->inertial_target[1] = 0.0; state->inertial_target[2] = 0.0;
             } else if ((payload & 0xFFFF) == 3) {
                 /* leave as-is for manual setting via CLI */
             }
@@ -727,77 +765,100 @@ static void handle_command(adcs_sim_state_t* state, const uint8_t* data, size_t 
 
         default:
             printf("ADCS SIM: Unknown command ID: %d\n", cmd_id);
-            break;
+            state->hk.DeviceCounter++;
+            return ADCS_COMMAND_REJECTED;
     }
 
     // Increment command counter
     state->hk.DeviceCounter++;
+    return ADCS_COMMAND_SUCCESS;
 }
 
-static void adcs_sim_on_tick(uint64_t tick_time_ns, const simulith_42_context_t* context_42)
+static int adcs_sim_component_on_tick(component_state_t* component_state,
+                                      uint64_t tick_time_ns,
+                                      const simulith_42_context_t* context_42)
 {
-    int bytes;
-    uint8_t data[256];
-
-    if (!g_state) return;
-    
-    // Convert nanoseconds to seconds
-    double current_time = (double)tick_time_ns / 1e9;
-    
-    // Run ADCS controller if active
-    adcs_controller_update(g_state, context_42, current_time);
+    adcs_sim_state_t *state = (adcs_sim_state_t *)component_state;
+    if (!state) return COMPONENT_ERROR;
     
     // Update adcs data at the specified rate
-    if (current_time - g_state->last_update_time >= (1.0 / ADCS_SIM_UPDATE_RATE_HZ)) 
+    if (tick_time_ns >= state->next_sensor_update_ns)
     {
         // If 42 context is available, populate channels and HK with data from context
         if (context_42 && context_42->valid) {
             // Populate sensor channels with Sun Vector Body (SVB) scaled into uint16 range
-            g_state->data.Chan1 = (uint16_t)((context_42->sun_vector_body[0] * 10000.0) + 32768.0);
-            g_state->data.Chan2 = (uint16_t)((context_42->sun_vector_body[1] * 10000.0) + 32768.0);
-            g_state->data.Chan3 = (uint16_t)((context_42->sun_vector_body[2] * 10000.0) + 32768.0);
+            state->data.Chan1 = (uint16_t)((context_42->sun_vector_body[0] * 10000.0) + 32768.0);
+            state->data.Chan2 = (uint16_t)((context_42->sun_vector_body[1] * 10000.0) + 32768.0);
+            state->data.Chan3 = (uint16_t)((context_42->sun_vector_body[2] * 10000.0) + 32768.0);
 
             /* Copy 42 context fields into HK so telemetry reflects simulator state */
             /* Time: use 42 dynamic time (absolute time) rather than local sim time */
-            g_state->hk.GpsSeconds = (uint32_t) context_42->dyn_time;
+            state->hk.GpsSeconds = (uint32_t) context_42->dyn_time;
             /* Use fractional part of dyn_time for subseconds (scaled to uint32 range) */
-            double frac = context_42->dyn_time - (double)g_state->hk.GpsSeconds;
+            double frac = context_42->dyn_time - (double)state->hk.GpsSeconds;
             if (frac < 0.0) frac = 0.0;
-            g_state->hk.GpsSubseconds = (uint32_t)(frac * 1e9); /* nanosecond-resolution in uint32 */
+            state->hk.GpsSubseconds = (uint32_t)(frac * 1e9); /* nanosecond-resolution in uint32 */
 
             /* Position/velocity (cast from double to float) */
             for (int i = 0; i < 3; ++i) {
-                g_state->hk.GpsPosition[i] = (float) context_42->pos_n[i];
-                g_state->hk.Velocity[i]    = (float) context_42->vel_n[i];
+                state->hk.GpsPosition[i] = (float) context_42->pos_n[i];
+                state->hk.Velocity[i]    = (float) context_42->vel_n[i];
             }
 
             /* Attitude quaternion and angular rates */
-            for (int i = 0; i < 4; ++i) g_state->hk.Quaternion[i] = (i < 4) ? (float) context_42->qn[i] : 0.0f;
-            for (int i = 0; i < 3; ++i) g_state->hk.AngRate[i]   = (float) context_42->wn[i];
+            for (int i = 0; i < 4; ++i) state->hk.Quaternion[i] = (float) context_42->qn[i];
+            for (int i = 0; i < 3; ++i) state->hk.AngRate[i] = (float) context_42->wn[i];
 
             /* Eclipse flag and sun vector */
-            g_state->hk.Eclipse = (uint8_t)(context_42->eclipse ? 1 : 0);
-            for (int i = 0; i < 3; ++i) g_state->hk.SunVectorBody[i] = (float) context_42->sun_vector_body[i];
+            state->hk.Eclipse = (uint8_t)(context_42->eclipse ? 1 : 0);
+            for (int i = 0; i < 3; ++i) state->hk.SunVectorBody[i] = (float) context_42->sun_vector_body[i];
 
             /* Mark attitude source as 1 (from 42) */
-            g_state->hk.AttitudeSource = 1;
+            state->hk.AttitudeSource = 1;
         } else {
             /* Fallback: simple counter-derived channels if no 42 context available */
-            g_state->data.Chan1 = (uint16_t)(g_state->hk.DeviceCounter * 1);
-            g_state->data.Chan2 = (uint16_t)(g_state->hk.DeviceCounter * 2);
-            g_state->data.Chan3 = (uint16_t)(g_state->hk.DeviceCounter * 3);
+            state->data.Chan1 = (uint16_t)(state->hk.DeviceCounter * 1);
+            state->data.Chan2 = (uint16_t)(state->hk.DeviceCounter * 2);
+            state->data.Chan3 = (uint16_t)(state->hk.DeviceCounter * 3);
         }
 
-        g_state->last_update_time = current_time;
+        uint64_t periods = ((tick_time_ns - state->next_sensor_update_ns) /
+                            ADCS_SENSOR_UPDATE_PERIOD_NS) + 1U;
+        if (periods > (UINT64_MAX - state->next_sensor_update_ns) /
+                      ADCS_SENSOR_UPDATE_PERIOD_NS)
+            state->next_sensor_update_ns = UINT64_MAX;
+        else
+            state->next_sensor_update_ns +=
+                periods * ADCS_SENSOR_UPDATE_PERIOD_NS;
     }
+    return COMPONENT_SUCCESS;
+}
 
-    // Process UART
-    bytes = simulith_transport_available((transport_port_t*)&g_uart_port);
+static int adcs_sim_component_wait_for_service(component_state_t* component_state,
+                                               int interrupt_fd)
+{
+    adcs_sim_state_t* state = (adcs_sim_state_t*)component_state;
+    if (!state) return COMPONENT_ERROR;
+    transport_port_t* ports[] = {&state->uart_port};
+    return simulith_transport_wait_for_request(ports, 1U, interrupt_fd);
+}
+
+static int adcs_sim_component_service(component_state_t* component_state,
+                                      uint64_t tick_time_ns,
+                                      const simulith_42_context_t* context_42)
+{
+    (void)tick_time_ns;
+    (void)context_42;
+    adcs_sim_state_t* state = (adcs_sim_state_t*)component_state;
+    uint8_t data[256];
+    int bytes;
+    uint64_t transaction_id;
+
+    if (!state) return COMPONENT_ERROR;
+    bytes = simulith_transport_receive_request(&state->uart_port, data,
+                                               sizeof(data), &transaction_id);
     if (bytes > 0)
     {
-    // Read UART
-    bytes = simulith_transport_receive((transport_port_t*)&g_uart_port, data, sizeof(data));
-
         #ifdef ADCS_CFG_DEBUG
         printf("ADCS SIM: Received %d bytes from UART\n", bytes);
         for(int i = 0; i < bytes; i++) 
@@ -807,9 +868,20 @@ static void adcs_sim_on_tick(uint64_t tick_time_ns, const simulith_42_context_t*
         printf("\n");
         #endif
 
-    // Process the command (cast bytes to size_t)
-    handle_command(g_state, data, (size_t)bytes);
+        adcs_command_result_t command_status = handle_command(
+            state, data, (size_t)bytes);
+        if (simulith_transport_complete_request(&state->uart_port,
+                                                transaction_id,
+                                                command_status == ADCS_COMMAND_SUCCESS ?
+                                                    SIMULITH_TRANSPORT_SUCCESS :
+                                                    SIMULITH_TRANSPORT_ERROR) !=
+            SIMULITH_TRANSPORT_SUCCESS)
+            return COMPONENT_ERROR;
+        return command_status == ADCS_COMMAND_ERROR ?
+            COMPONENT_ERROR : COMPONENT_WORK;
     }
+    if (bytes < 0) return COMPONENT_ERROR;
+    return COMPONENT_IDLE;
 }
 
 int adcs_sim_init(adcs_sim_state_t* state)
@@ -819,16 +891,12 @@ int adcs_sim_init(adcs_sim_state_t* state)
     // Initialize state
     memset(state, 0, sizeof(adcs_sim_state_t));
 
-    // Set global state pointer
-    g_state = state;
-
     // Initialize UART port struct for Simulith (server/bind)
-    memset(&g_uart_port, 0, sizeof(g_uart_port));
-    snprintf(g_uart_port.name, sizeof(g_uart_port.name), "adcs_sim_uart%d", ADCS_CFG_HANDLE);
-    snprintf(g_uart_port.address, sizeof(g_uart_port.address), "ipc:///tmp/simulith_pub:%d", SIMULITH_UART_BASE_PORT + ADCS_CFG_HANDLE);
-    g_uart_port.is_server = 1; // Always server/bind for the simulator
+    snprintf(state->uart_port.name, sizeof(state->uart_port.name), "adcs_sim_uart%d", ADCS_CFG_HANDLE);
+    snprintf(state->uart_port.address, sizeof(state->uart_port.address), "ipc:///tmp/simulith_pub:%d", SIMULITH_UART_BASE_PORT + ADCS_CFG_HANDLE);
+    state->uart_port.is_server = 1; // Always server/bind for the simulator
 
-    int uart_result = simulith_transport_init((transport_port_t*)&g_uart_port);
+    int uart_result = simulith_transport_init(&state->uart_port);
     if (uart_result < 0) 
     {
         printf("ADCS SIM: Failed to initialize Simulith UART server\n");
@@ -848,17 +916,19 @@ int adcs_sim_init(adcs_sim_state_t* state)
     state->data.Chan1 = 0;
     state->data.Chan2 = 0;
     state->data.Chan3 = 0;
-    state->last_update_time = 0.0;
+    state->next_sensor_update_ns = ADCS_SENSOR_UPDATE_PERIOD_NS;
     
     // Initialize ADCS controller state
-    state->last_control_time = 0.0;
+    state->next_control_update_ns = 0;
+    state->control_deadline_valid = 0;
+    state->inertial_target[0] = 1.0;
     for (int i = 0; i < 3; i++) {
         state->prev_attitude_error[i] = 0.0;
     }
     state->current_mode = 0;          // Start in disabled mode
     state->controller_active = 0;     // Controller inactive initially
 
-    printf("ADCS SIM: Initialized successfully as %s\n", g_uart_port.name);
+    printf("ADCS SIM: Initialized successfully as %s\n", state->uart_port.name);
     return ADCS_SIM_SUCCESS;
 }
 
@@ -866,13 +936,14 @@ void adcs_sim_cleanup(adcs_sim_state_t* state)
 {
     if (!state) return;
 
-    g_state = NULL;  // Clear global state pointer
-    simulith_transport_close((transport_port_t*)&g_uart_port);
+    simulith_transport_close(&state->uart_port);
 }
 
 // Component interface implementation
-static int adcs_sim_component_init(component_state_t** state)
+static int adcs_sim_component_create(component_state_t** state)
 {
+    if (!state) return COMPONENT_ERROR;
+    *state = NULL;
     adcs_sim_state_t* adcs_state = malloc(sizeof(adcs_sim_state_t));
     if (!adcs_state) {
         return COMPONENT_ERROR;
@@ -888,24 +959,26 @@ static int adcs_sim_component_init(component_state_t** state)
     return COMPONENT_SUCCESS;
 }
 
-static void adcs_sim_component_tick(component_state_t* state, uint64_t tick_time_ns, const simulith_42_context_t* context_42)
+static int adcs_sim_component_actuate(component_state_t* component_state,
+                                      uint64_t tick_time_ns,
+                                      const simulith_42_context_t* context_42)
 {
-    if (!state) return;
-    
-    adcs_sim_state_t* adcs_state = (adcs_sim_state_t*)state;
-    
-    // Set global state for the tick callback
-    adcs_sim_state_t* old_state = g_state;
-    g_state = adcs_state;
-    
-    // Call the original tick function with 42 context
-    adcs_sim_on_tick(tick_time_ns, context_42);
-    
-    // Restore previous state
-    g_state = old_state;
+    adcs_sim_state_t *state = (adcs_sim_state_t *)component_state;
+    if (!state) return COMPONENT_ERROR;
+    if (state->actuator_reset_pending)
+    {
+        const double zero_torques[4] = {0.0, 0.0, 0.0, 0.0};
+        const double zero_dipole[3] = {0.0, 0.0, 0.0};
+        if (simulith_42_send_wheel_command(0, zero_torques, 0x07) != 0 ||
+            simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+            return COMPONENT_ERROR;
+        state->actuator_reset_pending = 0U;
+        return COMPONENT_SUCCESS;
+    }
+    return adcs_controller_update(state, context_42, tick_time_ns);
 }
 
-static void adcs_sim_component_cleanup(component_state_t* state)
+static void adcs_sim_component_destroy(component_state_t* state)
 {
     if (!state) return;
     
@@ -915,11 +988,17 @@ static void adcs_sim_component_cleanup(component_state_t* state)
 }
 
 static const component_interface_t adcs_sim_interface = {
+    .api_version = SIMULITH_COMPONENT_API_VERSION,
+    .struct_size = sizeof(component_interface_t),
     .name = "adcs_sim",
     .description = "Adcs component simulation with UART interface",
-    .init = adcs_sim_component_init,
-    .tick = adcs_sim_component_tick,
-    .cleanup = adcs_sim_component_cleanup
+    .create = adcs_sim_component_create,
+    .on_tick = adcs_sim_component_on_tick,
+    .wait_for_service = adcs_sim_component_wait_for_service,
+    .service = adcs_sim_component_service,
+    .actuate = adcs_sim_component_actuate,
+    .destroy = adcs_sim_component_destroy,
+    .backdoor = NULL
 };
 
 // Component registration function - exported for dynamic loading

@@ -59,6 +59,7 @@ set(SIMULITH_SOURCES
     src/simulith_common.c
     src/simulith_client.c
     src/simulith_server.c
+    src/simulith_shared_barrier.c
     src/simulith_time.c
     src/simulith_transport.c
 )
@@ -100,7 +101,7 @@ set_target_properties(simulith_director_standalone PROPERTIES
 )
 
 # Build Simulith server standalone
-add_executable(simulith_server_standalone 
+add_executable(simulith_server_standalone
     src/simulith_common.c
     src/simulith_server.c
     src/simulith_server_standalone.c)
