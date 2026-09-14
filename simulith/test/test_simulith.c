@@ -204,6 +204,30 @@ static void test_server_cli_command_parser(void)
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("-", &paused, &speed));
     TEST_ASSERT_TRUE(speed == 0.015625);
 
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed 25\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 25.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed max\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 0.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("+\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 0.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("-\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 1024.0);
+
+    speed = 25.0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed 0\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 25.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed 0.001\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 25.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed nan\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 25.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed 2048\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 25.0);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("speed 25 trailing\n", &paused, &speed));
+    TEST_ASSERT_TRUE(speed == 25.0);
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("pause", &paused, &speed));
+    TEST_ASSERT_EQUAL_INT(0, paused);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("quit-now", &paused, &speed));
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("unknown", &paused, &speed));
     TEST_ASSERT_EQUAL_INT(1, simulith_server_process_cli_command_for_test("quit", &paused, &speed));
 }

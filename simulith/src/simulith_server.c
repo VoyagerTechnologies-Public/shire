@@ -297,8 +297,12 @@ static void log_simulation_progress(void)
         double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
         double actual_speed = (real_elapsed > 0.0) ? (sim_elapsed / real_elapsed) : 0.0;
 
-        simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
-            (double)current_time_ns / 1e9, g_attempted_speed, actual_speed);
+        if (g_attempted_speed > 0.0)
+            simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
+                (double)current_time_ns / 1e9, g_attempted_speed, actual_speed);
+        else
+            simulith_log("  Simulation time: %.3f seconds | Attempted speed: max | Actual: %.2fx\n",
+                (double)current_time_ns / 1e9, actual_speed);
 
         g_last_log_sim_ns = current_time_ns;
         g_last_log_real_ns = now_real_ns;
@@ -434,35 +438,72 @@ static const char *handle_completion(const char *message)
  * directly testable.  A non-zero return asks the caller to stop the server. */
 static int process_cli_command(const char *command, int *paused, double *speed)
 {
-    if (strncmp(command, "p", 1) == 0)
+    char action[16] = {0};
+    char argument[32] = {0};
+    char extra[2] = {0};
+    int fields = sscanf(command, " %15s %31s %1s", action, argument, extra);
+
+    if (fields == 1 && strcmp(action, "p") == 0)
     {
         *paused = !*paused;
         printf(*paused ? "Simulation paused.\n" : "Simulation resumed.\n");
     }
-    else if (strncmp(command, "+", 1) == 0)
+    else if (fields == 1 && strcmp(action, "+") == 0)
     {
-        *speed *= 2.0;
-        if (*speed > 1024.0)
-            *speed = 1024.0;
+        if (*speed > 0.0)
+        {
+            *speed *= 2.0;
+            if (*speed > 1024.0)
+                *speed = 1024.0;
+        }
         g_attempted_speed = *speed;
-        printf("Attempted simulation speed: %.2fx\n", *speed);
+        if (*speed > 0.0)
+            printf("Attempted simulation speed: %.2fx\n", *speed);
+        else
+            printf("Attempted simulation speed: max\n");
     }
-    else if (strncmp(command, "-", 1) == 0)
+    else if (fields == 1 && strcmp(action, "-") == 0)
     {
-        *speed /= 2.0;
+        if (*speed <= 0.0)
+            *speed = 1024.0;
+        else
+            *speed /= 2.0;
         if (*speed < 0.015625)
             *speed = 0.015625;
         g_attempted_speed = *speed;
         printf("Attempted simulation speed: %.4fx\n", *speed);
     }
-    else if (strncmp(command, "quit", 4) == 0)
+    else if (fields == 2 && strcmp(action, "speed") == 0)
+    {
+        double requested_speed = 0.0;
+        if (strcmp(argument, "max") != 0)
+        {
+            char *end = NULL;
+            errno = 0;
+            requested_speed = strtod(argument, &end);
+            if (errno != 0 || !end || *end != '\0' ||
+                !isfinite(requested_speed) || requested_speed < 0.015625 ||
+                requested_speed > 1024.0)
+            {
+                printf("Invalid speed. Use a factor from 0.015625 through 1024, or 'max'.\n");
+                return 0;
+            }
+        }
+        *speed = requested_speed;
+        g_attempted_speed = *speed;
+        if (*speed > 0.0)
+            printf("Attempted simulation speed: %.2fx\n", *speed);
+        else
+            printf("Attempted simulation speed: max\n");
+    }
+    else if (fields == 1 && strcmp(action, "quit") == 0)
     {
         printf("Exiting simulation.\n");
         return 1;
     }
     else
     {
-        printf("Unknown command. Use 'p', '+', '-', or 'quit'.\n");
+        printf("Unknown command. Use 'p', '+', '-', 'speed <factor|max>', or 'quit'.\n");
     }
     return 0;
 }
@@ -644,7 +685,7 @@ void simulith_server_run(void)
     struct timeval tv;
     char cli_buf[32];
 
-    printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), or '-' (slower).\n");
+    printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), '-' (slower), or 'speed <factor|max>'.\n");
     run_start_real_ns = monotonic_ns();
     g_last_log_real_ns = run_start_real_ns;
     g_last_log_sim_ns = current_time_ns;

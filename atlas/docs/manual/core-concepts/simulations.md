@@ -17,10 +17,17 @@ For every tick it:
 
 The DRM expects two clients: FSW and the Director.
 The focused CLI environment expects one Director client.
-From the attached Server console, use `p` to pause or resume, `+` to request a faster rate, and `-` to request a slower rate.
+From the attached Server console, use `p` to pause or resume, `speed 25` to
+request an exact rate, `speed max` for unbounded execution, and `+` or `-` to
+double or halve the current requested rate.
 The Server reports simulated time, attempted speed, and achieved speed every 10
 seconds of simulated time regardless of the active synchronization transport.
-The implementation accepts attempted rates from 1/64x through 1024x, but host performance determines the achieved rate.
+The interactive controls accept attempted rates from 1/64x through 1024x, but
+host performance determines the achieved rate. A request above the complete
+stack's measured unbounded throughput cannot be paced consistently; use
+`make perf` to verify that the host has sufficient margin for the desired rate.
+To request 25x from startup instead of attaching to the console, run
+`SIMULITH_SPEED=25 make start`.
 
 ## Simulith Director
 

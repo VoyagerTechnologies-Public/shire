@@ -74,8 +74,10 @@ Attach to its console to control simulation time:
 docker attach shire-server-drm
 ```
 
-Use `p` to pause or resume, `+` to request a faster rate, and `-` to request a slower rate.
+Use `p` to pause or resume, `speed 25` to request an exact rate, `speed max` for
+unbounded execution, and `+` or `-` to double or halve the requested rate.
 Detach without stopping the container with `Ctrl+P`, then `Ctrl+Q`.
+To start at 25x, use `SIMULITH_SPEED=25 make start`.
 
 ## Stop and resume
 
