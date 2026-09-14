@@ -19,6 +19,8 @@ typedef struct
     size_t response_len;
     int receive_result;
     int complete_result;
+    int send_stale_ack;
+    int completion_status;
 } request_server_args_t;
 
 typedef struct
@@ -62,11 +64,14 @@ static void *complete_request_thread(void *arg)
     if (server->receive_result == (int)server->expected_len &&
         memcmp(received, server->expected, server->expected_len) == 0)
     {
+        if (server->send_stale_ack)
+            (void)simulith_transport_complete_request(
+                server->port, transaction_id + 1U, SIMULITH_TRANSPORT_SUCCESS);
         if (server->response_len > 0)
             (void)simulith_transport_send(server->port, server->response,
                                           server->response_len);
         server->complete_result = simulith_transport_complete_request(
-            server->port, transaction_id, SIMULITH_TRANSPORT_SUCCESS);
+            server->port, transaction_id, server->completion_status);
     }
     return NULL;
 }
@@ -378,6 +383,128 @@ static void test_transport_request_timeout(void)
                                                      sizeof(request), 1));
 }
 
+static void test_transport_request_ack_edge_cases(void)
+{
+    static const uint8_t request[] = {0x61, 0x62};
+    transport_port_t server = {0};
+    transport_port_t client = {0};
+    strcpy(server.name, "ack_edge_server");
+    strcpy(server.address, "ipc:///tmp/simulith_pub:7014");
+    server.is_server = 1;
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS,
+                      simulith_transport_init(&server));
+    strcpy(client.name, "ack_edge_client");
+    strcpy(client.address, server.address);
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS,
+                      simulith_transport_init(&client));
+
+    request_server_args_t stale = {
+        .port = &server,
+        .expected = {0x61, 0x62},
+        .expected_len = sizeof(request),
+        .send_stale_ack = 1,
+        .completion_status = SIMULITH_TRANSPORT_SUCCESS,
+    };
+    pthread_t thread;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL,
+                                            complete_request_thread, &stale));
+    test_sleep_us(1000);
+    TEST_ASSERT_EQUAL_INT((int)sizeof(request),
+                          simulith_transport_request(&client, request,
+                                                     sizeof(request), 1000));
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+
+    request_server_args_t rejected = {
+        .port = &server,
+        .expected = {0x61, 0x62},
+        .expected_len = sizeof(request),
+        .completion_status = SIMULITH_TRANSPORT_ERROR,
+    };
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL,
+                                            complete_request_thread, &rejected));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
+                          simulith_transport_request(&client, request,
+                                                     sizeof(request), 1000));
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, rejected.complete_result);
+    simulith_transport_close(&server);
+    simulith_transport_close(&client);
+}
+
+static void test_transport_receive_request_rejects_malformed_frames(void)
+{
+    transport_port_t server = {0};
+    transport_port_t client = {0};
+    strcpy(server.name, "malformed_server");
+    strcpy(server.address, "ipc:///tmp/simulith_pub:7013");
+    server.is_server = 1;
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS,
+                      simulith_transport_init(&server));
+    strcpy(client.name, "malformed_client");
+    strcpy(client.address, server.address);
+    TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS,
+                      simulith_transport_init(&client));
+    test_sleep_us(1000);
+
+    uint8_t malformed[20] = {
+        0x53, 0x52, 0x51, 0x54, 1, 1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1
+    };
+    TEST_ASSERT_EQUAL_INT((int)sizeof(malformed),
+                          zmq_send(client.zmq_sock, malformed,
+                                   sizeof(malformed), 0));
+    test_sleep_us(1000);
+    uint8_t received[8] = {0};
+    uint64_t transaction_id = UINT64_MAX;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
+                          simulith_transport_receive_request(
+                              &server, received, sizeof(received),
+                              &transaction_id));
+
+    size_t oversized_length = SIMULITH_TRANSPORT_BUFFER_SIZE + 1U;
+    uint8_t *oversized = malloc(oversized_length);
+    TEST_ASSERT_NOT_NULL(oversized);
+    memset(oversized, 0xA5, oversized_length);
+    TEST_ASSERT_EQUAL_INT((int)oversized_length,
+                          zmq_send(client.zmq_sock, oversized,
+                                   oversized_length, 0));
+    free(oversized);
+    test_sleep_us(1000);
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
+                          simulith_transport_receive_request(
+                              &server, received, sizeof(received),
+                              &transaction_id));
+    simulith_transport_close(&server);
+    simulith_transport_close(&client);
+}
+
+static void test_transport_metrics(void)
+{
+    FILE *stream = tmpfile();
+    TEST_ASSERT_NOT_NULL(stream);
+
+    simulith_transport_write_metrics_json(NULL);
+    simulith_transport_write_metrics_json(stream);
+    TEST_ASSERT_EQUAL_INT(0, fflush(stream));
+    TEST_ASSERT_EQUAL_INT(0, fseek(stream, 0, SEEK_SET));
+
+    char output[4096] = {0};
+    size_t length = fread(output, 1, sizeof(output) - 1, stream);
+    TEST_ASSERT_TRUE(length > 0);
+    output[length] = '\0';
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"device_transactions\":["));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"name\":\"request_client\""));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"count\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"errors\":0"));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"latency_us\":{\"mean\":"));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"p50\":"));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"p95\":"));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"name\":\"timeout_client\""));
+    TEST_ASSERT_NOT_NULL(strstr(output, "\"errors\":1"));
+    TEST_ASSERT_EQUAL_INT(0, fclose(stream));
+}
+
 static void test_transport_buffer_overflow(void)
 {
     /* Initialize a pair */
@@ -564,6 +691,9 @@ int main(void)
     RUN_TEST(test_transport_send_receive);
     RUN_TEST(test_transport_request_completion);
     RUN_TEST(test_transport_request_timeout);
+    RUN_TEST(test_transport_request_ack_edge_cases);
+    RUN_TEST(test_transport_receive_request_rejects_malformed_frames);
+    RUN_TEST(test_transport_metrics);
     RUN_TEST(test_transport_buffer_overflow);
     RUN_TEST(test_transport_uninitialized_send);
     RUN_TEST(test_transport_multiple_messages);

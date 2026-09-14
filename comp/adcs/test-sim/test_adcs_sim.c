@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/eventfd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -58,6 +59,29 @@ void tearDown(void)
         g_iface->destroy(g_state_under_test);
         g_state_under_test = NULL;
     }
+}
+
+static void test_wait_interrupt_and_deadline_saturation(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    int interrupt_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, interrupt_fd);
+    uint64_t wake = 1;
+    TEST_ASSERT_EQUAL_INT((int)sizeof(wake),
+                          (int)write(interrupt_fd, &wake, sizeof(wake)));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_IDLE,
+                          g_iface->wait_for_service(state, interrupt_fd));
+
+    adcs_sim_state_t *adcs_state = (adcs_sim_state_t *)state;
+    adcs_state->next_sensor_update_ns = UINT64_MAX - 1U;
+    adcs_state->next_control_update_ns = UINT64_MAX - 1U;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_prepare_tick(state, UINT64_MAX, NULL));
+    TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, adcs_state->next_sensor_update_ns);
+
+    close(interrupt_fd);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -1578,6 +1602,7 @@ int main(void)
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_init_returns_success_and_state);
     RUN_TEST(test_lifecycle_callbacks_reject_null);
+    RUN_TEST(test_wait_interrupt_and_deadline_saturation);
     RUN_TEST(test_tick_does_not_crash_with_zero_42_context);
     RUN_TEST(test_cleanup_releases_ipc_socket);
 

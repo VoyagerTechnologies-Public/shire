@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/eventfd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -208,6 +209,28 @@ static void test_lifecycle_callbacks_handle_null_state(void)
                           g_iface->actuate(NULL, 0ULL, NULL));
     g_iface->destroy(NULL);
     g_iface->backdoor(NULL, DEMO_BD_SET_CONFIG, NULL, 0);
+}
+
+static void test_wait_interrupt_and_deadline_saturation(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    int interrupt_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, interrupt_fd);
+    uint64_t wake = 1;
+    TEST_ASSERT_EQUAL_INT((int)sizeof(wake),
+                          (int)write(interrupt_fd, &wake, sizeof(wake)));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_IDLE,
+                          g_iface->wait_for_service(state, interrupt_fd));
+
+    demo_sim_state_t *demo_state = (demo_sim_state_t *)state;
+    demo_state->next_update_time_ns = UINT64_MAX - 1U;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(state, UINT64_MAX, NULL));
+    TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, demo_state->next_update_time_ns);
+
+    close(interrupt_fd);
+    g_iface->destroy(state);
 }
 
 static void test_prepare_does_not_service_execute_transaction(void)
@@ -978,6 +1001,7 @@ int main(void)
     RUN_TEST(test_on_tick_handles_null_42_context);
     RUN_TEST(test_destroy_releases_ipc_socket);
     RUN_TEST(test_lifecycle_callbacks_handle_null_state);
+    RUN_TEST(test_wait_interrupt_and_deadline_saturation);
     RUN_TEST(test_prepare_does_not_service_execute_transaction);
 
     /* Backdoor */

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/eventfd.h>
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -31,18 +32,81 @@ static uint8_t                fake_backdoor_payload[16];
 static size_t                 fake_backdoor_payload_length;
 static int                    fake_service_calls;
 static int                    fake_wait_ready;
+static int                    fail_wait;
 static int                    fail_tick;
 static int                    fail_actuate;
 static int                    fail_service;
 static int                    block_service;
 static int                    service_entered;
 static int                    release_service;
+static int                    eventfd_failure;
+static int                    thread_create_calls;
+static int                    thread_create_failure_call;
+static int                    sync_primitive_failure;
 static pthread_mutex_t        service_test_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t         service_test_condition = PTHREAD_COND_INITIALIZER;
 
 #define VALID_COMPONENT_API \
     .api_version = SIMULITH_COMPONENT_API_VERSION, \
     .struct_size = sizeof(component_interface_t)
+
+int __real_eventfd(unsigned int initial_value, int flags);
+int __real_pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
+                          void *(*start_routine)(void *), void *argument);
+int __real_pthread_mutex_init(pthread_mutex_t *mutex,
+                              const pthread_mutexattr_t *attributes);
+int __real_pthread_condattr_init(pthread_condattr_t *attributes);
+int __real_pthread_condattr_setclock(pthread_condattr_t *attributes,
+                                     clockid_t clock_id);
+int __real_pthread_cond_init(pthread_cond_t *condition,
+                             const pthread_condattr_t *attributes);
+
+int __wrap_eventfd(unsigned int initial_value, int flags)
+{
+    if (eventfd_failure)
+    {
+        errno = EMFILE;
+        return -1;
+    }
+    return __real_eventfd(initial_value, flags);
+}
+
+int __wrap_pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
+                          void *(*start_routine)(void *), void *argument)
+{
+    thread_create_calls++;
+    if (thread_create_failure_call > 0 &&
+        thread_create_calls == thread_create_failure_call)
+        return EAGAIN;
+    return __real_pthread_create(thread, attributes, start_routine, argument);
+}
+
+int __wrap_pthread_mutex_init(pthread_mutex_t *mutex,
+                              const pthread_mutexattr_t *attributes)
+{
+    return sync_primitive_failure == 1 ? EAGAIN :
+        __real_pthread_mutex_init(mutex, attributes);
+}
+
+int __wrap_pthread_condattr_init(pthread_condattr_t *attributes)
+{
+    return sync_primitive_failure == 2 ? EAGAIN :
+        __real_pthread_condattr_init(attributes);
+}
+
+int __wrap_pthread_condattr_setclock(pthread_condattr_t *attributes,
+                                     clockid_t clock_id)
+{
+    return sync_primitive_failure == 3 ? EINVAL :
+        __real_pthread_condattr_setclock(attributes, clock_id);
+}
+
+int __wrap_pthread_cond_init(pthread_cond_t *condition,
+                             const pthread_condattr_t *attributes)
+{
+    return sync_primitive_failure == 4 ? EAGAIN :
+        __real_pthread_cond_init(condition, attributes);
+}
 
 typedef struct
 {
@@ -142,9 +206,17 @@ static int failing_init(component_state_t **state)
     return COMPONENT_ERROR;
 }
 
+static int partial_failing_init(component_state_t **state)
+{
+    *state = (component_state_t *)&fake_state;
+    return COMPONENT_ERROR;
+}
+
 static int fake_wait_for_service(component_state_t *state, int interrupt_fd)
 {
     (void)state;
+    if (fail_wait)
+        return COMPONENT_ERROR;
     if (__atomic_exchange_n(&fake_wait_ready, 0, __ATOMIC_ACQ_REL))
         return COMPONENT_WORK;
     struct pollfd item = {.fd = interrupt_fd, .events = POLLIN};
@@ -257,12 +329,17 @@ void setUp(void)
     fake_backdoor_payload_length = 0;
     fake_service_calls = 0;
     fake_wait_ready = 1;
+    fail_wait = 0;
     fail_tick = 0;
     fail_actuate = 0;
     fail_service = 0;
     block_service = 0;
     service_entered = 0;
     release_service = 0;
+    eventfd_failure = 0;
+    thread_create_calls = 0;
+    thread_create_failure_call = 0;
+    sync_primitive_failure = 0;
     memset(fake_backdoor_payload, 0, sizeof(fake_backdoor_payload));
     unsetenv("FORTYTWO_SOCKET_PATH");
     unsetenv("FORTYTWO_HOST");
@@ -315,6 +392,9 @@ static void test_parse_args(void)
     long_path[sizeof(long_path) - 1] = '\0';
     char *oversized[] = {"director", "--42-config", long_path};
     TEST_ASSERT_EQUAL_INT(1, parse_args(3, oversized, &config));
+
+    char *oversized_scenario[] = {"director", "--scenario", long_path};
+    TEST_ASSERT_EQUAL_INT(1, parse_args(3, oversized_scenario, &config));
 
     TEST_ASSERT_EQUAL_INT(1, parse_args(1, defaults, NULL));
 }
@@ -380,6 +460,88 @@ static void test_scenario_validation_and_one_shot_injection(void)
     TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
 }
 
+static void test_scenario_parser_rejects_malformed_payloads(void)
+{
+    static const char *bad_payloads[] = {
+        "{\"schema_version\":0,\"commands\":[{\"sequence\":1,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"aa\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":2,\"host\":\"127.0.0.1\",\"port\":0,\"packet_hex\":\"aa\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":2,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"a\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":2,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"g0\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":2,\"host\":\"not-a-real-host.invalid\",\"port\":9999,\"packet_hex\":\"0123456789abcdefABCDEF\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":3,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"aa\"},{\"sequence\":2,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"aa\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":1,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"aa\"}\"trailing\":true]}",
+        "{\"schema_version\":1,\"bad\":[{\"sequence\":1,\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"aa\"}]}"
+    };
+
+    for (size_t index = 0; index < sizeof(bad_payloads) / sizeof(bad_payloads[0]); ++index)
+    {
+        char path[] = "/tmp/shire-scenario-bad-XXXXXX";
+        int file = mkstemp(path);
+        TEST_ASSERT_GREATER_OR_EQUAL_INT(0, file);
+        size_t length = strlen(bad_payloads[index]);
+        TEST_ASSERT_EQUAL_INT((int)length, (int)write(file, bad_payloads[index], length));
+        close(file);
+
+        director_config_t config;
+        memset(&config, 0, sizeof(config));
+        snprintf(config.scenario_file, sizeof(config.scenario_file), "%s", path);
+        TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
+        unlink(path);
+    }
+
+    char empty_path[] = "/tmp/shire-scenario-empty-XXXXXX";
+    int empty_file = mkstemp(empty_path);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, empty_file);
+    close(empty_file);
+    director_config_t config;
+    memset(&config, 0, sizeof(config));
+    snprintf(config.scenario_file, sizeof(config.scenario_file), "%s", empty_path);
+    TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
+    unlink(empty_path);
+
+    char unterminated_path[] = "/tmp/shire-scenario-unterminated-XXXXXX";
+    int unterminated_file = mkstemp(unterminated_path);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, unterminated_file);
+    static const char unterminated[] =
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":1,"
+        "\"host\":\"127.0.0.1\",\"port\":9999,\"packet_hex\":\"aa\"";
+    TEST_ASSERT_EQUAL_INT((int)sizeof(unterminated) - 1,
+                          (int)write(unterminated_file, unterminated,
+                                     sizeof(unterminated) - 1));
+    close(unterminated_file);
+    memset(&config, 0, sizeof(config));
+    snprintf(config.scenario_file, sizeof(config.scenario_file), "%s",
+             unterminated_path);
+    TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
+    unlink(unterminated_path);
+
+    /* A pipe is readable through /proc but cannot be seeked like a scenario file. */
+    int pipe_fds[2];
+    TEST_ASSERT_EQUAL_INT(0, pipe(pipe_fds));
+    char pipe_path[64];
+    snprintf(pipe_path, sizeof(pipe_path), "/proc/self/fd/%d", pipe_fds[0]);
+    memset(&config, 0, sizeof(config));
+    snprintf(config.scenario_file, sizeof(config.scenario_file), "%s", pipe_path);
+    TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
+    close(pipe_fds[0]);
+    close(pipe_fds[1]);
+}
+
+static void test_scenario_injection_reports_send_failure(void)
+{
+    director_config_t config;
+    memset(&config, 0, sizeof(config));
+    strcpy(config.scenario_file, "configured");
+    config.scenario_socket = -1;
+    config.scenario_command_count = 1;
+    config.scenario_commands[0].sequence = 44;
+    config.scenario_commands[0].packet_length = 1;
+
+    TEST_ASSERT_EQUAL_INT(-1, director_inject_scenario_commands(&config, 44));
+    TEST_ASSERT_EQUAL_UINT64(1, config.scenario_errors);
+    TEST_ASSERT_EQUAL_INT(1, config.scenario_commands[0].injected);
+}
+
 static void test_component_loading_accepts_only_valid_plugins(void)
 {
     director_config_t config;
@@ -398,6 +560,53 @@ static void test_component_loading_accepts_only_valid_plugins(void)
     cleanup_components(&config);
     TEST_ASSERT_EQUAL_INT(0, config.lib_count);
     TEST_ASSERT_EQUAL_INT(0, config.components[0].active);
+}
+
+static void test_component_worker_start_failures_are_cleaned_up(void)
+{
+    static const component_interface_t interface = {
+        VALID_COMPONENT_API,
+        .name = "worker-failure", .description = "worker failure",
+        .create = fake_init, .wait_for_service = fake_wait_for_service,
+        .service = fake_service, .destroy = fake_cleanup};
+
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    eventfd_failure = 1;
+    TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 2;
+    for (int index = 0; index < 2; ++index)
+    {
+        g_director_config.components[index].active = 1;
+        g_director_config.components[index].interface = &interface;
+    }
+    eventfd_failure = 0;
+    thread_create_calls = 0;
+    thread_create_failure_call = 2;
+    TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
+    TEST_ASSERT_EQUAL_INT(-1, g_director_config.component_interrupt_fds[0]);
+    TEST_ASSERT_EQUAL_INT(-1, g_director_config.component_interrupt_fds[1]);
+    cleanup_components(&g_director_config);
+}
+
+static void test_component_sync_primitive_failures_are_reported(void)
+{
+    for (int injected_failure = 1; injected_failure <= 4; ++injected_failure)
+    {
+        memset(&g_director_config, 0, sizeof(g_director_config));
+        sync_primitive_failure = injected_failure;
+        int status = initialize_components(&g_director_config);
+        sync_primitive_failure = 0;
+        TEST_ASSERT_EQUAL_INT(-1, status);
+        TEST_ASSERT_EQUAL_INT(0, g_director_config.worker_sync_initialized);
+        cleanup_components(&g_director_config);
+    }
 }
 
 static void test_component_loading_paths(void)
@@ -526,6 +735,28 @@ static void test_component_phase_boundaries_and_failures(void)
     g_director_config.components[0].active = 1;
     g_director_config.components[0].interface = &interface;
     fail_service = 0;
+    fail_wait = 1;
+    fake_wait_ready = 0;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_prepare_tick(10, 1264));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_execute_tick(10, 1264));
+    pthread_mutex_lock(&g_director_config.tick_mutex);
+    while (g_director_config.components[0].phase_status == COMPONENT_SUCCESS)
+        pthread_cond_wait(&g_director_config.tick_cond,
+                          &g_director_config.tick_mutex);
+    pthread_mutex_unlock(&g_director_config.tick_mutex);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          director_commit_tick(10, 1264));
+    TEST_ASSERT_EQUAL_UINT64(1, g_director_config.component_service_errors);
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    fail_service = 0;
     fail_actuate = 1;
     TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
@@ -597,6 +828,14 @@ static void test_component_optional_interface_paths(void)
     cleanup_components(&g_director_config);
     TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
 
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &optional_phases;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    g_director_config.components[0].state = NULL;
+    on_tick(4322);
+    cleanup_components(&g_director_config);
+
     static const component_interface_t missing_create = {
         VALID_COMPONENT_API,
         .name = "missing-create", .description = "invalid",
@@ -645,6 +884,18 @@ static void test_initialization_failures_and_disabled_42(void)
     config.components[0].interface = &interface;
     TEST_ASSERT_EQUAL_INT(-1, initialize_components(&config));
     TEST_ASSERT_EQUAL_INT(0, config.components[0].active);
+
+    static const component_interface_t partial_interface = {
+        VALID_COMPONENT_API,
+        .name = "partial-failure", .description = "partial failure",
+        .create = partial_failing_init, .destroy = fake_cleanup};
+    memset(&config, 0, sizeof(config));
+    config.component_count = 1;
+    config.components[0].active = 1;
+    config.components[0].interface = &partial_interface;
+    TEST_ASSERT_EQUAL_INT(-1, initialize_components(&config));
+    TEST_ASSERT_EQUAL_INT(1, fake_state.cleaned);
+    TEST_ASSERT_NULL(config.components[0].state);
 
     memset(&config, 0, sizeof(config));
     TEST_ASSERT_EQUAL_INT(0, initialize_42(&config));
@@ -829,6 +1080,10 @@ static void test_telemetry_initialization(void)
     TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
     cleanup_components(&g_director_config);
 
+    unsetenv("SIMULITH_GSW_HOST");
+    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    cleanup_components(&g_director_config);
+
     setenv("SIMULITH_GSW_HOST", "256.256.256.256", 1);
     TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
     cleanup_components(&g_director_config);
@@ -869,13 +1124,111 @@ static void test_tick_command_failure_and_boundary_paths(void)
     cleanup_components(&g_director_config);
 }
 
+static void test_commit_reports_42_and_scenario_failures(void)
+{
+    simulith_42_command_t command = {
+        .type = SIMULITH_42_CMD_WHEEL_TORQUE,
+        .valid = 1,
+        .cmd.wheel.enable_mask = 1,
+    };
+    simulith_42_command_t discarded;
+    while (dequeue_command(&discarded) == 0)
+        ;
+
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    g_director_config.enable_42 = 1;
+    g_director_config.fortytwo_initialized = 1;
+    g_director_config.verbose = 1;
+    g_director_config.shared_tick_sequence = 51;
+    g_director_config.shared_tick_time_ns = 5100;
+    TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, director_commit_tick(51, 5100));
+    g_director_config.fortytwo_initialized = 0;
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    g_director_config.enable_42 = 1;
+    g_director_config.fortytwo_initialized = 0;
+    g_director_config.shared_tick_sequence = 52;
+    g_director_config.shared_tick_time_ns = 5200;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, director_commit_tick(52, 5200));
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    g_director_config.enable_42 = 1;
+    g_director_config.fortytwo_initialized = 1;
+    g_director_config.shared_tick_sequence = 54;
+    g_director_config.shared_tick_time_ns = 5400;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, director_commit_tick(54, 5400));
+    g_director_config.fortytwo_initialized = 0;
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    strcpy(g_director_config.scenario_file, "configured");
+    g_director_config.scenario_socket = -1;
+    g_director_config.scenario_command_count = 1;
+    g_director_config.scenario_commands[0].sequence = 53;
+    g_director_config.scenario_commands[0].packet_length = 1;
+    g_director_config.shared_tick_sequence = 53;
+    g_director_config.shared_tick_time_ns = 5300;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, director_commit_tick(53, 5300));
+    cleanup_components(&g_director_config);
+}
+
+static void test_director_identity_validations_and_terminal_metrics(void)
+{
+    g_director_config.enable_42 = 0;
+    g_director_config.shared_tick_sequence = 7;
+    g_director_config.shared_tick_time_ns = 1234;
+    TEST_ASSERT_EQUAL_INT(-1, director_execute_tick(8, 1235));
+    TEST_ASSERT_EQUAL_INT(-1, director_commit_tick(8, 1235));
+
+    g_director_config.shared_context_42.valid = 1;
+    g_director_config.shared_context_42.sim_time = 9.5;
+    g_director_config.shared_context_42.dyn_time = 9.5;
+    g_director_config.shared_context_42.qn[0] = 1.0;
+    g_director_config.shared_context_42.wn[2] = 2.0;
+    g_director_config.shared_context_42.pos_n[1] = 3.0;
+    g_director_config.shared_context_42.vel_n[2] = 4.0;
+    g_director_config.component_service_errors = 1;
+    g_director_config.component_phase_errors = 2;
+    g_director_config.scenario_digest = 0xfeedface;
+    g_director_config.scenario_command_count = 2;
+    g_director_config.scenario_injected = 1;
+    g_director_config.scenario_errors = 0;
+    director_write_terminal_metrics();
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &((const component_interface_t){
+        VALID_COMPONENT_API,
+        .name = "metrics", .description = "terminal metrics",
+        .create = fake_init, .on_tick = fake_tick,
+        .actuate = fake_actuate, .destroy = fake_cleanup,
+        .backdoor = NULL,
+    });
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, director_prepare_tick(9, 9000));
+    TEST_ASSERT_EQUAL_INT(0, director_execute_tick(9, 9000));
+    TEST_ASSERT_EQUAL_INT(0, director_commit_tick(9, 9000));
+    cleanup_components(&g_director_config);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_parse_args);
     RUN_TEST(test_scenario_validation_and_one_shot_injection);
+    RUN_TEST(test_scenario_parser_rejects_malformed_payloads);
+    RUN_TEST(test_scenario_injection_reports_send_failure);
     RUN_TEST(test_component_loading_paths);
     RUN_TEST(test_component_loading_accepts_only_valid_plugins);
+    RUN_TEST(test_component_worker_start_failures_are_cleaned_up);
+    RUN_TEST(test_component_sync_primitive_failures_are_reported);
     RUN_TEST(test_component_lifecycle_and_tick);
     RUN_TEST(test_component_phase_boundaries_and_failures);
     RUN_TEST(test_commit_waits_for_active_service_callback);
@@ -887,5 +1240,7 @@ int main(void)
     RUN_TEST(test_live_42_tick_and_telemetry);
     RUN_TEST(test_tick_handles_42_state_failure);
     RUN_TEST(test_tick_command_failure_and_boundary_paths);
+    RUN_TEST(test_commit_reports_42_and_scenario_failures);
+    RUN_TEST(test_director_identity_validations_and_terminal_metrics);
     return UNITY_END();
 }

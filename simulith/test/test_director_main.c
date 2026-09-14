@@ -11,8 +11,10 @@ typedef enum
     SCENARIO_LOAD_FAILURE,
     SCENARIO_COMPONENT_FAILURE,
     SCENARIO_42_FAILURE,
+    SCENARIO_TELEMETRY_FAILURE,
     SCENARIO_SCENARIO_FAILURE,
     SCENARIO_CLIENT_INIT_FAILURE,
+    SCENARIO_PHASE_CONFIG_FAILURE,
     SCENARIO_HANDSHAKE_FAILURE
 } scenario_t;
 
@@ -76,7 +78,7 @@ int initialize_42(director_config_t *config)
 int initialize_telemetry(void)
 {
     telemetry_calls++;
-    return 0;
+    return scenario == SCENARIO_TELEMETRY_FAILURE ? -1 : 0;
 }
 
 int initialize_scenario(director_config_t *config)
@@ -106,7 +108,7 @@ int simulith_client_configure_phases(uint32_t phase_mask)
                              SIMULITH_PHASE_MASK_EXECUTE |
                              SIMULITH_PHASE_MASK_COMMIT, phase_mask);
     configured_phase_calls++;
-    return 0;
+    return scenario == SCENARIO_PHASE_CONFIG_FAILURE ? -1 : 0;
 }
 
 void simulith_client_run_loop(simulith_tick_callback callback)
@@ -213,6 +215,13 @@ static void test_42_failure_refuses_open_loop_run(void)
 
 static void test_client_startup_failures(void)
 {
+    scenario = SCENARIO_TELEMETRY_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
+    TEST_ASSERT_EQUAL_INT(1, telemetry_calls);
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+    TEST_ASSERT_EQUAL_INT(0, client_shutdown_calls);
+
+    setUp();
     scenario = SCENARIO_SCENARIO_FAILURE;
     TEST_ASSERT_EQUAL_INT(1, run_entry());
     TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
@@ -222,6 +231,13 @@ static void test_client_startup_failures(void)
     TEST_ASSERT_EQUAL_INT(1, run_entry());
     TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
     TEST_ASSERT_EQUAL_INT(0, client_shutdown_calls);
+
+    setUp();
+    scenario = SCENARIO_PHASE_CONFIG_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
+    TEST_ASSERT_EQUAL_INT(1, configured_phase_calls);
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+    TEST_ASSERT_EQUAL_INT(1, client_shutdown_calls);
 
     setUp();
     scenario = SCENARIO_HANDSHAKE_FAILURE;

@@ -286,6 +286,12 @@ static void test_server_handshake_invalid_format(void)
     test_sleep_us(10000);
 
     char reply[128] = {0};
+    char oversized[128];
+    memset(oversized, 'x', sizeof(oversized) - 1);
+    oversized[sizeof(oversized) - 1] = '\0';
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, oversized, reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR", reply);
     int rc = zmq_req_send_and_recv(LOCAL_REP_ADDR, "BADMSG", reply, sizeof(reply));
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_STRING("ERR", reply);
@@ -342,6 +348,10 @@ static void test_server_ack_handling(void)
 
     test_sleep_us(20000);
 
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE malformed", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_PROTOCOL", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 ACKTEST extra", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_PROTOCOL", reply);
     int rc2 = zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 ACKTEST", reply, sizeof(reply));
     TEST_ASSERT_EQUAL_INT(0, rc2);
     TEST_ASSERT_EQUAL_STRING("ACK", reply);
@@ -394,6 +404,54 @@ static void test_server_standalone_invalid_arg(void)
     TEST_ASSERT_TRUE(WIFEXITED(status));
     int exit_code = WEXITSTATUS(status);
     TEST_ASSERT_NOT_EQUAL(0, exit_code);
+}
+
+static void test_server_standalone_invalid_timing_options(void)
+{
+    static const char *duration_values[] = {
+        "abc", "1x", "-1", "0", "nan", "inf",
+        "18446744074.0"
+    };
+    static const char *warmup_values[] = {
+        "abc", "1x", "-1", "nan", "inf",
+        "18446744074.0"
+    };
+
+    for (size_t index = 0;
+         index < sizeof(duration_values) / sizeof(duration_values[0]); ++index)
+    {
+        setenv("SIMULITH_DURATION", duration_values[index], 1);
+        pid_t pid = fork();
+        if (pid == 0)
+        {
+            execl(SIMULITH_SERVER_PATH, "simulith_server_standalone",
+                  (char *)NULL);
+            _exit(127);
+        }
+        int status = 0;
+        waitpid(pid, &status, 0);
+        TEST_ASSERT_TRUE(WIFEXITED(status));
+        TEST_ASSERT_EQUAL_INT(1, WEXITSTATUS(status));
+    }
+    unsetenv("SIMULITH_DURATION");
+
+    for (size_t index = 0;
+         index < sizeof(warmup_values) / sizeof(warmup_values[0]); ++index)
+    {
+        setenv("SIMULITH_WARMUP", warmup_values[index], 1);
+        pid_t pid = fork();
+        if (pid == 0)
+        {
+            execl(SIMULITH_SERVER_PATH, "simulith_server_standalone",
+                  (char *)NULL);
+            _exit(127);
+        }
+        int status = 0;
+        waitpid(pid, &status, 0);
+        TEST_ASSERT_TRUE(WIFEXITED(status));
+        TEST_ASSERT_EQUAL_INT(1, WEXITSTATUS(status));
+    }
+    unsetenv("SIMULITH_WARMUP");
 }
 
 // Unknown participants are rejected and attributed in the watchdog/protocol log.
@@ -512,6 +570,137 @@ static void test_server_enforces_prepare_execute_commit_order(void)
     simulith_server_shutdown();
 }
 
+static void test_server_configuration_and_metrics_paths(void)
+{
+    static const char metrics_path[] = "/tmp/simulith-metrics-test.json";
+    unlink(metrics_path);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_server_configure(-1.0, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_server_configure(NAN, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_configure(0.0, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_configure(2.5, 5000000ULL,
+                                                        metrics_path));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_server_configure_warmup(5000001ULL));
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_configure_warmup(2500000ULL));
+
+    const char *pub = "ipc:///tmp/simulith-config-pub.sock";
+    const char *rep = "ipc:///tmp/simulith-config-rep.sock";
+    setenv("SIMULITH_WATCHDOG_SECONDS", "0.001", 1);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_init(pub, rep, 1, INTERVAL_NS));
+    simulith_server_request_stop();
+    simulith_server_shutdown();
+
+    setenv("SIMULITH_WATCHDOG_SECONDS", "not-a-number", 1);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_init(pub, rep, 1, INTERVAL_NS));
+    simulith_server_request_stop();
+    simulith_server_shutdown();
+    unsetenv("SIMULITH_WATCHDOG_SECONDS");
+
+    FILE *metrics = fopen(metrics_path, "r");
+    TEST_ASSERT_NOT_NULL(metrics);
+    char line[256];
+    int found_requested = 0;
+    int found_completions = 0;
+    while (fgets(line, sizeof(line), metrics) != NULL)
+    {
+        if (strstr(line, "\"requested_speed\":") != NULL)
+            found_requested = 1;
+        if (strstr(line, "\"completions\":") != NULL)
+            found_completions = 1;
+    }
+    fclose(metrics);
+    TEST_ASSERT_TRUE(found_requested);
+    TEST_ASSERT_TRUE(found_completions);
+    unlink(metrics_path);
+    unlink("/tmp/simulith-config-pub.sock");
+    unlink("/tmp/simulith-config-rep.sock");
+}
+
+static void test_server_rejects_invalid_handshake_transport_and_duplicate_ids(void)
+{
+    pthread_t server;
+    int expected = 2;
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+
+    char reply[128] = {0};
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "BAD HANDSHAKE", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY bad! 3", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY clientA 0 zap", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY clientA 8", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY client! 5", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY clientA 5 zap", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR TRANSPORT", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY clientA 5 shared", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK 0", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY clientA 5 shared", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("DUP_ID", reply);
+
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
+}
+
+static void test_server_rejects_unavailable_and_mixed_shared_transport(void)
+{
+    pthread_t server;
+    int expected = 2;
+    setenv("SIMULITH_SYNC_TRANSPORT", "zmq", 1);
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+
+    char reply[128] = {0};
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY sharedbad 5 shared", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR TRANSPORT", reply);
+    unsetenv("SIMULITH_SYNC_TRANSPORT");
+
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
+
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY sharedok 5 shared", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK 0", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY mixed 5 zmq", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR TRANSPORT", reply);
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
+}
+
+static void test_server_accepts_default_and_legacy_handshakes(void)
+{
+    pthread_t server;
+    int expected = 1;
+    char reply[128] = {0};
+
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "READY shire-fsw", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
+
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "READY legacy 2 trailing", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR TRANSPORT", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "READY legacy 2", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK 0", reply);
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -531,9 +720,14 @@ int main(void)
     RUN_TEST(test_server_ack_handling);
     RUN_TEST(test_server_cli_commands);
     RUN_TEST(test_server_standalone_invalid_arg);
+    RUN_TEST(test_server_standalone_invalid_timing_options);
     RUN_TEST(test_server_handle_unknown_client_ack);
     RUN_TEST(test_server_rejects_bad_completion_sequences);
     RUN_TEST(test_server_enforces_prepare_execute_commit_order);
+    RUN_TEST(test_server_configuration_and_metrics_paths);
+    RUN_TEST(test_server_rejects_invalid_handshake_transport_and_duplicate_ids);
+    RUN_TEST(test_server_rejects_unavailable_and_mixed_shared_transport);
+    RUN_TEST(test_server_accepts_default_and_legacy_handshakes);
 
     return UNITY_END();
 }
