@@ -64,6 +64,10 @@ int simulith_42_send_empty_commands(void);
  */
 void simulith_42_cleanup(void);
 
+#ifdef SIMULITH_TESTING
+int simulith_42_parse_state_for_test(const char *message, simulith_42_context_t *context);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

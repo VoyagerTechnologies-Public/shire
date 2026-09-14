@@ -4,11 +4,11 @@
 export BUILDDIR ?= $(CURDIR)/build
 export TOPDIR ?= $(CURDIR)/..
 
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 export CONTAINER_NAME ?= shire-simulith
 export RUNTIME_DIRECTOR_NAME ?= shire-director-$(MISSION)
 export RUNTIME_SERVER_NAME ?= shire-server-$(MISSION)
-export SPACECRAFT ?= latest
+export SPACECRAFT ?= 0.0.0
 export MISSION ?= default
 
 # Determine number of parallel jobs to avoid maxing out low-power systems (Raspberry Pi etc.).
@@ -38,14 +38,9 @@ build-test:
 	mkdir -p $(BUILDDIR)
 	cd $(BUILDDIR) && cmake $(CURDIR) -DBUILD_SIMULITH_TESTS=ON -DENABLE_UNIT_TESTS=true
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
+	$(TOPDIR)/cfg/coverage.sh initial simulith $(BUILDDIR) $(BUILDDIR)
 	cd $(BUILDDIR) && ctest --output-on-failure -O ctest.log
-	lcov -c --directory . --output-file $(BUILDDIR)/coverage.info
-	lcov --remove $(BUILDDIR)/coverage.info '*/test/*' '*/tests/*' --output-file $(BUILDDIR)/coverage.filtered.info
-	genhtml $(BUILDDIR)/coverage.filtered.info --output-directory $(BUILDDIR)/report
-	@echo ""
-	@echo "Review coverage report: "
-	@echo "  firefox $(BUILDDIR)/report/index.html"
-	@echo ""
+	$(TOPDIR)/cfg/coverage.sh report simulith $(BUILDDIR) $(BUILDDIR)
 
 copy-sims:
 	@if [ ! -d "$(BUILDDIR)" ]; then \
@@ -116,7 +111,7 @@ stop:
 	docker ps --filter name=shire-* | xargs docker stop
 
 test:
-	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j$(JOBS) build-test
+	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make clean build-test
 
 # Discover testable components by reading build/build.yaml.
 # Falls back to "demo" if build.yaml is absent.
@@ -134,23 +129,26 @@ build-comp-test:
 	    mkdir -p $(TOPDIR)/comp/$$comp/sim/build; \
 	    cd $(TOPDIR)/comp/$$comp/sim/build && cmake .. -DBUILD_SIM_TESTS=ON -DENABLE_UNIT_TESTS=true || exit 1; \
 	    $(MAKE) --no-print-directory -C $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
+	    $(TOPDIR)/cfg/coverage.sh initial component-sim:$$comp $(TOPDIR)/comp/$$comp/sim/build $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
 	    cd $(TOPDIR)/comp/$$comp/sim/build && ctest --output-on-failure -O ctest.log || exit 1; \
-	    lcov -c --directory $(TOPDIR)/comp/$$comp/sim/build --output-file $(TOPDIR)/comp/$$comp/sim/build/coverage.info; \
-	    lcov --remove $(TOPDIR)/comp/$$comp/sim/build/coverage.info '*/test/*' '*/tests/*' '*/test-sim/*' '*/test-fsw/*' '*/hwlib/*' '*/shared/*' --output-file $(TOPDIR)/comp/$$comp/sim/build/coverage.filtered.info; \
+	    $(TOPDIR)/cfg/coverage.sh report component-sim:$$comp $(TOPDIR)/comp/$$comp/sim/build $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
 	done
 	@# Merge all per-component filtered traces into one combined report.
-	@COMBINED_DIR=$(TOPDIR)/build/sim-coverage; \
+	@COMBINED_DIR=$(abspath $(TOPDIR)/build/sim-coverage); \
 	mkdir -p $$COMBINED_DIR; \
 	ADD_FLAGS=""; \
 	for comp in $(COMP_TESTS); do \
-	    info=$(TOPDIR)/comp/$$comp/sim/build/coverage.filtered.info; \
+	    info=$(TOPDIR)/comp/$$comp/sim/build/coverage_mcdc.info; \
 	    if [ -f "$$info" ]; then ADD_FLAGS="$$ADD_FLAGS --add-tracefile $$info"; fi; \
 	done; \
-	lcov $$ADD_FLAGS --output-file $$COMBINED_DIR/coverage.info; \
-	genhtml $$COMBINED_DIR/coverage.info --output-directory $$COMBINED_DIR/report; \
+	lcov $$ADD_FLAGS --branch-coverage --mcdc-coverage --output-file $$COMBINED_DIR/coverage_mcdc.info; \
+	awk '!/^(MCDC|MCF|MCH):/' $$COMBINED_DIR/coverage_mcdc.info > $$COMBINED_DIR/coverage_filtered.info; \
+	genhtml $$COMBINED_DIR/coverage_mcdc.info --branch-coverage --mcdc-coverage --output-directory $$COMBINED_DIR/report; \
+	lcov --summary $$COMBINED_DIR/coverage_mcdc.info --branch-coverage --mcdc-coverage; \
 	echo ""; \
-	echo "Combined simulator coverage report:"; \
-	echo "  firefox $$COMBINED_DIR/report/index.html"; \
+	echo "Combined simulator MC/DC HTML: $$COMBINED_DIR/report/index.html"; \
+	echo "View combined report in Firefox: firefox \"file://$$COMBINED_DIR/report/index.html\""; \
+	echo "Combined simulator Codecov trace: $$COMBINED_DIR/coverage_filtered.info"; \
 	echo ""
 
 test-comp:

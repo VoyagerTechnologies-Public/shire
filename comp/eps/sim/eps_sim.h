@@ -21,6 +21,8 @@ typedef struct
     uint32_t device_counter;        /* Device counter */
     transport_port_t i2c_device;    /* I2C device handle */
     double battery_energy_wh;       /* Battery energy in watt-hours */
+    uint64_t next_hk_update_ns;     /* Absolute simulated-time deadline */
+    uint32_t prng_state;            /* Instance-owned deterministic noise */
 } eps_sim_state_t;
 
 /*

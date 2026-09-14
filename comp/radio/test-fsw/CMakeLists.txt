@@ -58,7 +58,6 @@ include_directories(${PROJECT_SOURCE_DIR}/../../${FSW_DIR}/apps/io_lib/fsw/publi
 add_cfe_coverage_test(radio ALL 
     "coveragetest/coveragetest_radio_app.c"
     "../src/radio_app.c"
-    "../shared/radio_device.c"
 )
 
 add_cfe_coverage_test(radio DEVICE 
@@ -75,4 +74,3 @@ add_cfe_coverage_dependency(radio ALL radio-internal)
 # with the radio_lib stub library (this is mainly just an example of how this 
 # can be done).
 #add_cfe_coverage_dependency(radio ALL radio_lib)
-

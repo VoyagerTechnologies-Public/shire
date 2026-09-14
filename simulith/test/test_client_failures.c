@@ -1,0 +1,435 @@
+#include "simulith.h"
+#include "unity.h"
+
+#include <errno.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef enum
+{
+    RECV_ACK,
+    RECV_EAGAIN,
+    RECV_ERROR,
+    RECV_DUPLICATE,
+    RECV_UNEXPECTED,
+    RECV_TICK_SEND_FAILURE,
+    RECV_TICK_ACK_FAILURE,
+    RECV_RUN_NULL_CALLBACK,
+    RECV_RUN_COMPLETION_FAILURE,
+    RECV_PHASE_CALLBACK_FAILURE,
+    RECV_PHASE_VARIANTS,
+    RECV_TIME_VALIDATION,
+    RECV_INVALID_TICK,
+    RECV_DUPLICATE_TICK,
+    RECV_STOP_TICK,
+    RECV_EAGAIN_THEN_STOP,
+    RECV_OVERSIZED
+} receive_mode_t;
+
+static int socket_calls;
+static int socket_failure_call;
+static int connect_calls;
+static int connect_failure_call;
+static int send_failure;
+static int send_calls;
+static int receive_calls;
+static receive_mode_t receive_mode;
+
+void simulith_log(const char *format, ...)
+{
+    (void)format;
+}
+
+void *__wrap_zmq_ctx_new(void)
+{
+    return socket_failure_call == -1 ? NULL : (void *)(uintptr_t)1;
+}
+
+int __wrap_zmq_ctx_term(void *context)
+{
+    (void)context;
+    return 0;
+}
+
+void *__wrap_zmq_socket(void *context, int type)
+{
+    (void)context;
+    (void)type;
+    socket_calls++;
+    return socket_calls == socket_failure_call ? NULL : (void *)(uintptr_t)(socket_calls + 1);
+}
+
+int __wrap_zmq_connect(void *socket, const char *endpoint)
+{
+    (void)socket;
+    (void)endpoint;
+    connect_calls++;
+    return connect_calls == connect_failure_call ? -1 : 0;
+}
+
+int __wrap_zmq_setsockopt(void *socket, int option, const void *value, size_t length)
+{
+    (void)socket;
+    (void)option;
+    (void)value;
+    (void)length;
+    return 0;
+}
+
+int __wrap_zmq_close(void *socket)
+{
+    (void)socket;
+    return 0;
+}
+
+int __wrap_zmq_send(void *socket, const void *buffer, size_t length, int flags)
+{
+    (void)socket;
+    (void)buffer;
+    (void)flags;
+    send_calls++;
+    return send_failure ? -1 : (int)length;
+}
+
+static int copy_reply(void *buffer, size_t length, const char *reply)
+{
+    size_t reply_length = strlen(reply);
+    if (reply_length > length)
+        reply_length = length;
+    memcpy(buffer, reply, reply_length);
+    return (int)reply_length;
+}
+
+static int copy_tick(void *buffer, size_t length, uint64_t sequence, uint64_t time_ns,
+                     simulith_phase_t phase)
+{
+    simulith_tick_message_t tick = {
+        .magic = SIMULITH_PROTOCOL_MAGIC,
+        .version = SIMULITH_PROTOCOL_VERSION,
+        .phase = phase,
+        .sequence = sequence,
+        .time_ns = time_ns
+    };
+    if (length < sizeof(tick))
+        return -1;
+    memcpy(buffer, &tick, sizeof(tick));
+    return (int)sizeof(tick);
+}
+
+int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
+{
+    (void)socket;
+    (void)flags;
+    receive_calls++;
+    switch (receive_mode) {
+        case RECV_EAGAIN:
+            errno = EAGAIN;
+            return -1;
+        case RECV_ERROR:
+            errno = EIO;
+            return -1;
+        case RECV_DUPLICATE:
+            return copy_reply(buffer, length, "DUP_ID");
+        case RECV_UNEXPECTED:
+            return copy_reply(buffer, length, "WHAT");
+        case RECV_OVERSIZED:
+            memset(buffer, 'A', length);
+            return (int)length + 1;
+        case RECV_TICK_SEND_FAILURE:
+            if (receive_calls == 1)
+                return copy_tick(buffer, length, 0, 42, SIMULITH_PHASE_EXECUTE);
+            return copy_reply(buffer, length, "ACK");
+        case RECV_TICK_ACK_FAILURE:
+            if (receive_calls == 1)
+                return copy_tick(buffer, length, 0, 42, SIMULITH_PHASE_EXECUTE);
+            errno = EIO;
+            return -1;
+        case RECV_RUN_NULL_CALLBACK:
+            if (receive_calls == 1)
+                return copy_tick(buffer, length, 2, 44, SIMULITH_PHASE_COMMIT);
+            simulith_client_request_stop();
+            errno = EAGAIN;
+            return -1;
+        case RECV_RUN_COMPLETION_FAILURE:
+            if (receive_calls == 1)
+                return copy_tick(buffer, length, 0, 100,
+                                 SIMULITH_PHASE_PREPARE);
+            if (receive_calls == 2)
+                return copy_tick(buffer, length, 0, 100,
+                                 SIMULITH_PHASE_COMMIT);
+            if (receive_calls == 3)
+                return copy_reply(buffer, length, "WHAT");
+            simulith_client_request_stop();
+            errno = EAGAIN;
+            return -1;
+        case RECV_PHASE_CALLBACK_FAILURE:
+            return copy_tick(buffer, length, 4, 400,
+                             SIMULITH_PHASE_PREPARE);
+        case RECV_PHASE_VARIANTS:
+            if (receive_calls == 1)
+                return copy_tick(buffer, length, 0, 100,
+                                 SIMULITH_PHASE_EXECUTE);
+            if (receive_calls == 2)
+                return copy_reply(buffer, length, "ACK");
+            if (receive_calls == 3)
+                return copy_tick(buffer, length, 0, 100,
+                                 SIMULITH_PHASE_COMMIT);
+            return copy_reply(buffer, length, "WHAT");
+        case RECV_TIME_VALIDATION:
+            if (receive_calls == 1)
+                return copy_tick(buffer, length, 0, 100, SIMULITH_PHASE_PREPARE);
+            if (receive_calls == 2)
+                return copy_tick(buffer, length, 0, 99, SIMULITH_PHASE_EXECUTE);
+            if (receive_calls == 3)
+                return copy_tick(buffer, length, 1, 100, SIMULITH_PHASE_PREPARE);
+            return copy_tick(buffer, length, 1, 101, SIMULITH_PHASE_PREPARE);
+        case RECV_INVALID_TICK: {
+            int size = copy_tick(buffer, length, 1, 100,
+                                 SIMULITH_PHASE_PREPARE);
+            ((simulith_tick_message_t *)buffer)->magic = 0;
+            return size;
+        }
+        case RECV_DUPLICATE_TICK:
+            return copy_tick(buffer, length, 1, 100,
+                             SIMULITH_PHASE_PREPARE);
+        case RECV_STOP_TICK:
+            return copy_tick(buffer, length, 2, 200, SIMULITH_PHASE_STOP);
+        case RECV_EAGAIN_THEN_STOP:
+            if (receive_calls > 1)
+                simulith_client_request_stop();
+            errno = EAGAIN;
+            return -1;
+        case RECV_ACK:
+        default:
+            return copy_reply(buffer, length, "ACK");
+    }
+}
+
+void setUp(void)
+{
+    simulith_client_shutdown();
+    socket_calls = 0;
+    socket_failure_call = 0;
+    connect_calls = 0;
+    connect_failure_call = 0;
+    send_failure = 0;
+    send_calls = 0;
+    receive_calls = 0;
+    receive_mode = RECV_ACK;
+}
+
+void tearDown(void)
+{
+    simulith_client_shutdown();
+}
+
+static void test_client_initialization_resource_failures(void)
+{
+    socket_failure_call = -1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_init("pub", "rep", "id", 1));
+
+    socket_failure_call = 1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_init("pub", "rep", "id", 1));
+
+    socket_calls = 0;
+    socket_failure_call = 2;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_init("pub", "rep", "id", 1));
+
+    socket_calls = 0;
+    socket_failure_call = 0;
+    connect_calls = 0;
+    connect_failure_call = 1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_init("pub", "rep", "id", 1));
+
+    socket_calls = 0;
+    connect_calls = 0;
+    connect_failure_call = 2;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_init("pub", "rep", "id", 1));
+}
+
+static void test_client_identity_and_shared_handshake_guards(void)
+{
+    TEST_ASSERT_EQUAL_INT(-1,
+                          simulith_client_init("pub", "rep", "bad id", 1));
+
+    /* An IPC client requesting the shared barrier must receive an assigned
+     * slot.  A legacy slotless ACK is not sufficient for that transport. */
+    unsetenv("SIMULITH_SYNC_TRANSPORT");
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init(
+                                  "pub", "ipc:///tmp/shire-client-test.sock",
+                                  "shared-client", 1));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_configure_phases(0));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_configure_phases(UINT32_C(1) << 31));
+    receive_mode = RECV_ACK;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+}
+
+static void test_client_handshake_failures(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 1));
+    send_failure = 1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    send_failure = 0;
+
+    receive_mode = RECV_EAGAIN;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    receive_mode = RECV_ERROR;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    receive_mode = RECV_DUPLICATE;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    receive_mode = RECV_UNEXPECTED;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    receive_mode = RECV_OVERSIZED;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+}
+
+static void test_client_tick_failures_and_null_callback(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 1));
+    uint64_t tick = 0;
+
+    receive_mode = RECV_TICK_SEND_FAILURE;
+    send_failure = 1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_wait_for_tick(&tick));
+    TEST_ASSERT_EQUAL_UINT64(42, tick);
+
+    receive_calls = 0;
+    receive_mode = RECV_TICK_ACK_FAILURE;
+    send_failure = 0;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_wait_for_tick(&tick));
+
+    receive_calls = 0;
+    receive_mode = RECV_RUN_NULL_CALLBACK;
+    simulith_client_run_loop(NULL);
+
+    simulith_client_shutdown();
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 100));
+    receive_calls = 0;
+    receive_mode = RECV_RUN_COMPLETION_FAILURE;
+    simulith_client_run_loop(NULL);
+}
+
+static void test_client_rejects_duplicate_completion(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_configure_phases(SIMULITH_PHASE_MASK_EXECUTE));
+    receive_mode = RECV_TICK_SEND_FAILURE;
+
+    uint64_t tick = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_wait_for_tick(&tick));
+    TEST_ASSERT_EQUAL_UINT64(42, tick);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(0, SIMULITH_PHASE_EXECUTE));
+}
+
+static int fail_phase_callback(uint64_t sequence, uint64_t time_ns)
+{
+    TEST_ASSERT_EQUAL_UINT64(4, sequence);
+    TEST_ASSERT_EQUAL_UINT64(400, time_ns);
+    return -1;
+}
+
+static void test_phase_callback_failure_withholds_completion(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_configure_phases(
+        SIMULITH_PHASE_MASK_PREPARE));
+    receive_mode = RECV_PHASE_CALLBACK_FAILURE;
+
+    simulith_client_run_phased_loop(fail_phase_callback, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(0, send_calls);
+}
+
+static int successful_phase_callback(uint64_t sequence, uint64_t time_ns)
+{
+    TEST_ASSERT_EQUAL_UINT64(0, sequence);
+    TEST_ASSERT_EQUAL_UINT64(100, time_ns);
+    return 0;
+}
+
+static void test_phased_loop_dispatches_execute_and_commit(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 100));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_configure_phases(
+        SIMULITH_PHASE_MASK_EXECUTE | SIMULITH_PHASE_MASK_COMMIT));
+    receive_mode = RECV_PHASE_VARIANTS;
+
+    simulith_client_run_phased_loop(NULL, successful_phase_callback,
+                                    successful_phase_callback);
+    TEST_ASSERT_EQUAL_INT(2, send_calls);
+}
+
+static void test_client_rejects_invalid_duplicate_and_stop_ticks(void)
+{
+    uint64_t time_ns = 0;
+    uint64_t sequence = 0;
+    simulith_phase_t phase = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 100));
+    receive_mode = RECV_INVALID_TICK;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+
+    receive_mode = RECV_DUPLICATE_TICK;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+
+    simulith_client_shutdown();
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 100));
+    receive_calls = 0;
+    receive_mode = RECV_STOP_TICK;
+    TEST_ASSERT_EQUAL_INT(1, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_PHASE_STOP, phase);
+
+    simulith_client_shutdown();
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 100));
+    receive_calls = 0;
+    receive_mode = RECV_EAGAIN_THEN_STOP;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+}
+
+static void test_client_rejects_non_monotonic_simulation_time(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 1));
+    receive_mode = RECV_TIME_VALIDATION;
+
+    uint64_t time_ns = 0;
+    uint64_t sequence = 0;
+    simulith_phase_t phase = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_UINT64(100, time_ns);
+
+    /* A later phase of one sequence must retain exactly the same time. */
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+
+    /* A new sequence must advance time rather than repeat it. */
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(
+        &time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_UINT64(1, sequence);
+    TEST_ASSERT_EQUAL_UINT64(101, time_ns);
+}
+
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_client_initialization_resource_failures);
+    RUN_TEST(test_client_identity_and_shared_handshake_guards);
+    RUN_TEST(test_client_handshake_failures);
+    RUN_TEST(test_client_tick_failures_and_null_callback);
+    RUN_TEST(test_client_rejects_duplicate_completion);
+    RUN_TEST(test_phase_callback_failure_withholds_completion);
+    RUN_TEST(test_phased_loop_dispatches_execute_and_commit);
+    RUN_TEST(test_client_rejects_invalid_duplicate_and_stop_ticks);
+    RUN_TEST(test_client_rejects_non_monotonic_simulation_time);
+    return UNITY_END();
+}

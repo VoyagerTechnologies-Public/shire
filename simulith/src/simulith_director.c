@@ -22,6 +22,9 @@
 */
 
 #include "simulith_director.h"
+
+#include <ctype.h>
+#include <sys/eventfd.h>
 #include "simulith_42_socket_client.h"
 
 director_config_t g_director_config;
@@ -30,6 +33,47 @@ static int g_udp_sock = -1;
 static struct sockaddr_in g_udp_addr;
 static int g_udp_publish_counter = 0;
 static int g_backdoor_sock = -1;
+static uint64_t g_prepare_count = 0;
+static uint64_t g_commit_count = 0;
+static uint64_t g_telemetry_count = 0;
+static uint64_t g_telemetry_errors = 0;
+static uint64_t g_fortytwo_errors = 0;
+
+static int component_interface_is_compatible(const component_interface_t *interface,
+                                             const char *library)
+{
+    const char *source = library ? library : "component";
+    if (!interface)
+    {
+        printf("Warning: %s returned a NULL component interface\n", source);
+        return 0;
+    }
+    if (interface->api_version != SIMULITH_COMPONENT_API_VERSION ||
+        interface->struct_size != sizeof(component_interface_t))
+    {
+        printf("Warning: %s has incompatible component API version/size "
+               "(%u/%u, expected %u/%zu)\n", source,
+               (unsigned)interface->api_version,
+               (unsigned)interface->struct_size,
+               (unsigned)SIMULITH_COMPONENT_API_VERSION,
+               sizeof(component_interface_t));
+        return 0;
+    }
+    if (!interface->name || interface->name[0] == '\0' ||
+        !interface->create || !interface->destroy)
+    {
+        printf("Warning: %s component interface requires a name, create, and destroy\n",
+               source);
+        return 0;
+    }
+    if ((interface->service == NULL) != (interface->wait_for_service == NULL))
+    {
+        printf("Warning: %s component interface requires service and "
+               "wait_for_service together\n", source);
+        return 0;
+    }
+    return 1;
+}
 
 static int ensure_backdoor_socket(void)
 {
@@ -99,9 +143,13 @@ static void process_backdoor_once(director_config_t* config)
         break;
     }
 }
-
-int parse_args(int argc, char *argv[], director_config_t *config) 
+int parse_args(int argc, char *argv[], director_config_t *config)
 {
+    if (!config)
+        return 1;
+
+    memset(config, 0, sizeof(*config));
+    config->scenario_socket = -1;
     // Set defaults
     strcpy(config->config_file, "spacecraft.conf");
     strcpy(config->components_dir, "./components");  // Default components directory
@@ -117,53 +165,162 @@ int parse_args(int argc, char *argv[], director_config_t *config)
         if (strcmp(argv[i], "--enable-42") == 0) {
             config->enable_42 = 1;
             printf("42 dynamics simulation enabled via command line\n");
-        } else if (strcmp(argv[i], "--42-config") == 0 && i + 1 < argc) {
-            strcpy(config->fortytwo_config, argv[++i]);
+        } else if (strcmp(argv[i], "--42-config") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--42-config requires a directory\n");
+                return 1;
+            }
+            const char *path = argv[++i];
+            if (snprintf(config->fortytwo_config,
+                         sizeof(config->fortytwo_config), "%s", path) >=
+                (int)sizeof(config->fortytwo_config)) {
+                fprintf(stderr, "--42-config path is too long\n");
+                return 1;
+            }
             printf("42 config directory set to: %s\n", config->fortytwo_config);
+        } else if (strcmp(argv[i], "--scenario") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--scenario requires a JSON file\n");
+                return 1;
+            }
+            if (snprintf(config->scenario_file, sizeof(config->scenario_file),
+                         "%s", argv[++i]) >= (int)sizeof(config->scenario_file)) {
+                fprintf(stderr, "--scenario path is too long\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--verbose") == 0) {
             config->verbose = 1;
         } else if (strcmp(argv[i], "--help") == 0) {
             printf("Simulith Director Options:\n");
             printf("  --enable-42        Enable 42 dynamics simulation\n");
             printf("  --42-config DIR    Set 42 configuration directory (default: ./InOut)\n");
+            printf("  --scenario FILE    Inject versioned, sequence-numbered UDP commands\n");
             printf("  --verbose          Enable verbose output\n");
             printf("  --help             Show this help message\n");
             return -1;  // Exit after showing help
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            return 1;
         }
     }
     
     return 0;
 }
 
-/* Worker thread: 
- * sleeps on tick_cond between ticks.  Using pthread_cond_wait frees the
- * CPU between ticks so the main thread's ZMQ spin-wait and the 42/FSW 
- * containers are not CPU-starved. */
+/* One worker owns each component's device service callback. PREPARE/on_tick
+ * and COMMIT/actuate remain sequential in the director so tiny callbacks do
+ * not incur a thread wake and barrier round trip. */
+static void signal_component_worker(int fd)
+{
+    uint64_t one = 1;
+    if (fd < 0)
+        return;
+    while (write(fd, &one, sizeof(one)) < 0 && errno == EINTR)
+    {
+    }
+}
+
+static void drain_component_worker_signal(int fd)
+{
+    uint64_t value;
+    if (fd < 0)
+        return;
+    while (read(fd, &value, sizeof(value)) < 0 && errno == EINTR)
+    {
+    }
+}
+
 static void* component_worker(void* arg)
 {
     int idx = (int)(intptr_t)arg;
     uint64_t last_epoch = 0;
+    component_entry_t* entry = &g_director_config.components[idx];
 
-    for (;;) {
+    for (;;)
+    {
         pthread_mutex_lock(&g_director_config.tick_mutex);
         while (!g_director_config.threads_exit &&
-               g_director_config.tick_epoch == last_epoch)
-            pthread_cond_wait(&g_director_config.tick_cond, &g_director_config.tick_mutex);
-        if (g_director_config.threads_exit) {
+               (!g_director_config.execute_active ||
+                g_director_config.execute_epoch == last_epoch))
+            pthread_cond_wait(&g_director_config.tick_cond,
+                              &g_director_config.tick_mutex);
+        if (g_director_config.threads_exit)
+        {
             pthread_mutex_unlock(&g_director_config.tick_mutex);
             return NULL;
         }
-        last_epoch = g_director_config.tick_epoch;
+        last_epoch = g_director_config.execute_epoch;
         pthread_mutex_unlock(&g_director_config.tick_mutex);
 
-        component_entry_t* e = &g_director_config.components[idx];
-        if (e->active && e->interface && e->interface->tick && e->state)
-            e->interface->tick(e->state, g_director_config.shared_tick_time_ns,
-                               &g_director_config.shared_context_42);
+        for (;;)
+        {
+            pthread_mutex_lock(&g_director_config.tick_mutex);
+            if (g_director_config.threads_exit ||
+                !g_director_config.execute_active ||
+                g_director_config.execute_epoch != last_epoch)
+            {
+                pthread_mutex_unlock(&g_director_config.tick_mutex);
+                break;
+            }
 
-        pthread_barrier_wait(&g_director_config.tick_barrier);
+            /* Register this exact EXECUTE epoch before blocking.  COMMIT only
+             * signals registered waiters, so a worker which has not entered
+             * the wait cannot carry a stale wake into the following tick.
+             * Drain while holding tick_mutex to also cover the narrow race in
+             * which socket readiness returned immediately before COMMIT. */
+            drain_component_worker_signal(
+                g_director_config.component_interrupt_fds[idx]);
+            g_director_config.component_wait_epochs[idx] = last_epoch;
+            pthread_mutex_unlock(&g_director_config.tick_mutex);
+
+            int ready = entry->interface->wait_for_service(
+                entry->state, g_director_config.component_interrupt_fds[idx]);
+
+            pthread_mutex_lock(&g_director_config.tick_mutex);
+            g_director_config.component_wait_epochs[idx] = 0;
+            if (ready == COMPONENT_IDLE || g_director_config.threads_exit ||
+                !g_director_config.execute_active ||
+                g_director_config.execute_epoch != last_epoch)
+            {
+                pthread_mutex_unlock(&g_director_config.tick_mutex);
+                break;
+            }
+            if (ready == COMPONENT_ERROR)
+            {
+                entry->phase_status = COMPONENT_ERROR;
+                g_director_config.component_service_errors++;
+                pthread_cond_broadcast(&g_director_config.tick_cond);
+                pthread_mutex_unlock(&g_director_config.tick_mutex);
+                simulith_log("Component %s failed service wait on tick %lu\n",
+                             entry->interface->name,
+                             (unsigned long)g_director_config.shared_tick_sequence);
+                break;
+            }
+            g_director_config.active_service_callbacks++;
+            pthread_mutex_unlock(&g_director_config.tick_mutex);
+
+            int work = entry->interface->service(
+                entry->state, g_director_config.shared_tick_time_ns,
+                &g_director_config.shared_context_42);
+
+            pthread_mutex_lock(&g_director_config.tick_mutex);
+            g_director_config.active_service_callbacks--;
+            if (work == COMPONENT_ERROR)
+            {
+                entry->phase_status = COMPONENT_ERROR;
+                g_director_config.component_service_errors++;
+                pthread_cond_broadcast(&g_director_config.tick_cond);
+                pthread_mutex_unlock(&g_director_config.tick_mutex);
+                simulith_log("Component %s failed EXECUTE on tick %lu\n",
+                             entry->interface->name,
+                             (unsigned long)g_director_config.shared_tick_sequence);
+                break;
+            }
+            pthread_cond_broadcast(&g_director_config.tick_cond);
+            pthread_mutex_unlock(&g_director_config.tick_mutex);
+        }
+
     }
-    return NULL;
 }
 
 int load_components(director_config_t* config) 
@@ -186,8 +343,9 @@ int load_components(director_config_t* config)
     while ((entry = readdir(dir)) != NULL && config->component_count < MAX_COMPONENTS) {
         printf("Found directory entry: %s\n", entry->d_name);
         
-        // Look for .so files
-        if (strstr(entry->d_name, ".so") == NULL) {
+        // Look for shared-library filenames ending in .so.
+        size_t name_length = strlen(entry->d_name);
+        if (name_length < 3 || strcmp(entry->d_name + name_length - 3, ".so") != 0) {
             printf("  Skipping non-.so file: %s\n", entry->d_name);
             continue;
         }
@@ -196,20 +354,19 @@ int load_components(director_config_t* config)
         
         // Build full path
         char lib_path[512];
-        snprintf(lib_path, sizeof(lib_path), "%s/%s", config->components_dir, entry->d_name);
+        if (snprintf(lib_path, sizeof(lib_path), "%s/%s", config->components_dir,
+                     entry->d_name) >= (int)sizeof(lib_path)) {
+            printf("Warning: Component library path is too long: %s\n", entry->d_name);
+            continue;
+        }
         
         printf("Loading component library: %s\n", lib_path);
         
         // Load the shared library
-        void* lib_handle = dlopen(lib_path, RTLD_LAZY);
+        void* lib_handle = dlopen(lib_path, RTLD_NOW);
         if (!lib_handle) {
             printf("Warning: Failed to load %s: %s\n", lib_path, dlerror());
             continue;
-        }
-        
-        // Store library handle for cleanup
-        if (config->lib_count < MAX_COMPONENT_LIBS) {
-            config->lib_handles[config->lib_count++] = lib_handle;
         }
         
         // Use union to safely convert between object and function pointers
@@ -218,21 +375,48 @@ int load_components(director_config_t* config)
             get_component_interface_fn func;
         } symbol_cast;
 
-        symbol_cast.obj = dlsym(lib_handle, "get_component_interface");
+        symbol_cast.obj = dlsym(lib_handle, SIMULITH_COMPONENT_ENTRY_POINT);
         get_component_interface_fn get_interface = symbol_cast.func;
         
         if (!get_interface) {
-            printf("Warning: Library %s does not export get_component_interface: %s\n", 
+            printf("Warning: Library %s does not export get_component_interface: %s\n",
                    lib_path, dlerror());
+            dlclose(lib_handle);
             continue;
         }
         
         // Get the component interface
         const component_interface_t* interface = get_interface();
-        if (!interface) {
-            printf("Warning: Library %s returned NULL interface\n", lib_path);
+        if (!component_interface_is_compatible(interface, lib_path)) {
+            dlclose(lib_handle);
             continue;
         }
+
+        int duplicate_name = 0;
+        for (int i = 0; i < config->component_count; ++i)
+        {
+            if (strcmp(config->components[i].interface->name,
+                       interface->name) == 0)
+            {
+                duplicate_name = 1;
+                break;
+            }
+        }
+        if (duplicate_name)
+        {
+            printf("Warning: Duplicate component name %s in %s\n",
+                   interface->name, lib_path);
+            dlclose(lib_handle);
+            continue;
+        }
+
+        if (config->lib_count >= MAX_COMPONENT_LIBS) {
+            printf("Warning: Component library capacity reached; skipping %s\n", lib_path);
+            dlclose(lib_handle);
+            continue;
+        }
+
+        config->lib_handles[config->lib_count++] = lib_handle;
         
         // Register the component
         config->components[config->component_count].interface = interface;
@@ -240,8 +424,9 @@ int load_components(director_config_t* config)
         config->components[config->component_count].lib_handle = lib_handle;
         config->components[config->component_count].active = 1;
         
-        printf("Registered component: %s - %s\n", 
-               interface->name, interface->description);
+        printf("Registered component: %s - %s\n",
+               interface->name,
+               interface->description ? interface->description : "");
         config->component_count++;
     }
     
@@ -254,15 +439,35 @@ int load_components(director_config_t* config)
 int initialize_components(director_config_t* config)
 {
     printf("Initializing components...\n");
-    
+    g_prepare_count = 0;
+    g_commit_count = 0;
+    g_telemetry_count = 0;
+    g_telemetry_errors = 0;
+    g_fortytwo_errors = 0;
+    config->component_phase_errors = 0;
+    config->component_service_errors = 0;
+    for (int i = 0; i < MAX_COMPONENTS; ++i)
+    {
+        config->component_interrupt_fds[i] = -1;
+        config->component_wait_epochs[i] = 0;
+    }
+
     for (int i = 0; i < config->component_count; i++) {
         component_entry_t* entry = &config->components[i];
-        if (entry->active && entry->interface && entry->interface->init) {
+        if (entry->active) {
+            if (!component_interface_is_compatible(entry->interface, "registered component"))
+            {
+                entry->active = 0;
+                return -1;
+            }
             printf("Initializing component: %s\n", entry->interface->name);
-            
-            int result = entry->interface->init(&entry->state);
-            if (result != COMPONENT_SUCCESS) {
+
+            int result = entry->interface->create(&entry->state);
+            if (result != COMPONENT_SUCCESS || entry->state == NULL) {
                 printf("Failed to initialize component: %s\n", entry->interface->name);
+                if (entry->state != NULL && entry->interface->destroy != NULL)
+                    entry->interface->destroy(entry->state);
+                entry->state = NULL;
                 entry->active = 0;
                 return -1;
             }
@@ -271,31 +476,77 @@ int initialize_components(director_config_t* config)
     
     printf("All components initialized successfully\n");
 
-    /* Spawn one worker thread per component for parallel ticking */
-    config->tick_epoch    = 0;
+    /* Spawn one worker per component for concurrent EXECUTE device service. */
+    config->execute_epoch = 0;
     config->threads_exit  = 0;
+    config->execute_active = 0;
+    config->active_service_callbacks = 0;
     config->threads_spawned = 0;
+    config->worker_sync_initialized = 0;
+    memset(config->component_thread_started, 0,
+           sizeof(config->component_thread_started));
 
-    pthread_mutex_init(&config->tick_mutex, NULL);
-    pthread_cond_init(&config->tick_cond, NULL);
-
-    /* Barrier count: one slot per worker + one for the main thread.
-     * A count of 1 (no components) lets the main thread pass immediately. */
-    int barrier_count = (config->component_count > 0) ? config->component_count + 1 : 1;
-    pthread_barrier_init(&config->tick_barrier, NULL, (unsigned)barrier_count);
+    if (pthread_mutex_init(&config->tick_mutex, NULL) != 0)
+        return -1;
+    pthread_condattr_t condition_attributes;
+    if (pthread_condattr_init(&condition_attributes) != 0) {
+        pthread_mutex_destroy(&config->tick_mutex);
+        return -1;
+    }
+    int condition_status = pthread_condattr_setclock(&condition_attributes,
+                                                     CLOCK_MONOTONIC);
+    if (condition_status == 0)
+        condition_status = pthread_cond_init(&config->tick_cond,
+                                             &condition_attributes);
+    pthread_condattr_destroy(&condition_attributes);
+    if (condition_status != 0) {
+        pthread_mutex_destroy(&config->tick_mutex);
+        return -1;
+    }
+    config->worker_sync_initialized = 1;
 
     for (int i = 0; i < config->component_count; i++) {
-        if (!config->components[i].active) continue;
+        if (!config->components[i].active ||
+            config->components[i].interface->service == NULL)
+            continue;
+        config->component_interrupt_fds[i] = eventfd(
+            0, EFD_CLOEXEC | EFD_NONBLOCK);
+        if (config->component_interrupt_fds[i] < 0) {
+            fprintf(stderr, "Failed to create worker interrupt for component %d\n", i);
+            goto worker_start_failure;
+        }
         if (pthread_create(&config->component_threads[i], NULL,
                            component_worker, (void*)(intptr_t)i) != 0) {
             fprintf(stderr, "Failed to spawn worker thread for component %d\n", i);
-            return -1;
+            goto worker_start_failure;
         }
+        config->component_thread_started[i] = 1;
         config->threads_spawned++;
     }
 
     printf("Spawned %d component worker thread(s)\n", config->threads_spawned);
     return 0;
+
+worker_start_failure:
+    pthread_mutex_lock(&config->tick_mutex);
+    config->threads_exit = 1;
+    pthread_cond_broadcast(&config->tick_cond);
+    for (int worker = 0; worker < config->component_count; ++worker)
+        signal_component_worker(config->component_interrupt_fds[worker]);
+    pthread_mutex_unlock(&config->tick_mutex);
+    for (int started = 0; started < config->component_count; ++started)
+    {
+        if (config->component_thread_started[started])
+        {
+            pthread_join(config->component_threads[started], NULL);
+            config->component_thread_started[started] = 0;
+        }
+        if (config->component_interrupt_fds[started] >= 0)
+            close(config->component_interrupt_fds[started]);
+        config->component_interrupt_fds[started] = -1;
+    }
+    config->threads_spawned = 0;
+    return -1;
 }
 
 int initialize_42(director_config_t* config)
@@ -326,46 +577,405 @@ int initialize_42(director_config_t* config)
     // Initialize socket connection to 42
     if (simulith_42_init(hostname, port) != 0) {
         printf("Warning: Failed to connect to 42 at %s:%d\n", hostname, port);
-        printf("Exiting...\n");
         config->enable_42 = 0;
-        exit(1);
-        return 0;
+        return -1;
     }
     
     config->fortytwo_initialized = 1;
     printf("Connected to 42 successfully\n");
     return 0;
 }
+int initialize_telemetry(void)
+{
+    g_udp_publish_counter = 0;
+    g_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_udp_sock < 0)
+    {
+        perror("UDP socket creation failed");
+        return -1;
+    }
+
+    memset(&g_udp_addr, 0, sizeof(g_udp_addr));
+    g_udp_addr.sin_family = AF_INET;
+    g_udp_addr.sin_port = htons(50042);
+
+    const char *gsw_hostname = getenv("SIMULITH_GSW_HOST");
+    if (!gsw_hostname || gsw_hostname[0] == '\0')
+        gsw_hostname = "shire-gsw";
+    struct hostent *gsw_host = gethostbyname(gsw_hostname);
+    if (gsw_host && gsw_host->h_addrtype == AF_INET)
+    {
+        memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
+    }
+    else
+    {
+        g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    }
+    return 0;
+}
+
+static const char *scenario_find_field(const char *begin, const char *end,
+                                       const char *field)
+{
+    char key[80];
+    int key_length = snprintf(key, sizeof(key), "\"%s\"", field);
+    if (key_length <= 0 || key_length >= (int)sizeof(key))
+        return NULL;
+    size_t key_size = (size_t)key_length;
+    const char *cursor = begin;
+    while (cursor != end)
+    {
+        size_t remaining = (size_t)(end - cursor);
+        if (remaining < key_size)
+            return NULL;
+        if (memcmp(cursor, key, key_size) != 0)
+        {
+            cursor++;
+            continue;
+        }
+        cursor += key_size;
+        while (cursor != end && isspace((unsigned char)*cursor)) cursor++;
+        if (cursor == end || *cursor != ':') continue;
+        cursor++;
+        while (cursor != end && isspace((unsigned char)*cursor)) cursor++;
+        return cursor != end ? cursor : NULL;
+    }
+    return NULL;
+}
+
+static int scenario_parse_u64(const char *begin, const char *end,
+                              const char *field, uint64_t *value)
+{
+    const char *text = scenario_find_field(begin, end, field);
+    if (!text || !isdigit((unsigned char)*text)) return -1;
+    uint64_t parsed = 0;
+    do
+    {
+        uint64_t digit = (uint64_t)(*text - '0');
+        if (parsed > (UINT64_MAX - digit) / UINT64_C(10)) return -1;
+        parsed = parsed * UINT64_C(10) + digit;
+        text++;
+    } while (text != end && isdigit((unsigned char)*text));
+    *value = parsed;
+    return 0;
+}
+
+static int scenario_parse_string(const char *begin, const char *end,
+                                 const char *field, char *output,
+                                 size_t output_size)
+{
+    const char *text = scenario_find_field(begin, end, field);
+    if (!text || *text != '\"' || output_size == 0) return -1;
+    text++;
+    const char *tail = text;
+    while (tail != end && *tail != '\"')
+    {
+        if (*tail == '\\' || (unsigned char)*tail < 0x20) return -1;
+        tail++;
+    }
+    size_t length = (size_t)(tail - text);
+    if (tail == end || length >= output_size) return -1;
+    memcpy(output, text, length);
+    output[length] = '\0';
+    return 0;
+}
+
+static int scenario_hex_nibble(char value)
+{
+    switch (value)
+    {
+        case '0': return 0;
+        case '1': return 1;
+        case '2': return 2;
+        case '3': return 3;
+        case '4': return 4;
+        case '5': return 5;
+        case '6': return 6;
+        case '7': return 7;
+        case '8': return 8;
+        case '9': return 9;
+        case 'a': case 'A': return 10;
+        case 'b': case 'B': return 11;
+        case 'c': case 'C': return 12;
+        case 'd': case 'D': return 13;
+        case 'e': case 'E': return 14;
+        case 'f': case 'F': return 15;
+        default: return -1;
+    }
+}
+
+static int scenario_decode_hex(const char *hex, uint8_t *packet,
+                               size_t capacity, size_t *packet_length)
+{
+    size_t length = strlen(hex);
+    if (length == 0 || (length & 1U) != 0 || length / 2U > capacity) return -1;
+    for (size_t index = 0; index < length / 2U; ++index)
+    {
+        int high = scenario_hex_nibble(hex[index * 2U]);
+        int low = scenario_hex_nibble(hex[index * 2U + 1U]);
+        if (high < 0 || low < 0) return -1;
+        packet[index] = (uint8_t)((high << 4) | low);
+    }
+    *packet_length = length / 2U;
+    return 0;
+}
+
+static int scenario_resolve(simulith_scenario_command_t *command)
+{
+    char port[16];
+    struct addrinfo hints;
+    struct addrinfo *addresses = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    snprintf(port, sizeof(port), "%u", (unsigned)command->port);
+    if (getaddrinfo(command->host, port, &hints, &addresses) != 0 || !addresses)
+        return -1;
+    memcpy(&command->destination, addresses->ai_addr,
+           sizeof(command->destination));
+    freeaddrinfo(addresses);
+    return 0;
+}
+
+int initialize_scenario(director_config_t *config)
+{
+    if (!config) return -1;
+    config->scenario_command_count = 0;
+    config->scenario_digest = UINT64_C(1469598103934665603);
+    config->scenario_injected = 0;
+    config->scenario_errors = 0;
+    if (config->scenario_file[0] == '\0') return 0;
+
+    FILE *file = fopen(config->scenario_file, "rb");
+    if (!file) return -1;
+    if (fseek(file, 0, SEEK_END) != 0)
+    {
+        fclose(file);
+        return -1;
+    }
+    long measured_size = ftell(file);
+    if (measured_size < 1 || measured_size > 65536 ||
+        fseek(file, 0, SEEK_SET) != 0)
+    {
+        fclose(file);
+        return -1;
+    }
+    size_t file_size = (size_t)measured_size;
+    char *json = malloc(file_size + 1U);
+    if (!json)
+    {
+        fclose(file);
+        return -1;
+    }
+    size_t read_size = fread(json, 1, file_size, file);
+    fclose(file);
+    if (read_size != file_size)
+    {
+        free(json);
+        return -1;
+    }
+    json[read_size] = '\0';
+    for (size_t index = 0; index < read_size; ++index)
+    {
+        config->scenario_digest ^= (uint8_t)json[index];
+        config->scenario_digest *= UINT64_C(1099511628211);
+    }
+
+    uint64_t version = 0;
+    if (scenario_parse_u64(json, json + read_size, "schema_version", &version) != 0 ||
+        version != 1)
+    {
+        free(json);
+        return -1;
+    }
+    const char *commands_key = scenario_find_field(json, json + read_size, "commands");
+    if (!commands_key || *commands_key != '[')
+    {
+        free(json);
+        return -1;
+    }
+
+    const char *json_end = json + read_size;
+    const char *cursor = commands_key + 1;
+    while (cursor != json_end)
+    {
+        while (cursor != json_end &&
+               (isspace((unsigned char)*cursor) || *cursor == ',')) cursor++;
+        if (cursor == json_end || *cursor == ']') break;
+        if (*cursor != '{' ||
+            config->scenario_command_count >= SIMULITH_SCENARIO_MAX_COMMANDS)
+        {
+            free(json);
+            return -1;
+        }
+        const char *object_end = memchr(cursor, '}',
+                                        (size_t)(json_end - cursor));
+        if (!object_end)
+        {
+            free(json);
+            return -1;
+        }
+        simulith_scenario_command_t *command =
+            &config->scenario_commands[config->scenario_command_count];
+        memset(command, 0, sizeof(*command));
+        uint64_t port = 0;
+        char packet_hex[SIMULITH_SCENARIO_MAX_PACKET_SIZE * 2U + 1U];
+        if (scenario_parse_u64(cursor, object_end, "sequence", &command->sequence) != 0 ||
+            scenario_parse_u64(cursor, object_end, "port", &port) != 0 ||
+            port == 0 || port > UINT16_MAX ||
+            scenario_parse_string(cursor, object_end, "host", command->host,
+                                  sizeof(command->host)) != 0 ||
+            scenario_parse_string(cursor, object_end, "packet_hex", packet_hex,
+                                  sizeof(packet_hex)) != 0 ||
+            scenario_decode_hex(packet_hex, command->packet, sizeof(command->packet),
+                                &command->packet_length) != 0)
+        {
+            free(json);
+            return -1;
+        }
+        command->port = (uint16_t)port;
+        if (scenario_resolve(command) != 0)
+        {
+            free(json);
+            return -1;
+        }
+        if (config->scenario_command_count > 0 &&
+            command->sequence <= config->scenario_commands[
+                config->scenario_command_count - 1U].sequence)
+        {
+            free(json);
+            return -1;
+        }
+        config->scenario_command_count++;
+        cursor = object_end + 1;
+    }
+    free(json);
+    if (config->scenario_command_count == 0) return -1;
+    config->scenario_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (config->scenario_socket < 0) return -1;
+    config->scenario_socket_initialized = 1;
+    printf("Loaded %zu scenario commands (digest=%016lx)\n",
+           config->scenario_command_count,
+           (unsigned long)config->scenario_digest);
+    return 0;
+}
+
+int director_inject_scenario_commands(director_config_t *config,
+                                      uint64_t sequence)
+{
+    if (!config || config->scenario_file[0] == '\0') return 0;
+    for (size_t index = 0; index < config->scenario_command_count; ++index)
+    {
+        simulith_scenario_command_t *command = &config->scenario_commands[index];
+        if (command->sequence != sequence || command->injected) continue;
+        ssize_t sent = sendto(config->scenario_socket, command->packet,
+                              command->packet_length, 0,
+                              (struct sockaddr *)&command->destination,
+                              sizeof(command->destination));
+        command->injected = 1;
+        if (sent != (ssize_t)command->packet_length)
+        {
+            config->scenario_errors++;
+            return -1;
+        }
+        config->scenario_injected++;
+        printf("SIMULITH_SCENARIO injected sequence=%lu bytes=%zu host=%s port=%u\n",
+               (unsigned long)sequence, command->packet_length, command->host,
+               (unsigned)command->port);
+    }
+    return 0;
+}
+
+size_t simulith_serialize_42_telemetry(const simulith_42_context_t *context,
+                                      uint8_t *packet, size_t packet_capacity)
+{
+    if (!context || !packet || packet_capacity < SIMULITH_42_TELEMETRY_SIZE)
+        return 0;
+
+    memset(packet, 0, SIMULITH_42_TELEMETRY_SIZE);
+    size_t offset = 0;
+    memcpy(packet + offset, &context->dyn_time, sizeof(double));
+    offset += sizeof(double);
+    for (int i = 0; i < 3; i++) {
+        memcpy(packet + offset, &context->pos_n[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    for (int i = 0; i < 3; i++) {
+        memcpy(packet + offset, &context->sun_vector_body[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    for (int i = 0; i < 3; i++) {
+        memcpy(packet + offset, &context->mag_field_body[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    for (int i = 0; i < 3; i++) {
+        memcpy(packet + offset, &context->hvb[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    for (int i = 0; i < 3; i++) {
+        memcpy(packet + offset, &context->wn[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    for (int i = 0; i < 4; i++) {
+        memcpy(packet + offset, &context->qn[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    memcpy(packet + offset, &context->mass, sizeof(double));
+    offset += sizeof(double);
+    for (int i = 0; i < 3; i++) {
+        memcpy(packet + offset, &context->cm[i], sizeof(double));
+        offset += sizeof(double);
+    }
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            memcpy(packet + offset, &context->inertia[i][j], sizeof(double));
+            offset += sizeof(double);
+        }
+    }
+    memcpy(packet + offset, &context->eclipse, sizeof(int));
+    offset += sizeof(int);
+    memcpy(packet + offset, &context->atmo_density, sizeof(double));
+    offset += sizeof(double);
+    return offset;
+}
 
 void cleanup_components(director_config_t* config)
 {
     printf("Cleaning up components...\n");
 
-    /* Stop worker threads before calling component cleanup so that no tick
-     * runs concurrently with cleanup(). Signal workers via the cond so they
+    /* Stop worker threads before destroying component state so that no
+     * callback runs concurrently with destroy(). Signal workers via the cond so they
      * wake from pthread_cond_wait and see threads_exit == 1. */
-    if (config->threads_spawned > 0) {
+    if (config->worker_sync_initialized) {
         pthread_mutex_lock(&config->tick_mutex);
         config->threads_exit = 1;
-        config->tick_epoch++;
         pthread_cond_broadcast(&config->tick_cond);
+        for (int i = 0; i < config->component_count; ++i)
+            signal_component_worker(config->component_interrupt_fds[i]);
         pthread_mutex_unlock(&config->tick_mutex);
 
         for (int i = 0; i < config->component_count; i++) {
-            if (config->components[i].active)
+            if (config->component_thread_started[i]) {
                 pthread_join(config->component_threads[i], NULL);
+                config->component_thread_started[i] = 0;
+            }
+            if (config->component_interrupt_fds[i] >= 0) {
+                close(config->component_interrupt_fds[i]);
+                config->component_interrupt_fds[i] = -1;
+            }
         }
-        pthread_barrier_destroy(&config->tick_barrier);
-        pthread_mutex_destroy(&config->tick_mutex);
         pthread_cond_destroy(&config->tick_cond);
+        pthread_mutex_destroy(&config->tick_mutex);
         config->threads_spawned = 0;
+        config->worker_sync_initialized = 0;
     }
 
     for (int i = 0; i < config->component_count; i++) {
         component_entry_t* entry = &config->components[i];
-        if (entry->active && entry->interface && entry->interface->cleanup) {
+        if (entry->active && entry->interface && entry->interface->destroy &&
+            entry->state) {
             printf("Cleaning up component: %s\n", entry->interface->name);
-            entry->interface->cleanup(entry->state);
+            entry->interface->destroy(entry->state);
             entry->state = NULL;
         }
         entry->active = 0;
@@ -384,56 +994,86 @@ void cleanup_components(director_config_t* config)
         }
     }
     config->lib_count = 0;
-}
 
-static void populate_42_context(simulith_42_context_t* context)
+    if (g_udp_sock >= 0)
+    {
+        close(g_udp_sock);
+        g_udp_sock = -1;
+    }
+    if (g_backdoor_sock >= 0)
+    {
+        close(g_backdoor_sock);
+        g_backdoor_sock = -1;
+    }
+    if (config->scenario_socket_initialized)
+    {
+        close(config->scenario_socket);
+        config->scenario_socket = -1;
+        config->scenario_socket_initialized = 0;
+    }
+    g_udp_publish_counter = 0;
+}
+static int populate_42_context(simulith_42_context_t* context)
 {
     // Initialize context
     memset(context, 0, sizeof(simulith_42_context_t));
     
-    // Check if 42 is enabled and initialized
-    if (!g_director_config.enable_42 || !g_director_config.fortytwo_initialized) {
+    // Diagnostic/component-only runs may intentionally omit 42.
+    if (!g_director_config.enable_42) {
         context->valid = 0;
-        return;
+        return 0;
+    }
+    if (!g_director_config.fortytwo_initialized) {
+        context->valid = 0;
+        g_fortytwo_errors++;
+        return -1;
     }
     
     // Request latest state from 42 via socket
     if (simulith_42_request_state(context) != 0) {
         context->valid = 0;
-        return;
+        g_fortytwo_errors++;
+        return -1;
     }
     
-    // Context is now populated by socket client
-    // No need to access 42 globals directly
+    return 0;
 }
 
 // Process commands and apply them to 42
-static void process_42_commands(void)
+static int process_42_commands(void)
 {
-    simulith_42_command_t commands[16];  /* Buffer for batching commands */
+    simulith_42_command_t commands[SIMULITH_42_CMD_QUEUE_SIZE];
     int cmd_count = 0;
     
-    if (!g_director_config.enable_42 || !g_director_config.fortytwo_initialized) {
-        return;
-    }
+    if (!g_director_config.enable_42)
+        return 0;
+    if (!g_director_config.fortytwo_initialized)
+        return -1;
     
     /* Collect all commands from queue into batch buffer */
-    while (cmd_count < 16 && dequeue_command(&commands[cmd_count]) == 0) {
+    while (cmd_count < SIMULITH_42_CMD_QUEUE_SIZE &&
+           dequeue_command(&commands[cmd_count]) == 0) {
         cmd_count++;
     }
     
     /* Send all commands in a single message to 42 */
     if (cmd_count > 0) {
         if (simulith_42_send_command_batch(commands, cmd_count) != 0) {
+            g_fortytwo_errors++;
             if (g_director_config.verbose) {
                 fprintf(stderr, "[director] Failed to send command batch to 42\n");
             }
+            return -1;
         }
     } else {
         /* In TXRX mode, we must ALWAYS send something to 42, even if there are no commands */
         /* If no commands were collected, send an empty message with just [ENDMSG] */
-        simulith_42_send_empty_commands();
+        if (simulith_42_send_empty_commands() != 0) {
+            g_fortytwo_errors++;
+            return -1;
+        }
     }
+    return 0;
 }
 
 /* Per-tick phase timing — set to 1 to enable, 0 to disable (default off). */
@@ -449,211 +1089,224 @@ static uint64_t ns_now(void)
 }
 #endif
 
-void on_tick(uint64_t tick_time_ns)
+static int validate_tick_identity(uint64_t sequence, uint64_t tick_time_ns,
+                                  const char *phase)
 {
-#if DIRECTOR_TIMING_ENABLED
-    static uint64_t tick_count = 0;
-    static uint64_t acc_42_fetch_ns   = 0;
-    static uint64_t acc_sim_ticks_ns  = 0;
-    static uint64_t acc_42_cmd_ns     = 0;
-    static uint64_t acc_total_ns      = 0;
-    static uint64_t acc_inter_tick_ns = 0;
-    static uint64_t last_tick_end_ns  = 0;
+    if (g_director_config.shared_tick_sequence != sequence ||
+        g_director_config.shared_tick_time_ns != tick_time_ns)
+    {
+        simulith_log("Director rejected %s for tick %lu at %lu ns; "
+                     "active tick is %lu at %lu ns\n", phase,
+                     (unsigned long)sequence, (unsigned long)tick_time_ns,
+                     (unsigned long)g_director_config.shared_tick_sequence,
+                     (unsigned long)g_director_config.shared_tick_time_ns);
+        return -1;
+    }
+    return 0;
+}
 
-    uint64_t t0 = ns_now();
-    if (last_tick_end_ns > 0)
-        acc_inter_tick_ns += t0 - last_tick_end_ns;
-#endif
+static int component_phase_succeeded(const char *phase)
+{
+    int status = COMPONENT_SUCCESS;
+    for (int i = 0; i < g_director_config.component_count; ++i)
+    {
+        component_entry_t *entry = &g_director_config.components[i];
+        if (!entry->active || entry->phase_status == COMPONENT_SUCCESS)
+            continue;
+        g_director_config.component_phase_errors++;
+        simulith_log("Director withholding %s completion for tick %lu: "
+                     "component %s failed\n", phase,
+                     (unsigned long)g_director_config.shared_tick_sequence,
+                     entry->interface->name);
+        status = COMPONENT_ERROR;
+    }
+    return status;
+}
 
-    /* Phase 1: Fetch 42 state. 42 has been stepping since the end of the
-     * previous tick's process_42_commands() call, so its step is already done
-     * and this returns quickly. */
+int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
+{
+    g_prepare_count++;
+    /* Fetch 42 state. 42 has been stepping since the previous tick's command
+     * commit, so its step is already done and this returns quickly. */
     simulith_42_context_t context_42;
-    populate_42_context(&context_42);
+    int context_status = populate_42_context(&context_42);
     g_director_config.shared_context_42 = context_42;
+    if (context_status != 0)
+        return COMPONENT_ERROR;
 
-#if DIRECTOR_TIMING_ENABLED
-    uint64_t t1 = ns_now();
-#endif
-
-    /* Phase 2: Tick all component sims in parallel using the fresh 42 context.
-     * Workers sleep in pthread_cond_wait between ticks; this frees their CPU
-     * cores for 42 and FSW so the main thread's ZMQ spin-wait is not starved. */
     pthread_mutex_lock(&g_director_config.tick_mutex);
+    g_director_config.shared_tick_sequence = sequence;
     g_director_config.shared_tick_time_ns = tick_time_ns;
-    g_director_config.tick_epoch++;
-    pthread_cond_broadcast(&g_director_config.tick_cond);
+    for (int i = 0; i < g_director_config.component_count; ++i)
+        g_director_config.components[i].phase_status = COMPONENT_SUCCESS;
     pthread_mutex_unlock(&g_director_config.tick_mutex);
 
-    if (g_director_config.threads_spawned > 0) {
-        pthread_barrier_wait(&g_director_config.tick_barrier);
+    /* PREPARE callbacks are deliberately ordered and run in the director.
+     * They are small and do not perform device transactions. */
+    for (int i = 0; i < g_director_config.component_count; ++i) {
+        component_entry_t *entry = &g_director_config.components[i];
+        if (entry->active && entry->interface && entry->interface->on_tick && entry->state)
+        {
+            if (entry->interface->on_tick(
+                    entry->state, tick_time_ns,
+                    &g_director_config.shared_context_42) != COMPONENT_SUCCESS)
+            {
+                entry->phase_status = COMPONENT_ERROR;
+                simulith_log("Component %s failed PREPARE on tick %lu\n",
+                             entry->interface->name,
+                             (unsigned long)sequence);
+            }
+        }
     }
 
-#if DIRECTOR_TIMING_ENABLED
-    uint64_t t2 = ns_now();
-#endif
+    return component_phase_succeeded("PREPARE");
+}
 
-    /* Phase 3: Send accumulated commands to 42.  This releases 42 to run its
-     * next dynamics step, which will overlap with the next tick's sims phase. */
-    process_42_commands();
+int director_execute_tick(uint64_t sequence, uint64_t tick_time_ns)
+{
+    if (validate_tick_identity(sequence, tick_time_ns, "EXECUTE") != 0)
+        return COMPONENT_ERROR;
 
-#if DIRECTOR_TIMING_ENABLED
-    uint64_t t3 = ns_now();
+    pthread_mutex_lock(&g_director_config.tick_mutex);
+    g_director_config.execute_active = 1;
+    g_director_config.execute_epoch++;
+    pthread_cond_broadcast(&g_director_config.tick_cond);
+    pthread_mutex_unlock(&g_director_config.tick_mutex);
+    return COMPONENT_SUCCESS;
+}
 
-    acc_42_fetch_ns  += t1 - t0;
-    acc_sim_ticks_ns += t2 - t1;
-    acc_42_cmd_ns    += t3 - t2;
-    acc_total_ns     += t3 - t0;
-    tick_count++;
-    last_tick_end_ns  = t3;
+int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
+{
+    if (validate_tick_identity(sequence, tick_time_ns, "COMMIT") != 0)
+        return COMPONENT_ERROR;
 
-    if (tick_count % TICK_TIMING_INTERVAL == 0) {
-        double scale = 1.0 / (double)TICK_TIMING_INTERVAL;
-        double avg_inter = (double)acc_inter_tick_ns * scale / 1000.0;
-        double avg_total = (double)acc_total_ns      * scale / 1000.0;
-        printf("[director timing] avg over %d ticks:"
-               "  inter=%.0f µs  42_fetch=%.0f µs  sims=%.0f µs  42_cmd=%.0f µs"
-               "  on_tick=%.0f µs  period=%.0f µs\n",
-               TICK_TIMING_INTERVAL,
-               avg_inter,
-               (double)acc_42_fetch_ns  * scale / 1000.0,
-               (double)acc_sim_ticks_ns * scale / 1000.0,
-               (double)acc_42_cmd_ns    * scale / 1000.0,
-               avg_total,
-               avg_inter + avg_total);
-        acc_42_fetch_ns = acc_sim_ticks_ns = acc_42_cmd_ns = acc_total_ns = acc_inter_tick_ns = 0;
+    g_commit_count++;
+    pthread_mutex_lock(&g_director_config.tick_mutex);
+    g_director_config.execute_active = 0;
+    pthread_cond_broadcast(&g_director_config.tick_cond);
+    for (int i = 0; i < g_director_config.component_count; ++i)
+    {
+        if (g_director_config.component_wait_epochs[i] ==
+            g_director_config.execute_epoch)
+            signal_component_worker(g_director_config.component_interrupt_fds[i]);
     }
-#endif
+    while (g_director_config.active_service_callbacks != 0U)
+        pthread_cond_wait(&g_director_config.tick_cond,
+                          &g_director_config.tick_mutex);
+    pthread_mutex_unlock(&g_director_config.tick_mutex);
+
+    if (component_phase_succeeded("COMMIT") != COMPONENT_SUCCESS)
+        return COMPONENT_ERROR;
+
+    /* ACTUATE observes a quiescent service layer and emits one ordered command
+     * batch after every component has consumed the latest FSW output. */
+    for (int i = 0; i < g_director_config.component_count; ++i)
+    {
+        component_entry_t *entry = &g_director_config.components[i];
+        if (entry->active && entry->interface && entry->interface->actuate &&
+            entry->state &&
+            entry->interface->actuate(entry->state, tick_time_ns,
+                                      &g_director_config.shared_context_42) !=
+                COMPONENT_SUCCESS)
+        {
+            entry->phase_status = COMPONENT_ERROR;
+            simulith_log("Component %s failed COMMIT on tick %lu\n",
+                         entry->interface->name, (unsigned long)sequence);
+        }
+    }
+    if (component_phase_succeeded("COMMIT") != COMPONENT_SUCCESS)
+        return COMPONENT_ERROR;
+
+    /* Device handlers enqueue actuator changes during FSW execute. Commit the
+     * complete batch only after SCH reports that slot finished. */
+    if (process_42_commands() != 0)
+        return COMPONENT_ERROR;
 
     // Service backdoor packets
     process_backdoor_once(&g_director_config);
 
     // Publish telemetry
     g_udp_publish_counter = (g_udp_publish_counter + 1) % UDP_PUBLISH_INTERVAL_TICKS;
-    if (g_udp_sock >= 0 && context_42.valid && g_udp_publish_counter == 0)
+    const simulith_42_context_t *context_42 = &g_director_config.shared_context_42;
+    if (g_udp_sock >= 0 && context_42->valid && g_udp_publish_counter == 0)
     {
         // Packet structure matches XTCE SIM_42_TRUTH_DATA:
         // DYN_TIME, POSITION_N_1/2/3, SVB_1/2/3, BVB_1/2/3, HVB_1/2/3, WN_1/2/3, QN_1/2/3/4, MASS, CM_1/2/3, INERTIA_11/12/13/21/22/23/31/32/33, ECLIPSE, ATMO_DENSITY
-        unsigned char packet[276]; // Exact size: 34 doubles (8 bytes each) + 1 int (4 bytes) = 276 bytes
-        memset(packet, 0, sizeof(packet));
-        size_t offset = 0;
-        // 1. DYN_TIME
-        double d_dyn_time = context_42.dyn_time;
-        memcpy(packet+offset, &d_dyn_time, sizeof(double)); offset += sizeof(double);
-        // 2-4. POSITION_N_1/2/3
-        for (int i = 0; i < 3; i++) { double d = context_42.pos_n[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 5-7. SVB_1/2/3
-        for (int i = 0; i < 3; i++) { double d = context_42.sun_vector_body[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 8-10. BVB_1/2/3
-        for (int i = 0; i < 3; i++) { double d = context_42.mag_field_body[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 11-13. HVB_1/2/3
-        for (int i = 0; i < 3; i++) { double d = context_42.hvb[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 14-16. WN_1/2/3
-        for (int i = 0; i < 3; i++) { double d = context_42.wn[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 17-20. QN_1/2/3/4
-        for (int i = 0; i < 4; i++) { double d = context_42.qn[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 21. MASS
-        double d_mass = context_42.mass;
-        memcpy(packet+offset, &d_mass, sizeof(double)); offset += sizeof(double);
-        // 22-24. CM_1/2/3
-        for (int i = 0; i < 3; i++) { double d = context_42.cm[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 25-33. INERTIA_11/12/13/21/22/23/31/32/33
-        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) { double d = context_42.inertia[i][j]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
-        // 34. ECLIPSE (int)
-        int ecl = context_42.eclipse;
-        memcpy(packet+offset, &ecl, sizeof(int)); offset += sizeof(int);
-        // 35. ATMO_DENSITY
-        double d_atmo_density = context_42.atmo_density;
-        memcpy(packet+offset, &d_atmo_density, sizeof(double)); offset += sizeof(double);
-        // Send exactly 276 bytes
-        sendto(g_udp_sock, packet, 276, 0, (struct sockaddr*)&g_udp_addr, sizeof(g_udp_addr));
+        unsigned char packet[SIMULITH_42_TELEMETRY_SIZE];
+        size_t packet_size = simulith_serialize_42_telemetry(
+            context_42, packet, sizeof(packet));
+        g_telemetry_count++;
+        ssize_t sent = sendto(g_udp_sock, packet, packet_size, 0,
+                              (struct sockaddr*)&g_udp_addr, sizeof(g_udp_addr));
+        if (sent != (ssize_t)packet_size)
+            g_telemetry_errors++;
     }
+    if (director_inject_scenario_commands(&g_director_config, sequence) != 0)
+        return COMPONENT_ERROR;
+    return COMPONENT_SUCCESS;
 }
 
-int main(int argc, char *argv[]) 
+void director_write_terminal_metrics(void)
 {
-    printf("Simulith Director starting...\n");
-    
-    int parse_result = parse_args(argc, argv, &g_director_config);
-    if (parse_result < 0) {
-        return 0;  // Help was shown or parsing failed
-    } else if (parse_result > 0) {
-        fprintf(stderr, "Failed to parse arguments\n");
-        return 1;
+    /* The final commit releases 42 to calculate the terminal state. Fetch it
+     * once here after STOP so fidelity compares the state after every tick. */
+    simulith_42_context_t terminal;
+    (void)populate_42_context(&terminal);
+    simulith_42_cmd_queue_stats_t queue_stats;
+    simulith_42_get_command_queue_stats(&queue_stats);
+
+    const unsigned char *bytes = (const unsigned char *)&terminal;
+    uint64_t digest = UINT64_C(1469598103934665603);
+    for (size_t i = 0; i < sizeof(terminal); ++i)
+    {
+        digest ^= bytes[i];
+        digest *= UINT64_C(1099511628211);
     }
 
-    if (load_components(&g_director_config) != 0) 
-    {
-        fprintf(stderr, "Failed to load components\n");
-        return 1;
-    }
+    printf("SIMULITH_DIRECTOR_TERMINAL {\"prepare_count\":%lu,\"commit_count\":%lu,"
+           "\"telemetry_count\":%lu,\"queue\":{\"enqueued\":%lu,\"dequeued\":%lu,"
+           "\"overflows\":%lu,\"high_watermark\":%lu,"
+           "\"by_type\":[%lu,%lu,%lu,%lu,%lu],"
+           "\"nonzero_actuator_commands\":%lu},"
+           "\"component_service_errors\":%lu,\"telemetry_errors\":%lu,"
+           "\"component_phase_errors\":%lu,"
+           "\"fortytwo_errors\":%lu,"
+           "\"scenario\":{\"digest\":\"%016lx\",\"expected\":%zu,"
+           "\"injected\":%lu,\"errors\":%lu},"
+           "\"digest\":\"%016lx\","
+           "\"state\":{\"valid\":%d,\"sim_time\":%.17g,\"dyn_time\":%.17g,"
+           "\"qn\":[%.17g,%.17g,%.17g,%.17g],\"wn\":[%.17g,%.17g,%.17g],"
+           "\"pos_n\":[%.17g,%.17g,%.17g],\"vel_n\":[%.17g,%.17g,%.17g]}}\n",
+           (unsigned long)g_prepare_count, (unsigned long)g_commit_count,
+           (unsigned long)g_telemetry_count,
+           (unsigned long)queue_stats.enqueued, (unsigned long)queue_stats.dequeued,
+           (unsigned long)queue_stats.overflows, (unsigned long)queue_stats.high_watermark,
+           (unsigned long)queue_stats.by_type[SIMULITH_42_CMD_NONE],
+           (unsigned long)queue_stats.by_type[SIMULITH_42_CMD_MTB_TORQUE],
+           (unsigned long)queue_stats.by_type[SIMULITH_42_CMD_WHEEL_TORQUE],
+           (unsigned long)queue_stats.by_type[SIMULITH_42_CMD_THRUSTER],
+           (unsigned long)queue_stats.by_type[SIMULITH_42_CMD_SET_MODE],
+           (unsigned long)queue_stats.nonzero_actuator_commands,
+           (unsigned long)g_director_config.component_service_errors,
+           (unsigned long)g_telemetry_errors,
+           (unsigned long)g_director_config.component_phase_errors,
+           (unsigned long)g_fortytwo_errors,
+           (unsigned long)g_director_config.scenario_digest,
+           g_director_config.scenario_command_count,
+           (unsigned long)g_director_config.scenario_injected,
+           (unsigned long)g_director_config.scenario_errors,
+           (unsigned long)digest, terminal.valid, terminal.sim_time, terminal.dyn_time,
+           terminal.qn[0], terminal.qn[1], terminal.qn[2], terminal.qn[3],
+           terminal.wn[0], terminal.wn[1], terminal.wn[2],
+           terminal.pos_n[0], terminal.pos_n[1], terminal.pos_n[2],
+           terminal.vel_n[0], terminal.vel_n[1], terminal.vel_n[2]);
+    fflush(stdout);
+}
 
-    if (initialize_components(&g_director_config) != 0)
-    {
-        fprintf(stderr, "Failed to initialize components\n");
-        cleanup_components(&g_director_config);
-        return 1;
-    }
-
-    if (initialize_42(&g_director_config) != 0)
-    {
-        fprintf(stderr, "Warning: 42 simulation initialization had issues, continuing without it\n");
-        g_director_config.enable_42 = 0;
-        g_director_config.fortytwo_initialized = 0;
-    }
-
-    // UDP Telemetry Socket Init
-    g_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (g_udp_sock < 0) 
-    {
-        perror("UDP socket creation failed");
-    } 
-    else 
-    {
-        memset(&g_udp_addr, 0, sizeof(g_udp_addr));
-        g_udp_addr.sin_family = AF_INET;
-        g_udp_addr.sin_port = htons(50042); // Default port for 42 telemetry
-
-        // Resolve shire-gsw hostname
-        const char* gsw_hostname = "shire-gsw";
-        struct hostent* gsw_host = gethostbyname(gsw_hostname);
-        if (gsw_host && gsw_host->h_addrtype == AF_INET) {
-            memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
-            char ip_str[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &g_udp_addr.sin_addr, ip_str, sizeof(ip_str));
-            printf("UDP telemetry publisher initialized for YAMCS at %s:50042\n", ip_str);
-        } else {
-            printf("Warning: Could not resolve hostname '%s', defaulting to 127.0.0.1\n", gsw_hostname);
-            g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        }
-    }
-
-    // Wait a second for the Simulith server to start up
-    sleep(1);
-
-    if (simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "shire-director", INTERVAL_NS) != 0) 
-    {
-        printf("Failed to initialize Simulith client\n");
-        cleanup_components(&g_director_config);
-        return 1;
-    }
-
-    // Handshake with Simulith server
-    if (simulith_client_handshake() != 0) 
-    {
-        printf("Failed to handshake with Simulith server\n");
-        simulith_client_shutdown();
-        cleanup_components(&g_director_config);
-        return 1;
-    }
-
-    simulith_client_run_loop(on_tick);
-    
-    printf("Simulith director shutting down...\n");
-    
-    // Cleanup
-    simulith_client_shutdown();
-    cleanup_components(&g_director_config);
-    
-    return 0;
+void on_tick(uint64_t tick_time_ns)
+{
+    /* Compatibility entry point used by component/director unit tests. */
+    if (director_prepare_tick(0, tick_time_ns) == COMPONENT_SUCCESS &&
+        director_execute_tick(0, tick_time_ns) == COMPONENT_SUCCESS)
+        (void)director_commit_tick(0, tick_time_ns);
 }

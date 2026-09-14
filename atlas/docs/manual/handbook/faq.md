@@ -61,7 +61,10 @@ The Director also exits if it cannot connect to 42.
 ## Simulation time does not advance
 
 The DRM Server configuration expects two clients.
-The Director and FSW must both register and acknowledge every tick.
+The Director registers for PREPARE, EXECUTE, and COMMIT, while FSW registers for
+EXECUTE.
+The Server must receive every required phase completion before it advances a
+tick.
 
 Inspect the three services together:
 
@@ -69,8 +72,45 @@ Inspect the three services together:
 docker compose -f build/drm/shire-compose.yaml logs --tail 300 shire-server shire-director shire-fsw
 ```
 
-Look for a failed Director connection to `/tmp/42_ipc.sock`, an FSW startup failure, or a client that registered but stopped acknowledging ticks.
+Look for a failed Director connection to `/tmp/42_ipc.sock`, an FSW startup failure, or a client that registered but stopped completing its phases.
+The Server watchdog names the client and phase holding a stalled sequence.
+For FSW stalls, the PSP watchdog also reports the schedule entry, message ID,
+and whether the participant is claimed or running.
 Do not reduce `NUM_CLIENTS` to one in the DRM unless you are deliberately changing its architecture.
+
+## Performance varies or falls below the target
+
+The [Synchronized Simulation Performance](../how-to/performance.md) guide
+records the accepted workload, expected results, and regression procedure.
+
+Use the synchronized harness instead of estimating speed from startup logs:
+
+```bash
+make perf-smoke
+make perf
+```
+
+The complete performance run includes active ADCS and radio transactions and
+compares terminal state and exact counts across 1x, 25x, and three unbounded
+trials.
+Its report path is printed at completion and defaults to a timestamped directory
+under `build/performance/`.
+
+Inspect the report before changing priorities or disabling outputs.
+Check phase percentiles, participant registration-to-dispatch and
+dispatch-to-return latency, per-device transaction latency, Docker samples,
+scheduling policy, protocol errors, and queue overflows.
+The report records `perf`, `pidstat`, or `strace` as unavailable when the host
+does not provide them.
+
+After accepting a report for this workstation, test a candidate with:
+
+```bash
+make perf-compare BASELINE=/path/to/accepted-report.json
+```
+
+Do not relax the phase barrier, remove device transactions, or disable flight
+application work to obtain a faster result.
 
 ## The 42 browser interface does not open
 
@@ -160,4 +200,4 @@ Include:
 Remove credentials, keys, proprietary mission data, and other secrets before attaching files.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

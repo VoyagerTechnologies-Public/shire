@@ -1,144 +1,165 @@
 # SHIRE Software Bill of Materials (SBOM)
 
-**Generated:** 2026-08-11
+**Reviewed:** 2026-09-14
 
-**Source revision:** `1d4ee967fb2fe21aadd7b51a31fde56e5214c261` (`1-setup`)
+**Parent revision reviewed:** `fc12054054249fb594cc315abcff51ef1b77813e`
+(`17-performance`)
 
 **Repository:** `https://github.com/VoyagerTechnologies-Public/shire`
 
-**License:** Permissive Open-Source License v1.0 — Copyright 2025 Voyager Technologies Inc.
-
 **Machine-readable SBOM:** [sbom.cdx.json](sbom.cdx.json) (CycloneDX 1.6 JSON)
+
+## License boundary
+
+SHIRE is a multi-license distribution. The root Voyager Permissive Open-Source
+License version 1.0 applies only to Voyager-authored SHIRE material. It does
+not supersede or replace any license, copyright, attribution, notice, or asset
+term in a submodule, vendored source, package dependency, or container layer.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for path-level boundaries.
+This inventory is not legal advice.
 
 ## Scope and method
 
-This is a source SBOM for the checked-out repository and its pinned Git submodules. It was reconciled manually against `.gitmodules`, dependency manifests, Maven configuration, and Dockerfiles. It does not enumerate Maven or Python transitive dependencies, the package set inherited from container base images, or exact versions of packages installed without a version constraint. It also does not contain vulnerability scan results.
+This curated source SBOM was reconciled against the Git links and recursive
+`.gitmodules` files at the reviewed parent revision, license and notice files
+in the populated checkout, declared Maven and Python manifests, Dockerfiles,
+and root-vendored source. The Git commit recorded for each submodule is the
+immutable parent pin; a `.gitmodules` branch is only an update hint.
 
-For a release SBOM, generate and merge resolved dependency and image inventories (for example, CycloneDX Maven output and Syft output for every published image), then scan the result with the organization's approved vulnerability scanner.
+This SBOM does not claim full dependency resolution. Maven/Python transitive
+dependencies, inherited operating-system packages, and packages installed
+without exact versions must be generated from the final release artifacts.
 
-## SHIRE-maintained components
+## Voyager-authored SHIRE components
 
-| Component | Directory | Language | Description |
+These path descriptions establish repository organization, not ownership of
+third-party material copied into or referenced by those paths.
+
+| Component | Path | Language | Description |
 |---|---|---|---|
-| Build orchestrator | `cfg/` | Python | Mission configuration, rendering, and build orchestration |
-| Simulith | `simulith/` | C/C++ | Simulation server, director, transport, and component integration |
-| ADCS component | `comp/adcs/` | C | Attitude determination and control FSW, simulator, CLI, and GSW definitions |
-| EPS component | `comp/eps/` | C | Electrical power FSW, simulator, CLI, and GSW definitions |
-| Radio component | `comp/radio/` | C | Radio FSW, simulator, CLI, and GSW definitions |
+| Build and mission integration | `cfg/` | Python, C configuration | Mission rendering, build orchestration, and SHIRE integration; NASA-derived files are separately identified below |
+| Simulith | `simulith/` | C/C++ | Synchronized server, director, transport, and integration; vendored Unity is separately identified below |
+| ADCS component | `comp/adcs/` excluding submodules | C | Flight application integration, simulator, CLI, and ground definitions |
+| EPS component | `comp/eps/` | C | Flight application integration, simulator, CLI, and ground definitions |
+| Radio component | `comp/radio/` | C | Flight application integration, simulator, CLI, and ground definitions |
 | Demo component | `comp/demo/` | C | Reference component implementation |
+| Atlas | `atlas/` | Markdown and assets | SHIRE documentation site |
 
-## Pinned source submodules
+## Recursive submodule inventory
 
-The commit IDs below are the versions actually selected by the parent repository. Branch values in `.gitmodules` are update hints and do not replace these pins.
+The following table is guarded by `scripts/check_licensing.py`. Its path and
+commit set must exactly match the recursive Git links and the corresponding
+table in `THIRD_PARTY_NOTICES.md`.
 
-| Component | Directory | Commit | Source |
-|---|---|---|---|
-| 42 spacecraft simulator | `42/` | `af31058313ad9837c0fba296897098c198bd17fd` | `VoyagerTechnologies-Public/external-42` |
-| Core Flight Executive (cFE) | `cfs/cfe/` | `72a865663c5c167fbe523b3dd5fa950cf3796473` | `VoyagerTechnologies-Public/external-cFE` |
-| Operating System Abstraction Layer (OSAL) | `cfs/osal/` | `5654aa05548be698b1f8e840c6ac86e241280a32` | `VoyagerTechnologies-Public/external-osal` |
-| Platform Support Package (PSP) | `cfs/psp/` | `1b8f96ea225caefe763f4097bc411c6f58c9702a` | `VoyagerTechnologies-Public/external-PSP` |
-| elf2cfetbl | `cfs/tools/elf2cfetbl/` | `e888aa04fd4dcb77ace5ac218300266fe568f1dc` | `VoyagerTechnologies-Public/external-elf2cfetbl` |
-| CF | `cfs/apps/cf/` | `4f751647df1a83e9d0897879f759213e7e803e14` | `VoyagerTechnologies-Public/external-CF` |
-| CI Lab | `cfs/apps/ci_lab/` | `7a006e4429e08b50d4a58fafbcb9e4899306fcb4` | `VoyagerTechnologies-Public/external-ci_lab` |
-| DS | `cfs/apps/ds/` | `73d680405833b849486511b9c2d4ab60209e9b9e` | `VoyagerTechnologies-Public/external-DS` |
-| FM | `cfs/apps/fm/` | `7c1982e8bde1f227e786d1aa02f98b018fd56529` | `VoyagerTechnologies-Public/external-FM` |
-| IO Lib | `cfs/apps/io_lib/` | `328f79ca75208dc4b6da950133f4ae418460da1c` | `VoyagerTechnologies-Public/external-CFS_IO_LIB` |
-| LC | `cfs/apps/lc/` | `0ad442f83f01bf94afd9e4376e16245af0af1f36` | `VoyagerTechnologies-Public/external-LC` |
-| SC | `cfs/apps/sc/` | `86cfe00d89f1dc09c09a2e3bcd84d968050ef25e` | `VoyagerTechnologies-Public/external-SC` |
-| SCH | `cfs/apps/sch/` | `28110189859131739375414b80d2af6d604690dc` | `VoyagerTechnologies-Public/external-SCH` |
-| TO Lab | `cfs/apps/to_lab/` | `9ca4f85d9d10df5170b542792ab34d79144e417f` | `VoyagerTechnologies-Public/external-to_lab` |
-| CryptoLib | `comp/cryptolib/` | `f8ee0237ac36acd8bed0c490caa3b932a6d71a75` | `VoyagerTechnologies-Public/external-CryptoLib` |
-| SHIRE YAMCS | `yamcs/` | `7c77ecce36025c0e314a5eed265d15098214d4ed` | `VoyagerTechnologies-Public/external-yamcs` |
+<!-- BEGIN RECURSIVE SUBMODULE INVENTORY -->
+| Path | Component | Pinned commit | License status | Checkout repository |
+|---|---|---|---|---|
+| `42` | 42 spacecraft simulator | `37defafe5e3fabfaa5d51b15d8220c7faa800d2f` | NASA Open Source Agreement, exact version unresolved; asset-specific terms | `https://github.com/VoyagerTechnologies-Public/external-42` |
+| `cfs/apps/cf` | cFS CFDP application | `deaeacfa0fe6ffd040a4d63e460941b591f5b169` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-CF` |
+| `cfs/apps/ci_lab` | cFS Command Ingest Lab | `68d91759f6f0cb50e8383dc358790598f8a277e8` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-ci_lab` |
+| `cfs/apps/ds` | cFS Data Storage | `f141f837199a7395c1c17fef3df6618f019cd08f` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-DS` |
+| `cfs/apps/fm` | cFS File Manager | `9b7a720b44f72dae9446dc558162e9f500be6a76` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-FM` |
+| `cfs/apps/io_lib` | cFS Input/Output Library | `c8a0771545a0828e6765a0b564a2412bcb9deb24` | NASA Open Source Agreement, exact version and agreement text unresolved | `https://github.com/VoyagerTechnologies-Public/external-CFS_IO_LIB` |
+| `cfs/apps/lc` | cFS Limit Checker | `75f85088351f931958651a2b97d19ce5ffcb6567` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-LC` |
+| `cfs/apps/sc` | cFS Stored Command | `274d798553b915e94c7b02e516f40cf766deec10` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-SC` |
+| `cfs/apps/sch` | cFS Scheduler | `5aac56028b98fd3335b847bbd919a1371285f42c` | NASA Open Source Agreement, exact version and agreement text unresolved | `https://github.com/VoyagerTechnologies-Public/external-SCH` |
+| `cfs/apps/to_lab` | cFS Telemetry Output Lab | `7c3a9b788ca4d209bfc42647b8bdb87ff5edf9b5` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-to_lab` |
+| `cfs/cfe` | Core Flight Executive | `3fcb62c31804ed11fb73670b86744e5735c90bc8` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-cFE` |
+| `cfs/osal` | Operating System Abstraction Layer | `3934fe868e08fc9e30e733a68ae674e1e47a5c2d` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-osal` |
+| `cfs/psp` | Platform Support Package | `6c71e0dd1aefe5392a100fecb29f13cf87d3e72c` | Apache-2.0; nested HWLib separately NASA-1.3 | `https://github.com/VoyagerTechnologies-Public/external-PSP` |
+| `cfs/psp/fsw/hwlib` | Hardware Library | `c72e497b7ee714f350903a7d95ce523cb3c6985e` | NASA-1.3 per maintainer determination; authoritative agreement/designation absent from checkout | `https://github.com/VoyagerTechnologies-Public/external-hwlib` |
+| `cfs/tools/elf2cfetbl` | cFS ELF-to-table tool | `e888aa04fd4dcb77ace5ac218300266fe568f1dc` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-elf2cfetbl` |
+| `comp/cryptolib` | Core Flight System Cryptography Library | `be524887ab9ad4efa8eed86e6988d7d81a129967` | NASA-1.3 | `https://github.com/VoyagerTechnologies-Public/external-CryptoLib` |
+| `yamcs` | SHIRE YAMCS integration / Quickstart-derived source | `bbd841c09b7b1e57c230c5b3f2e097e348e9edf9` | Yamcs binary dependencies AGPL-3.0 | `https://github.com/VoyagerTechnologies-Public/external-yamcs` |
+<!-- END RECURSIVE SUBMODULE INVENTORY -->
 
-The cFE, OSAL, PSP, elf2cfetbl, CF, CI Lab, DS, FM, LC, SC, and TO Lab checkouts contain Apache-2.0 license files. CryptoLib contains NASA Open Source Agreement 1.3. License identification for the remaining submodules should be confirmed from their upstream distributions before release.
+## Other source included in the root repository
+
+| Component | Path | Version/source | License | Evidence and status |
+|---|---|---|---|---|
+| Unity C test framework | `simulith/test/unity/` | 2.6.1; `https://github.com/ThrowTheSwitch/Unity` | MIT | Version and SPDX identifier in source headers |
 
 ## Declared application dependencies
 
-### Java — `yamcs/pom.xml`
+These entries describe direct declarations, not a resolved release dependency
+graph. A final SBOM must record the actual resolved versions and hashes.
 
-| Artifact | Group | Declared version | Scope |
-|---|---|---|---|
-| `yamcs-core` | `org.yamcs` | 5.13.0 | Runtime |
-| `yamcs-web` | `org.yamcs` | 5.13.0 | Runtime |
+### Java and YAMCS
 
-| Build plugin | Declared version |
-|---|---|
-| `maven-compiler-plugin` | 3.15.0 |
-| `maven-site-plugin` | 3.21.0 |
-| `yamcs-maven-plugin` | 1.3.7 |
-| `maven-project-info-reports-plugin` | 3.4.3 |
+| Artifact | Declared version | Scope | Verified project license | Evidence/status |
+|---|---|---|---|---|
+| `org.yamcs:yamcs-core` | 5.13.0 | Runtime | AGPL-3.0 | Yamcs upstream license and POM |
+| `org.yamcs:yamcs-web` | 5.13.0 | Runtime | AGPL-3.0 | Yamcs upstream license and POM |
+| `org.yamcs:yamcs-maven-plugin` | 1.3.7 | Build | LGPL-3.0 | Official Yamcs plugin repository; retain the resolved artifact's license |
+| `maven-compiler-plugin` | 3.15.0 | Build | Apache-2.0 | Apache Maven project license; retain the resolved artifact's license/notice |
+| `maven-site-plugin` | 3.21.0 | Build | Apache-2.0 | Apache Maven project license; retain the resolved artifact's license/notice |
+| `maven-project-info-reports-plugin` | 3.4.3 | Build/reporting | Apache-2.0 | Apache Maven project license; retain the resolved artifact's license/notice |
 
-The project targets Java 17. The Maven wrapper and YAMCS build image use Maven 3.9.9. Maven transitive dependencies are not enumerated here.
+The project targets Java 17. The Maven wrapper and build image select Maven
+3.9.9. Maven transitive dependencies are not enumerated in this curated SBOM.
 
 ### Python
 
-| Manifest | Package | Constraint |
-|---|---|---|
-| `cfg/requirements.txt` | `pyyaml` | Unpinned |
-| `cfg/requirements.txt` | `jinja2` | Unpinned |
-| `yamcs/requirements-commander.txt` | `yamcs-client` | `>=1.9.0` |
-| `yamcs/requirements-commander.txt` | `requests` | `>=2.31.0` |
-| `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx` | `>=8.0` |
-| `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx-rtd-theme` | Unpinned |
-| `comp/cryptolib/docs/wiki/requirements.txt` | `myst-parser` | Unpinned |
+| Manifest | Requirement | Constraint | License status |
+|---|---|---|---|
+| `cfg/requirements.txt` | `pyyaml` | Unpinned | MIT; resolved version/hash unresolved for release |
+| `cfg/requirements.txt` | `jinja2` | Unpinned | BSD-3-Clause; resolved version/hash unresolved for release |
+| `yamcs/requirements-commander.txt` | `yamcs-client` | `>=1.9.0` | LGPL-3.0; resolved version/hash unresolved for release |
+| `yamcs/requirements-commander.txt` | `requests` | `>=2.31.0` | Apache-2.0; resolved version/hash unresolved for release |
+| `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx` | `>=8.0` | BSD-2-Clause; documentation-only, resolved version/hash unresolved |
+| `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx-rtd-theme` | Unpinned | MIT; documentation-only, resolved version/hash unresolved |
+| `comp/cryptolib/docs/wiki/requirements.txt` | `myst-parser` | Unpinned | MIT; documentation-only, resolved version/hash unresolved |
 
-All listed Python requirements resolve mutable versions at installation time.
+Unpinned or ranged requirements can resolve to different artifacts over time;
+the release process must lock, hash, and inventory the artifacts actually used.
 
 ### Native and security tooling
 
-| Dependency | Version source | Use |
-|---|---|---|
-| wolfSSL | `5.7.6-stable` in `comp/cryptolib/support/Dockerfile` | CryptoLib cryptographic backend |
-| AFL++ | `v4.31c` in `comp/cryptolib/support/Dockerfile` | CryptoLib fuzz testing |
-| libgcrypt | Distribution package; optional helper downloads 1.11.0 | CryptoLib cryptographic backend |
-| libgpg-error | Distribution package; optional helper downloads 1.50 | libgcrypt support |
-| ZeroMQ | Distribution package | Simulith messaging |
-| libcurl | Distribution package | HTTP/network support |
-| SocketCAN development library | Distribution package | CAN hardware integration |
-
-The source downloads and Git clone in CryptoLib's support tooling are not checksum- or commit-pinned.
+| Dependency | Version source | Use | License status |
+|---|---|---|---|
+| wolfSSL | `5.7.6-stable` in `comp/cryptolib/support/Dockerfile` | CryptoLib backend | Dual/commercial licensing selection for distributed artifacts unresolved |
+| AFL++ | `v4.31c` in CryptoLib support tooling | Fuzz testing | Build/test-only; exact distributed scope and license files must be generated |
+| libgcrypt | Distribution package; optional tooling references 1.11.0 | CryptoLib backend | Resolved package/license inventory required |
+| libgpg-error | Distribution package; optional tooling references 1.50 | libgcrypt support | Resolved package/license inventory required |
+| ZeroMQ / libzmq | Distribution package | Simulith transport | Resolved package/license inventory required |
+| libcurl | Distribution package | HTTP/network support | Resolved package/license inventory required |
+| libsocketcan | Distribution package | CAN hardware integration | Resolved package/license inventory required |
 
 ## Container images
 
-### External base images
+| Image | Pinning | Used by | Release status |
+|---|---|---|---|
+| `debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132` | Digest | `cfg/Dockerfile.base` | Base is pinned; resolved OS-package SBOM and licenses still required |
+| `maven:3.9.9-eclipse-temurin-17` | Mutable tag | `yamcs/Dockerfile.yamcs` | Must be digest-pinned and scanned before release |
+| `ubuntu:noble-20250127` | Date tag, no digest | CryptoLib support image | Must be digest-pinned if distributed |
+| `ghcr.io/haisamido/x-vnc:latest` | Mutable tag | Default 42 graphical image base | pin, inventory, and license-review before release |
+| `ghcr.io/voyagertechnologies-public/shire-base:0.0.0` | SHIRE tag | Build/runtime base | Generate SPDX and CycloneDX image SBOMs for final digest |
+| `ghcr.io/voyagertechnologies-public/shire-yamcs:0.0.0` | SHIRE tag | YAMCS image | Generate SPDX and CycloneDX image SBOMs and include AGPL/source compliance material |
 
-| Image | Pinning | Used by |
-|---|---|---|
-| `debian:bookworm-slim@sha256:6ac2c08566499cc2415926653cf2ed7c3aedac445675a013cc09469c9e118fdd` | Digest | `cfg/Dockerfile.base` |
-| `maven:3.9.9-eclipse-temurin-17` | Mutable tag | `yamcs/Dockerfile.yamcs` |
-| `ubuntu:noble-20250127` | Date tag, no digest | `comp/cryptolib/support/Dockerfile` |
-| `ghcr.io/haisamido/x-vnc:latest` | Mutable tag | `cfg/Dockerfile.42` default build argument |
+Packages installed by Dockerfiles without exact versions remain dependent on
+the repository state at build time. Image SBOM generation must enumerate every
+inherited and installed package and its license evidence.
 
-### SHIRE images referenced by Dockerfiles
-
-| Image | Status |
-|---|---|
-| `ghcr.io/voyagertechnologies-public/shire-base:latest` | Built from `cfg/Dockerfile.base`; consumed by FSW, Simulith, and CryptoLib standalone images |
-| `ghcr.io/voyagertechnologies-public/shire-yamcs:latest` | Built from `yamcs/Dockerfile.yamcs`; consumed by `yamcs/Dockerfile.gsw` |
-
-### Direct packages in `cfg/Dockerfile.base`
-
-`build-essential`, `cmake`, `curl`, `gcovr`, `gdb`, `git`, `gpg`, `lcov`, `libcurl4-openssl-dev`, `libgcrypt20-dev`, `libsocketcan-dev`, `libzmq3-dev`, `pkg-config`, `python3`, and `python3-pip` are installed without version constraints. Their resolved versions depend on the pinned Debian image and repository state at build time.
-
-The 42 image additionally installs `libglu1-mesa-dev`, `freeglut3-dev`, `mesa-common-dev`, and `libglfw3-dev` without version constraints. The YAMCS image additionally installs `curl`, `python3`, and `python3-requests` without version constraints.
-
-## Build and CI tooling
+## Build and release tooling
 
 | Tool | Declared version or source |
 |---|---|
-| GNU Make | Host/container package |
-| CMake | Distribution package |
-| GCC/G++ | `build-essential` distribution package |
-| Apache Maven | 3.9.9 |
-| Eclipse Temurin JDK | 17 |
-| Docker Engine and Compose | User prerequisites; unpinned |
+| GNU Make, CMake, GCC/G++ | Host or container distribution packages |
+| Apache Maven | 3.9.9 selected by wrapper/image |
+| Eclipse Temurin JDK | 17 selected by image |
+| Docker Engine and Compose | User prerequisite; version not pinned |
+| SBOM and vulnerability scanners | **UNRESOLVED — select and record organization-approved tools and versions at release** |
 
-There are no parent-repository workflows under `.github/workflows/` in this checkout. Workflow files inside Git submodules belong to those submodule repositories and do not run as SHIRE parent-repository workflows.
+## Required release actions
 
-## Known gaps and release actions
-
-- Resolve and include Maven and Python transitive dependencies.
-- Generate SBOMs from the built `shire-base`, YAMCS, FSW, Simulith, component, and 42 images so inherited operating-system packages are captured.
-- Pin mutable container tags and downloaded source archives by digest/checksum.
-- Add an automated SBOM generation and validation workflow to prevent source and SBOM drift.
-- Run vulnerability and license-policy scans on the resolved release SBOM; this document is an inventory, not a security assessment.
+- Resolve every conspicuous unresolved entry with a written counsel or
+  maintainer disposition.
+- Restore missing authoritative license texts for NOSA components before
+  distribution; do not substitute a generic agreement without confirmation.
+- Generate and merge CycloneDX and SPDX inventories from resolved Maven,
+  Python, native, source-archive, and container-image artifacts.
+- Pin mutable images and downloaded source by digest or checksum.
+- Preserve all upstream licenses, NASA notices, modification records, asset
+  credits, source-availability information, and no-endorsement boundaries.
+- Run `make licensing-check`, the approved vulnerability/license-policy scans,
+  and every item in `RELEASE_CHECKLIST.md` against the final artifacts.

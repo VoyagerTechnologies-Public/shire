@@ -5,10 +5,14 @@
 */
 int32_t DEMO_ReadData(uart_info_t *device, uint8_t *read_data, uint8_t data_length)
 {
-    int32_t status             = OS_SUCCESS;
-    int32_t bytes              = 0;
-    int32_t bytes_available    = 0;
-    uint8_t ms_timeout_counter = 0;
+    int32_t  bytes;
+    int32_t  bytes_available;
+    uint32_t ms_timeout_counter = 0;
+
+    if (!device || !read_data || data_length == 0)
+    {
+        return OS_ERROR;
+    }
 
     /* Wait until all data received or timeout occurs */
     bytes_available = uart_bytes_available(device);
@@ -19,28 +23,21 @@ int32_t DEMO_ReadData(uart_info_t *device, uint8_t *read_data, uint8_t data_leng
         bytes_available = uart_bytes_available(device);
     }
 
-    if (ms_timeout_counter < DEMO_CFG_MS_TIMEOUT)
+    /* Decide from device state rather than the counter. Data that becomes
+     * available on the final permitted poll is valid and must be consumed. */
+    if (bytes_available < data_length)
     {
-        /* Limit bytes available */
-        if (bytes_available > data_length)
-        {
-            bytes_available = data_length;
-        }
-
-        /* Read data */
-        bytes = uart_read_port(device, read_data, (uint32_t)bytes_available);
-        if (bytes != bytes_available)
-        {
-            OS_printf("  DEMO_ReadData: Bytes read != to requested! \n");
-            status = OS_ERROR;
-        } /* uart_read */
+        return OS_ERROR;
     }
-    else
-    {
-        status = OS_ERROR;
-    } /* ms_timeout_counter */
 
-    return status;
+    bytes = uart_read_port(device, read_data, data_length);
+    if (bytes != data_length)
+    {
+        OS_printf("  DEMO_ReadData: Bytes read != to requested! \n");
+        return OS_ERROR;
+    }
+
+    return OS_SUCCESS;
 }
 
 /*
@@ -52,7 +49,12 @@ int32_t DEMO_CommandDevice(uart_info_t *device, uint16_t cmd_code, uint16_t payl
     int32_t status = OS_SUCCESS;
     int32_t bytes  = 0;
     uint8_t write_data[DEMO_DEVICE_CMD_SIZE];
-    uint8_t read_data[DEMO_DEVICE_DATA_SIZE];
+    uint8_t read_data[DEMO_DEVICE_CMD_SIZE];
+
+    if (!device)
+    {
+        return OS_ERROR;
+    }
 
     /* Prepare command */
     write_data[0] = DEMO_DEVICE_HDR_0;
@@ -103,6 +105,7 @@ int32_t DEMO_CommandDevice(uart_info_t *device, uint16_t cmd_code, uint16_t payl
         }
         else
         {
+            status = OS_ERROR;
             #ifdef DEMO_CFG_DEBUG
                 OS_printf("DEMO_CommandDevice - uart_write_port returned %d, expected %d \n", bytes, DEMO_DEVICE_CMD_SIZE);
             #endif
@@ -122,6 +125,11 @@ int32_t DEMO_RequestHK(uart_info_t *device, DEMO_Device_HK_tlm_t *data)
 {
     int32_t status = OS_SUCCESS;
     uint8_t read_data[DEMO_DEVICE_HK_SIZE];
+
+    if (!device || !data)
+    {
+        return OS_ERROR;
+    }
 
     /* Command device to send HK */
     status = DEMO_CommandDevice(device, DEMO_DEVICE_REQ_HK_CMD, 0);
@@ -144,10 +152,8 @@ int32_t DEMO_RequestHK(uart_info_t *device, DEMO_Device_HK_tlm_t *data)
             if ((read_data[0] == DEMO_DEVICE_HDR_0) && (read_data[1] == DEMO_DEVICE_HDR_1) &&
                 (read_data[6] == DEMO_DEVICE_TRAILER_0) && (read_data[7] == DEMO_DEVICE_TRAILER_1))
             {
-                data->DeviceCounter |= read_data[2] << 8;
-                data->DeviceCounter |= read_data[3];
-                data->DeviceConfig  |= read_data[4] << 8;
-                data->DeviceConfig  |= read_data[5];
+                data->DeviceCounter = ((uint16_t)read_data[2] << 8) | (uint16_t)read_data[3];
+                data->DeviceConfig  = ((uint16_t)read_data[4] << 8) | (uint16_t)read_data[5];
                 #ifdef DEMO_CFG_DEBUG
                     OS_printf("  Header  = 0x%02x%02x  \n", read_data[0], read_data[1]);
                     OS_printf("  Counter = 0x%04x      \n", data->DeviceCounter);
@@ -157,7 +163,7 @@ int32_t DEMO_RequestHK(uart_info_t *device, DEMO_Device_HK_tlm_t *data)
             }
             else
             {
-                OS_printf("  DEMO_RequestHK: DEMO_ReadData reported error %d \n", status);
+                OS_printf("  DEMO_RequestHK: Invalid housekeeping frame! \n");
                 status = OS_ERROR;
             }
         } /* DEMO_ReadData */
@@ -177,11 +183,16 @@ int32_t DEMO_RequestData(uart_info_t *device, DEMO_Device_Data_tlm_t *data)
     int32_t status = OS_SUCCESS;
     uint8_t read_data[DEMO_DEVICE_DATA_SIZE];
 
-    /* Command device to send HK */
+    if (!device || !data)
+    {
+        return OS_ERROR;
+    }
+
+    /* Command device to send data */
     status = DEMO_CommandDevice(device, DEMO_DEVICE_REQ_DATA_CMD, 0);
     if (status == OS_SUCCESS)
     {
-        /* Read HK data */
+        /* Read device data */
         status = DEMO_ReadData(device, read_data, sizeof(read_data));
         if (status == OS_SUCCESS)
         {
@@ -211,6 +222,11 @@ int32_t DEMO_RequestData(uart_info_t *device, DEMO_Device_Data_tlm_t *data)
                     OS_printf("  Chan3   = 0x%04x, %d  \n", data->Chan3, data->Chan3);
                     OS_printf("  Trailer = 0x%02x%02x  \n", read_data[8], read_data[9]);
                 #endif
+            }
+            else
+            {
+                OS_printf("  DEMO_RequestData: Invalid data frame! \n");
+                status = OS_ERROR;
             }
         }
         else

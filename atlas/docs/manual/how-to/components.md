@@ -47,6 +47,8 @@ flowchart LR
 ```
 
 In simulation, HWLIB connects to a ZeroMQ IPC endpoint and the simulator binds the matching endpoint.
+One ZeroMQ context is shared across all endpoints in each process, and simulated
+drivers use blocking deadline-based receives.
 On a physical target, a target specific HWLIB implementation performs the device I/O.
 The device protocol above HWLIB should remain consistent, but transport timing and hardware behavior must be tested separately.
 
@@ -90,5 +92,56 @@ When the snapshot is absent, the Simulith Makefile uses its fallback component l
 
 When changing a component, keep its device protocol, cFS messages, XTCE, procedure arguments, simulator, CLI, configuration template, and tests synchronized.
 
+## Simulator callback contract
+
+Each simulator exports `get_component_interface()` and declares
+`SIMULITH_COMPONENT_API_VERSION` plus `sizeof(component_interface_t)`.
+The Director validates the version, size, unique name, and required callbacks
+before creating component state.
+Changing the meaning, type, or position of an interface field requires an API
+version increment and a clean rebuild of every component simulator.
+
+Use each callback for one responsibility:
+
+| Callback | Phase | Developer responsibility |
+| --- | --- | --- |
+| `create` | Startup | Allocate private state and open simulator-side resources. |
+| `on_tick` | PREPARE | Advance autonomous state once from the immutable 42 truth snapshot. |
+| `wait_for_service` | EXECUTE | Block on device readiness and the Director interrupt without consuming the request. |
+| `service` | EXECUTE | Process ready device requests without waiting for a future tick. |
+| `actuate` | COMMIT | Publish the final actuator output set after current-tick FSW work is complete. |
+| `destroy` | Shutdown | Close resources and release private state after callbacks are quiescent. |
+| `backdoor` | Test only | Apply an isolated simulation control or fault injection when implemented. |
+
+`on_tick` and `actuate` are optional. `wait_for_service` and `service` must be
+provided together or both omitted.
+A request-driven sensor can calculate its result lazily in `service` from the
+current truth snapshot and leave `on_tick` null.
+A component that does not command 42 can leave `actuate` null.
+An actuator-producing component keeps `actuate` separate because `on_tick` runs
+before FSW and `service` may run repeatedly while FSW is still updating the
+commanded state.
+The separate COMMIT callback publishes one deterministic final output set.
+
+Keep all mutable model state, transport handles, deadlines, and deterministic
+random-generator state in the object allocated by `create`.
+The application and shared device code use the same complete synchronous
+transaction contract for simulation and physical targets, while HWLIB supplies
+the target-specific transport implementation.
+
+A synchronous device request must receive its response and completion in the
+current tick.
+For a device operation that takes several ticks, `service` returns an immediate
+accepted, busy, or rejected protocol response and stores the modeled operation
+state.
+`on_tick` advances that state, and later status requests observe its result.
+Waiting inside a bus transaction for a future tick would deadlock the closed-loop
+synchronization barrier.
+
+The Demo simulator is the reference implementation copied by the component
+mold.
+Its README and prefunction comments explain lifecycle ownership, lazy sensing,
+multi-tick operation state, protocol rejection, and phase-specific tests.
+
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

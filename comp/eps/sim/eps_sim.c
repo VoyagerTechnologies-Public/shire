@@ -1,8 +1,32 @@
 #include "eps_sim.h"
 
+/* EPS owns its I2C endpoint, physical state, deadlines, and deterministic PRNG
+ * in one component instance. PREPARE advances the power model and EXECUTE
+ * services complete I2C transactions; EPS has no 42 actuator output. */
+
 /* Forward prototypes to satisfy -Wmissing-prototypes for REGISTER_COMPONENT export */
 const component_interface_t* get_eps_sim_component_interface(void);
 const component_interface_t* get_component_interface(void);
+
+#define EPS_HK_UPDATE_PERIOD_NS 1000000000ULL
+#define EPS_PRNG_INITIAL_STATE  0x45505331U
+
+typedef enum
+{
+    EPS_COMMAND_ERROR = -1,
+    EPS_COMMAND_SUCCESS = 0,
+    EPS_COMMAND_REJECTED = 1
+} eps_command_result_t;
+
+static uint32_t eps_prng_next(eps_sim_state_t *state)
+{
+    uint32_t value = state->prng_state;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    state->prng_state = value;
+    return value;
+}
 
 static double calculate_power_consumption(eps_sim_state_t* state)
 {
@@ -40,28 +64,35 @@ static double calculate_solar_generation(const simulith_42_context_t* context_42
     return 0.0;
 }
 
-static void handle_eps_command(eps_sim_state_t* state, const uint8_t* data, size_t length)
+static eps_command_result_t handle_eps_command(eps_sim_state_t* state,
+                                                const uint8_t* data,
+                                                size_t length)
 {
-    if (length < EPS_COMMAND_SIZE)
+    if (!state || !data)
+        return EPS_COMMAND_ERROR;
+    if (length != EPS_COMMAND_SIZE)
     {
-        printf("EPS SIM: Command too short (%zu bytes, expected %zu)\n", length, EPS_COMMAND_SIZE);
-        return;
+        printf("EPS SIM: Invalid command length (%zu bytes, expected %zu)\n",
+               length, EPS_COMMAND_SIZE);
+        return EPS_COMMAND_REJECTED;
     }
 
-    EPS_Command_t* cmd = (EPS_Command_t*)data;
+    EPS_Command_t command;
+    memcpy(&command, data, sizeof(command));
+    const EPS_Command_t* cmd = &command;
     
     /* Verify I2C address */
     if (cmd->i2c_addr != EPS_CFG_I2C_DEVICE_ADDR)
     {
         printf("EPS SIM: Wrong I2C address 0x%02X (expected 0x%02X)\n", cmd->i2c_addr, EPS_CFG_I2C_DEVICE_ADDR);
-        return;
+        return EPS_COMMAND_REJECTED;
     }
 
     /* Verify CRC */
     if (!EPS_Verify_CRC8(data, EPS_COMMAND_SIZE - 1, cmd->crc))
     {
         printf("EPS SIM: CRC check failed\n");
-        return;
+        return EPS_COMMAND_REJECTED;
     }
 
     #ifdef EPS_CFG_DEBUG
@@ -83,9 +114,12 @@ static void handle_eps_command(eps_sim_state_t* state, const uint8_t* data, size
             /* Calculate CRC for housekeeping data */
             state->hk.crc = EPS_Calculate_CRC8((const uint8_t*)&state->hk, sizeof(state->hk) - 1);
             /* Send housekeeping data back via I2C */
-            if (simulith_transport_send(&state->i2c_device, (const uint8_t*)&state->hk, sizeof(state->hk)) < 0)
+            if (simulith_transport_send(&state->i2c_device,
+                                        (const uint8_t*)&state->hk,
+                                        sizeof(state->hk)) != (int)sizeof(state->hk))
             {
                 printf("EPS SIM: Failed to send housekeeping data\n");
+                return EPS_COMMAND_ERROR;
             }
             #ifdef EPS_CFG_DEBUG
             else
@@ -109,6 +143,11 @@ static void handle_eps_command(eps_sim_state_t* state, const uint8_t* data, size
                 printf("EPS SIM: Invalid switch number %d\n", cmd->payload);
             }
             #endif
+            if (cmd->payload >= EPS_NUM_SWITCHES)
+            {
+                state->device_counter++;
+                return EPS_COMMAND_REJECTED;
+            }
             break;
 
         case EPS_CMD_SWITCH_ON:
@@ -125,41 +164,51 @@ static void handle_eps_command(eps_sim_state_t* state, const uint8_t* data, size
                 printf("EPS SIM: Invalid switch number %d\n", cmd->payload);
             }
             #endif
+            if (cmd->payload >= EPS_NUM_SWITCHES)
+            {
+                state->device_counter++;
+                return EPS_COMMAND_REJECTED;
+            }
             break;
 
         default:
             printf("EPS SIM: Unknown command 0x%02X\n", cmd->command);
-            break;
+            state->device_counter++;
+            return EPS_COMMAND_REJECTED;
     }
 
     /* Update device counter for any command */
     state->device_counter++;
+    return EPS_COMMAND_SUCCESS;
 }
 
 /*
 ** Tick callback for simulation updates
 */
-static void eps_component_tick(component_state_t* state, uint64_t tick_time_ns, const simulith_42_context_t* context_42)
+static int eps_component_on_tick(component_state_t* state, uint64_t tick_time_ns,
+                                 const simulith_42_context_t* context_42)
 {
     eps_sim_state_t* eps_state = (eps_sim_state_t*)state;
     if (!eps_state)
     {
-        return;
+        return COMPONENT_ERROR;
     }
 
-    static uint64_t last_hk_update = 0;
-    const uint64_t hk_update_interval = 1000000000ULL; /* 1 second in nanoseconds */
-    
     /* Update housekeeping data every second */
-    if (tick_time_ns - last_hk_update >= hk_update_interval)
+    if (tick_time_ns >= eps_state->next_hk_update_ns)
     {
+        uint64_t periods =
+            ((tick_time_ns - eps_state->next_hk_update_ns) /
+             EPS_HK_UPDATE_PERIOD_NS) + 1U;
         /* Calculate power consumption and generation */
         double power_consumption_w = calculate_power_consumption(eps_state);
         double solar_generation_w = calculate_solar_generation(context_42);
         double net_power_w = solar_generation_w - power_consumption_w;
         
         /* Update battery energy (convert watts to watt-hours over time interval) */
-        double time_hours = (double)hk_update_interval / 3600000000000.0; /* nanoseconds to hours */
+        double time_hours = ((double)periods *
+                             (double)EPS_HK_UPDATE_PERIOD_NS) /
+                            3600000000000.0;
         eps_state->battery_energy_wh += net_power_w * time_hours;
         
         /* Clamp battery energy to valid range */
@@ -179,9 +228,9 @@ static void eps_component_tick(component_state_t* state, uint64_t tick_time_ns, 
         eps_state->hk.solar_voltage = (uint8_t)(solar_voltage_v / (32.0 / 255.0));
         
         /* Update battery/solar temperature with random slight variation (+1, 0, or -1) */
-        int t_delta = (rand() % 3) - 1; // -1, 0, or +1
+        int t_delta = (int)(eps_prng_next(eps_state) % 3U) - 1;
         eps_state->hk.battery_temperature = (uint8_t)(20 + t_delta);
-        t_delta = (rand() % 3) - 1;
+        t_delta = (int)(eps_prng_next(eps_state) % 3U) - 1;
         eps_state->hk.solar_temperature = (uint8_t)(35 + t_delta);
         
         /* Update switch voltages and currents based on state */
@@ -219,19 +268,55 @@ static void eps_component_tick(component_state_t* state, uint64_t tick_time_ns, 
                battery_voltage_v, solar_generation_w, solar_voltage_v, power_consumption_w);
         #endif
 
-        last_hk_update = tick_time_ns;
+        if (periods > (UINT64_MAX - eps_state->next_hk_update_ns) /
+                      EPS_HK_UPDATE_PERIOD_NS)
+            eps_state->next_hk_update_ns = UINT64_MAX;
+        else
+            eps_state->next_hk_update_ns +=
+                periods * EPS_HK_UPDATE_PERIOD_NS;
     }
-        
-    int available = simulith_transport_available(&eps_state->i2c_device);
-    if (available > 0)
+
+    return COMPONENT_SUCCESS;
+}
+
+static int eps_component_wait_for_service(component_state_t* state,
+                                          int interrupt_fd)
+{
+    eps_sim_state_t* eps_state = (eps_sim_state_t*)state;
+    if (!eps_state) return COMPONENT_ERROR;
+    transport_port_t* ports[] = {&eps_state->i2c_device};
+    return simulith_transport_wait_for_request(ports, 1U, interrupt_fd);
+}
+
+static int eps_component_service(component_state_t* state,
+                                 uint64_t tick_time_ns,
+                                 const simulith_42_context_t* context_42)
+{
+    (void)tick_time_ns;
+    (void)context_42;
+    eps_sim_state_t* eps_state = (eps_sim_state_t*)state;
+    uint64_t transaction_id;
+    if (!eps_state)
+        return COMPONENT_ERROR;
+
+    uint8_t cmd_buffer[256];
+    int bytes_read = simulith_transport_receive_request(&eps_state->i2c_device, cmd_buffer,
+                                                        sizeof(cmd_buffer), &transaction_id);
+    if (bytes_read > 0)
     {
-        uint8_t cmd_buffer[256];
-        int bytes_read = simulith_transport_receive(&eps_state->i2c_device, cmd_buffer, sizeof(cmd_buffer));
-        if (bytes_read > 0)
-        {
-            handle_eps_command(eps_state, cmd_buffer, (size_t)bytes_read);
-        }
+        eps_command_result_t command_status = handle_eps_command(
+            eps_state, cmd_buffer, (size_t)bytes_read);
+        if (simulith_transport_complete_request(&eps_state->i2c_device, transaction_id,
+                                                command_status == EPS_COMMAND_SUCCESS ?
+                                                    SIMULITH_TRANSPORT_SUCCESS :
+                                                    SIMULITH_TRANSPORT_ERROR) !=
+            SIMULITH_TRANSPORT_SUCCESS)
+            return COMPONENT_ERROR;
+        return command_status == EPS_COMMAND_ERROR ?
+            COMPONENT_ERROR : COMPONENT_WORK;
     }
+    if (bytes_read < 0) return COMPONENT_ERROR;
+    return COMPONENT_IDLE;
 }
 
 /*
@@ -249,6 +334,8 @@ int eps_sim_init(eps_sim_state_t* state)
     memset(&state->hk, 0, sizeof(state->hk));
     state->device_counter = 0;
     state->battery_energy_wh = EPS_BATTERY_CAPACITY_WH * EPS_BATTERY_INITIAL_SOC; /* Start at configured SOC */
+    state->next_hk_update_ns = EPS_HK_UPDATE_PERIOD_NS;
+    state->prng_state = EPS_PRNG_INITIAL_STATE;
     
     /* Set initial values based on configuration */
     double initial_voltage = EPS_BATTERY_VOLTAGE_MIN + (EPS_BATTERY_INITIAL_SOC * (EPS_BATTERY_VOLTAGE_MAX - EPS_BATTERY_VOLTAGE_MIN));
@@ -284,8 +371,11 @@ void eps_sim_cleanup(eps_sim_state_t* state)
 /*
 ** Component initialization for simulith framework
 */
-static int eps_component_init(component_state_t** state)
+static int eps_component_create(component_state_t** state)
 {    
+    if (!state)
+        return COMPONENT_ERROR;
+    *state = NULL;
     /* Allocate component state */
     eps_sim_state_t* eps_state = (eps_sim_state_t*)malloc(sizeof(eps_sim_state_t));
     if (!eps_state)
@@ -327,7 +417,7 @@ static int eps_component_init(component_state_t** state)
 /*
 ** Component cleanup for simulith framework
 */
-static void eps_component_cleanup(component_state_t* state)
+static void eps_component_destroy(component_state_t* state)
 {
     eps_sim_state_t* eps_state = (eps_sim_state_t*)state;
     if (eps_state)
@@ -343,11 +433,17 @@ static void eps_component_cleanup(component_state_t* state)
 ** Component interface definition
 */
 static const component_interface_t eps_component_interface = {
+    .api_version = SIMULITH_COMPONENT_API_VERSION,
+    .struct_size = sizeof(component_interface_t),
     .name = "eps_sim",
     .description = "EPS component simulation with I2C interface",
-    .init = eps_component_init,
-    .tick = eps_component_tick,
-    .cleanup = eps_component_cleanup
+    .create = eps_component_create,
+    .on_tick = eps_component_on_tick,
+    .wait_for_service = eps_component_wait_for_service,
+    .service = eps_component_service,
+    .actuate = NULL,
+    .destroy = eps_component_destroy,
+    .backdoor = NULL
 };
 
 /*

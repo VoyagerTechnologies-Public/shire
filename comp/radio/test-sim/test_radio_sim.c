@@ -35,13 +35,24 @@
 
 static void                        *g_handle     = NULL;
 static const component_interface_t *g_iface      = NULL;
-static simulith_gpio_state_t       *g_gpio_power = NULL;
-static simulith_gpio_state_t       *g_gpio_int   = NULL;
+static component_interface_t g_phase_iface;
+static int (*g_prepare_tick)(component_state_t *, uint64_t,
+                             const simulith_42_context_t *) = NULL;
 
 typedef int  (*radio_init_fn)(radio_sim_state_t *);
 typedef void (*radio_cleanup_fn)(radio_sim_state_t *);
 static radio_init_fn    g_radio_sim_init    = NULL;
 static radio_cleanup_fn g_radio_sim_cleanup = NULL;
+
+/* Exercise the same PREPARE and EXECUTE order as the director. */
+static int run_tick_phases(component_state_t *state, uint64_t tick_time_ns,
+                           const simulith_42_context_t *context_42)
+{
+    int status = g_prepare_tick(state, tick_time_ns, context_42);
+    if (state && g_phase_iface.service)
+        g_phase_iface.service(state, 0, NULL);
+    return status;
+}
 
 #define RADIO_SPI_PORT   (SIMULITH_SPI_BASE_PORT  + RADIO_CFG_SPI_BUS * 8 + RADIO_CFG_SPI_CS)
 #define RADIO_POWER_PORT (SIMULITH_GPIO_BASE_PORT + RADIO_CFG_GPIO_POWER_PIN)
@@ -136,7 +147,7 @@ static void power_on(component_state_t *state)
     uint8_t msg[3] = {1, RADIO_CFG_GPIO_POWER_PIN, 1};
     simulith_transport_send(&pw, msg, sizeof(msg));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    run_tick_phases(state, 0ULL, NULL);
     simulith_transport_close(&pw);
     usleep(1000);
 }
@@ -150,7 +161,7 @@ void tearDown(void)
 {
     if (g_state_under_test)
     {
-        g_iface->cleanup(g_state_under_test);
+        g_iface->destroy(g_state_under_test);
         g_state_under_test = NULL;
     }
 }
@@ -170,11 +181,18 @@ static void test_dlopen_radio_sim_so(void)
 static void test_get_component_interface_symbol(void)
 {
     TEST_ASSERT_NOT_NULL(g_iface);
+    TEST_ASSERT_EQUAL_UINT32(SIMULITH_COMPONENT_API_VERSION,
+                             g_iface->api_version);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(component_interface_t),
+                             g_iface->struct_size);
     TEST_ASSERT_NOT_NULL(g_iface->name);
     TEST_ASSERT_NOT_NULL(g_iface->description);
-    TEST_ASSERT_NOT_NULL(g_iface->init);
-    TEST_ASSERT_NOT_NULL(g_iface->tick);
-    TEST_ASSERT_NOT_NULL(g_iface->cleanup);
+    TEST_ASSERT_NOT_NULL(g_iface->create);
+    TEST_ASSERT_NOT_NULL(g_iface->on_tick);
+    TEST_ASSERT_NOT_NULL(g_iface->wait_for_service);
+    TEST_ASSERT_NOT_NULL(g_iface->service);
+    TEST_ASSERT_NULL(g_iface->actuate);
+    TEST_ASSERT_NOT_NULL(g_iface->destroy);
     /* radio_sim does not define a backdoor handler */
     TEST_ASSERT_NULL(g_iface->backdoor);
     TEST_ASSERT_EQUAL_STRING("radio_sim", g_iface->name);
@@ -183,7 +201,7 @@ static void test_get_component_interface_symbol(void)
 static void test_init_returns_success_and_initial_state(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     TEST_ASSERT_NOT_NULL(state);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
@@ -193,24 +211,34 @@ static void test_init_returns_success_and_initial_state(void)
     TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_DUPLEX, rs->config.Mode);
     TEST_ASSERT_EQUAL_UINT8(0,                 rs->interrupt_asserted);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_lifecycle_callbacks_reject_null(void)
+{
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->create(NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_prepare_tick(NULL, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->service(NULL, 0, NULL));
+    g_iface->destroy(NULL);
 }
 
 static void test_cleanup_rebind_ok(void)
 {
     /* Calling init/cleanup twice must not leak SPI or GPIO IPC sockets */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->destroy(state);
 
     state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->destroy(state);
 }
 
 static void test_cleanup_with_null_is_safe(void)
 {
-    g_iface->cleanup(NULL);
+    g_iface->destroy(NULL);
 }
 
 /* -------------------------------------------------------------------------
@@ -233,16 +261,16 @@ static void test_radio_sim_cleanup_with_null_is_safe(void)
  * -------------------------------------------------------------------------*/
 static void test_tick_with_null_state_returns_safely(void)
 {
-    g_iface->tick(NULL, 0ULL, NULL);
+    g_iface->on_tick(NULL, 0ULL, NULL);
 }
 
 static void test_tick_does_not_crash(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->tick(state, 0ULL, NULL);
-    g_iface->tick(state, 200000000ULL, NULL);  /* 200 ms — crosses rate-limit threshold */
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->on_tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);  /* 200 ms — crosses rate-limit threshold */
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -253,7 +281,7 @@ static void test_tick_does_not_crash(void)
 static void test_spi_noop_increments_command_counter(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -265,19 +293,19 @@ static void test_spi_noop_increments_command_counter(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_NOOP_CMD, NULL, 0);
     TEST_ASSERT_EQUAL_INT(5, simulith_transport_send(&spi, frame, 5));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(1, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_req_hk_returns_framed_housekeeping(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -289,7 +317,7 @@ static void test_spi_req_hk_returns_framed_housekeeping(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_REQ_HK_CMD, NULL, 0);
     simulith_transport_send(&spi, frame, 5);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     uint8_t resp[32];
     size_t  n = drain_all(&spi, resp, sizeof(resp));
@@ -298,13 +326,13 @@ static void test_spi_req_hk_returns_framed_housekeeping(void)
     TEST_ASSERT_EQUAL_HEX8(RADIO_DEVICE_TRAILER, resp[RADIO_DEVICE_HK_SIZE - 1]);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_hk_initial_mode_and_counter(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -315,7 +343,7 @@ static void test_hk_initial_mode_and_counter(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_REQ_HK_CMD, NULL, 0);
     simulith_transport_send(&spi, frame, 5);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     uint8_t resp[32];
     TEST_ASSERT_EQUAL_size_t((size_t)RADIO_DEVICE_HK_SIZE,
@@ -327,13 +355,13 @@ static void test_hk_initial_mode_and_counter(void)
     TEST_ASSERT_EQUAL_UINT8(0,                 resp[4]);   /* ground lock */
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_set_cfg_updates_mode(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -346,7 +374,7 @@ static void test_spi_set_cfg_updates_mode(void)
                                    payload, RADIO_CFG_PAYLOAD_SIZE);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_RX, rs->config.Mode);
@@ -354,13 +382,13 @@ static void test_spi_set_cfg_updates_mode(void)
     TEST_ASSERT_EQUAL_UINT16(1,             rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_set_cfg_wrong_payload_size_ignored(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -374,20 +402,20 @@ static void test_spi_set_cfg_wrong_payload_size_ignored(void)
                                    payload, 3);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0,                rs->hk.CommandCounter);
     TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_DUPLEX, rs->config.Mode);  /* unchanged */
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_receive_cmd_empty_buffer_returns_frame(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -401,7 +429,7 @@ static void test_spi_receive_cmd_empty_buffer_returns_frame(void)
                                    payload, 2);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     uint8_t resp[16];
     size_t  n = drain_all(&spi, resp, sizeof(resp));
@@ -412,13 +440,13 @@ static void test_spi_receive_cmd_empty_buffer_returns_frame(void)
     TEST_ASSERT_EQUAL_HEX8(RADIO_DEVICE_TRAILER, resp[3]);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_receive_cmd_wrong_payload_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -432,19 +460,19 @@ static void test_spi_receive_cmd_wrong_payload_rejected(void)
                                    payload, 1);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     uint8_t resp[16];
     TEST_ASSERT_EQUAL_size_t(0, drain_all(&spi, resp, sizeof(resp)));
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_send_cmd_in_duplex_mode(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -457,20 +485,20 @@ static void test_spi_send_cmd_in_duplex_mode(void)
                                    payload, 5);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     /* CommandCounter increments in DUPLEX mode regardless of UDP TX result */
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(1, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_send_cmd_zero_payload_no_counter(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -482,19 +510,19 @@ static void test_spi_send_cmd_zero_payload_no_counter(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_SEND_CMD, NULL, 0);
     simulith_transport_send(&spi, frame, 5);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_send_cmd_in_rx_mode_not_forwarded(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -509,7 +537,7 @@ static void test_spi_send_cmd_in_rx_mode_not_forwarded(void)
                                        RADIO_CFG_PAYLOAD_SIZE);
     simulith_transport_send(&spi, cfg_frame, cfg_len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);  /* counter = 1 after SET_CFG */
+    g_iface->on_tick(state, 0ULL, NULL);  /* counter = 1 after SET_CFG */
 
     /* SEND in RX-only mode: mode check fails, counter does not increment */
     uint8_t data[3] = {0x01, 0x02, 0x03};
@@ -518,13 +546,13 @@ static void test_spi_send_cmd_in_rx_mode_not_forwarded(void)
                                    data, 3);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(1, rs->hk.CommandCounter);  /* only SET_CFG counted */
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_send_cmd_fails_on_bad_socket(void)
@@ -532,7 +560,7 @@ static void test_spi_send_cmd_fails_on_bad_socket(void)
     /* Close the TX socket before SEND so sendto() returns -1, covering the
      * failure-log branch.  cleanup() then exercises the udp_tx_socket < 0 guard. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
@@ -548,7 +576,7 @@ static void test_spi_send_cmd_fails_on_bad_socket(void)
     size_t  len = encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_SEND_CMD, payload, 4);
     simulith_transport_send(&spi, frame, len);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     /* BytesReceived always incremented; CommandCounter incremented in TX/DUPLEX
      * even when sendto fails; BytesSent stays 0 because sendto returned <= 0. */
@@ -557,13 +585,13 @@ static void test_spi_send_cmd_fails_on_bad_socket(void)
     TEST_ASSERT_EQUAL_UINT32(0, rs->hk.BytesSent);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);  /* cleanup skips close(udp_tx_socket) since it's -1 */
+    g_iface->destroy(state);  /* cleanup skips close(udp_tx_socket) since it's -1 */
 }
 
 static void test_spi_short_packet_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -574,19 +602,22 @@ static void test_spi_short_packet_rejected(void)
     uint8_t short_frame[4] = {RADIO_DEVICE_HDR, RADIO_DEVICE_NOOP_CMD, 0x00, 0x11};
     simulith_transport_send(&spi, short_frame, 4);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_prepare_tick(state, 0ULL, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK,
+                          g_phase_iface.service(state, 0ULL, NULL));
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_bad_header_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -596,19 +627,19 @@ static void test_spi_bad_header_rejected(void)
     uint8_t frame[5] = {0xBB, RADIO_DEVICE_NOOP_CMD, 0x00, 0x00, RADIO_DEVICE_TRAILER};
     simulith_transport_send(&spi, frame, sizeof(frame));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_bad_trailer_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -618,13 +649,13 @@ static void test_spi_bad_trailer_rejected(void)
     uint8_t frame[5] = {RADIO_DEVICE_HDR, RADIO_DEVICE_NOOP_CMD, 0x00, 0x00, 0xBB};
     simulith_transport_send(&spi, frame, sizeof(frame));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_truncated_payload_rejected(void)
@@ -632,7 +663,7 @@ static void test_spi_truncated_payload_rejected(void)
     /* Header declares payload_len=5 but only 4 payload bytes are included (9 total < 10
      * expected), hitting the `length < expected_len` guard at radio_sim_handle_spi_command. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -647,19 +678,19 @@ static void test_spi_truncated_payload_rejected(void)
     };
     simulith_transport_send(&spi, frame, sizeof(frame));  /* 9 < 10 → rejected */
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_unknown_command_handled(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     power_on(state);
 
     transport_port_t spi;
@@ -670,23 +701,23 @@ static void test_spi_unknown_command_handled(void)
     encode_spi_frame(frame, sizeof(frame), 0x99, NULL, 0);
     simulith_transport_send(&spi, frame, 5);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     /* Default arm: logs error, no crash, counter unchanged */
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_cmd_dropped_when_powered_off(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     /* Explicitly ensure power is off regardless of prior test state */
-    if (g_gpio_power) g_gpio_power->value = 0;
+    ((radio_sim_state_t *)state)->power_gpio.value = 0;
 
     transport_port_t spi;
     open_spi_client(&spi, "test_spi");
@@ -696,13 +727,13 @@ static void test_spi_cmd_dropped_when_powered_off(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_NOOP_CMD, NULL, 0);
     simulith_transport_send(&spi, frame, 5);
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -711,11 +742,11 @@ static void test_spi_cmd_dropped_when_powered_off(void)
 static void test_gpio_power_read_returns_on(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
     /* Set the power state directly — avoids a ZMQ PAIR close/reopen race that
      * occurs when power_on() opens and closes pw_helper before we connect test_pw. */
-    if (g_gpio_power) g_gpio_power->value = 1;
+    ((radio_sim_state_t *)state)->power_gpio.value = 1;
 
     transport_port_t pw;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
@@ -725,7 +756,7 @@ static void test_gpio_power_read_returns_on(void)
     uint8_t req[2] = {0, RADIO_CFG_GPIO_POWER_PIN};  /* read command */
     simulith_transport_send(&pw, req, sizeof(req));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     uint8_t resp[8];
     size_t  n = drain_all(&pw, resp, sizeof(resp));
@@ -736,13 +767,13 @@ static void test_gpio_power_read_returns_on(void)
 
     simulith_transport_close(&pw);
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_gpio_interrupt_read_initial(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t irq;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
@@ -752,7 +783,7 @@ static void test_gpio_interrupt_read_initial(void)
     uint8_t req[2] = {0, RADIO_CFG_GPIO_INTERRUPT_PIN};
     simulith_transport_send(&irq, req, sizeof(req));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     uint8_t resp[8];
     size_t  n = drain_all(&irq, resp, sizeof(resp));
@@ -762,15 +793,15 @@ static void test_gpio_interrupt_read_initial(void)
     TEST_ASSERT_EQUAL_UINT8(0,                             resp[2]);  /* not asserted */
 
     simulith_transport_close(&irq);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_gpio_power_write_same_value_no_op(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
-    if (g_gpio_power) g_gpio_power->value = 1;
+    ((radio_sim_state_t *)state)->power_gpio.value = 1;
 
     transport_port_t pw;
     open_gpio_client(&pw, "test_pw", RADIO_POWER_PORT);
@@ -780,23 +811,23 @@ static void test_gpio_power_write_same_value_no_op(void)
     uint8_t req[3] = {1, RADIO_CFG_GPIO_POWER_PIN, 1};
     simulith_transport_send(&pw, req, sizeof(req));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_DUPLEX, rs->config.Mode);  /* unchanged */
 
     simulith_transport_close(&pw);
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_gpio_power_write_off_clears_state(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
     /* Set power on directly — avoids PAIR reconnect race from power_on() open/close. */
-    if (g_gpio_power) g_gpio_power->value = 1;
+    ((radio_sim_state_t *)state)->power_gpio.value = 1;
 
     transport_port_t pw;
     open_gpio_client(&pw, "test_pw", RADIO_POWER_PORT);
@@ -806,7 +837,7 @@ static void test_gpio_power_write_off_clears_state(void)
     uint8_t req[3] = {1, RADIO_CFG_GPIO_POWER_PIN, 0};
     simulith_transport_send(&pw, req, sizeof(req));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_SLEEP, rs->hk.Mode);
@@ -815,13 +846,13 @@ static void test_gpio_power_write_off_clears_state(void)
 
     simulith_transport_close(&pw);
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_gpio_interrupt_write(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t irq;
     open_gpio_client(&irq, "test_irq", RADIO_INT_PORT);
@@ -831,10 +862,75 @@ static void test_gpio_interrupt_write(void)
     uint8_t req[3] = {1, RADIO_CFG_GPIO_INTERRUPT_PIN, 1};
     simulith_transport_send(&irq, req, sizeof(req));
     usleep(2000);
-    g_iface->tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 0ULL, NULL);
 
     simulith_transport_close(&irq);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_gpio_rejects_short_wrong_pin_and_invalid_commands(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    rs->power_gpio.value = 0;
+    rs->interrupt_gpio.value = 0;
+
+    transport_port_t power;
+    transport_port_t interrupt;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_gpio_client(&power, "test_pw_invalid", RADIO_POWER_PORT));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_gpio_client(&interrupt, "test_irq_invalid", RADIO_INT_PORT));
+    usleep(5000);
+
+    const uint8_t short_request[] = {0};
+    const uint8_t wrong_power_pin[] = {0, (uint8_t)(RADIO_CFG_GPIO_POWER_PIN + 1)};
+    const uint8_t invalid_power_command[] = {2, RADIO_CFG_GPIO_POWER_PIN, 1};
+    const uint8_t short_power_write[] = {1, RADIO_CFG_GPIO_POWER_PIN};
+    const uint8_t wrong_interrupt_pin[] = {0, (uint8_t)(RADIO_CFG_GPIO_INTERRUPT_PIN + 1)};
+    const uint8_t invalid_interrupt_command[] = {2, RADIO_CFG_GPIO_INTERRUPT_PIN, 1};
+    const uint8_t short_interrupt_write[] = {1, RADIO_CFG_GPIO_INTERRUPT_PIN};
+
+    simulith_transport_send(&power, short_request, sizeof(short_request));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, wrong_power_pin, sizeof(wrong_power_pin));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, invalid_power_command, sizeof(invalid_power_command));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, short_power_write, sizeof(short_power_write));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+
+    simulith_transport_send(&interrupt, short_request, sizeof(short_request));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, wrong_interrupt_pin, sizeof(wrong_interrupt_pin));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, invalid_interrupt_command,
+                            sizeof(invalid_interrupt_command));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, short_interrupt_write,
+                            sizeof(short_interrupt_write));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+
+    uint8_t response[8];
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&power, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&interrupt, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_INT(0, rs->power_gpio.value);
+    TEST_ASSERT_EQUAL_INT(0, rs->interrupt_gpio.value);
+
+    simulith_transport_close(&interrupt);
+    simulith_transport_close(&power);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -843,7 +939,7 @@ static void test_gpio_interrupt_write(void)
 static void test_interrupt_asserted_when_buffer_fills(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     pthread_mutex_lock(&rs->buffer_mutex);
@@ -853,17 +949,17 @@ static void test_interrupt_asserted_when_buffer_fills(void)
     pthread_mutex_unlock(&rs->buffer_mutex);
 
     /* 200 ms tick crosses the rate-limit gate so radio_sim_update_interrupt fires */
-    g_iface->tick(state, 200000000ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);
 
     TEST_ASSERT_EQUAL_UINT8(1, rs->interrupt_asserted);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_interrupt_cleared_when_buffer_drains(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
     pthread_mutex_lock(&rs->buffer_mutex);
@@ -872,11 +968,11 @@ static void test_interrupt_cleared_when_buffer_drains(void)
     rs->rx_buffer_tail     = 0;
     pthread_mutex_unlock(&rs->buffer_mutex);
 
-    g_iface->tick(state, 200000000ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);
 
     TEST_ASSERT_EQUAL_UINT8(0, rs->interrupt_asserted);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -890,7 +986,7 @@ static void test_rx_buffer_count_wraps_correctly(void)
      *   → count = THRESHOLD + 1 > THRESHOLD, and head(1) < tail ✓
      * The tick's update_interrupt call then fires because count >= THRESHOLD. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
@@ -900,12 +996,12 @@ static void test_rx_buffer_count_wraps_correctly(void)
     rs->interrupt_asserted = 0;
     pthread_mutex_unlock(&rs->buffer_mutex);
 
-    g_iface->tick(state, 200000000ULL, NULL);  /* 200 ms crosses rate-limit gate */
+    g_iface->on_tick(state, 200000000ULL, NULL);  /* 200 ms crosses rate-limit gate */
 
     TEST_ASSERT_EQUAL_UINT8(1, rs->interrupt_asserted);
 
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_rx_buffer_overflow_clips_to_available(void)
@@ -913,7 +1009,7 @@ static void test_rx_buffer_overflow_clips_to_available(void)
     /* Fill the circular buffer to within 4 bytes of capacity, then inject 20 bytes
      * via UDP.  radio_sim_write_to_rx_buffer must clip and log the overflow. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
     power_on(state);
 
@@ -940,7 +1036,7 @@ static void test_rx_buffer_overflow_clips_to_available(void)
     TEST_ASSERT_EQUAL_UINT32((uint32_t)(RADIO_SIM_RX_BUFFER_SIZE - 1), count);
 
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_cleanup_skips_closed_rx_socket(void)
@@ -948,7 +1044,7 @@ static void test_cleanup_skips_closed_rx_socket(void)
     /* Stop the UDP thread manually, then pre-close udp_rx_socket so cleanup hits
      * the `socket < 0` guard rather than calling close() again. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
@@ -961,7 +1057,7 @@ static void test_cleanup_skips_closed_rx_socket(void)
     /* cleanup must not double-close or crash; it also skips pthread_join
      * because udp_thread_running is already 0. */
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -970,10 +1066,10 @@ static void test_cleanup_skips_closed_rx_socket(void)
 static void test_udp_thread_ignores_data_when_powered_off(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
     /* Leave radio powered off (initial state) */
-    if (g_gpio_power) g_gpio_power->value = 0;
+    ((radio_sim_state_t *)state)->power_gpio.value = 0;
 
     static const uint8_t payload[8] = {0xAB, 0xCD, 0xEF, 0x01, 0x02, 0x03, 0x04, 0x05};
     inject_udp(payload, sizeof(payload));
@@ -987,13 +1083,13 @@ static void test_udp_thread_ignores_data_when_powered_off(void)
     TEST_ASSERT_EQUAL_UINT32(0, count);  /* no bytes written when powered off */
 
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_udp_inject_populates_rx_buffer(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
     power_on(state);  /* radio must be on for UDP thread to write to buffer */
 
@@ -1012,13 +1108,13 @@ static void test_udp_inject_populates_rx_buffer(void)
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32((uint32_t)sizeof(payload), count);
 
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_spi_receive_cmd_with_udp_data(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
     power_on(state);
 
@@ -1037,7 +1133,7 @@ static void test_spi_receive_cmd_with_udp_data(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_RECEIVE_CMD, pl, 2);
     simulith_transport_send(&spi, frame, sizeof(frame));
     usleep(2000);
-    g_iface->tick(state, 200000000ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);
 
     /* Response: [HDR len_hi len_lo data[0..7] TRAILER] = requested+4 bytes */
     uint8_t resp[32];
@@ -1051,7 +1147,51 @@ static void test_spi_receive_cmd_with_udp_data(void)
 
     simulith_transport_close(&spi);
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_spi_receive_cmd_leaves_unrequested_udp_data_buffered(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    power_on(state);
+
+    static const uint8_t ground_data[8] = {
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+    TEST_ASSERT_TRUE(inject_udp(ground_data, sizeof(ground_data)) > 0);
+    usleep(50000);
+
+    transport_port_t spi;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_spi_client(&spi, "test_spi_partial"));
+    usleep(2000);
+
+    const uint16_t requested = 4;
+    uint8_t payload[2] = {0, (uint8_t)requested};
+    uint8_t frame[7];
+    encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_RECEIVE_CMD, payload, 2);
+    simulith_transport_send(&spi, frame, sizeof(frame));
+    usleep(2000);
+    g_iface->on_tick(state, 200000000ULL, NULL);
+
+    uint8_t response[16];
+    TEST_ASSERT_EQUAL_size_t(requested + 4u,
+                             drain_all(&spi, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_MEMORY(ground_data, &response[3], requested);
+
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&rs->buffer_mutex);
+    uint32_t remaining = (rs->rx_buffer_head >= rs->rx_buffer_tail)
+                             ? rs->rx_buffer_head - rs->rx_buffer_tail
+                             : (RADIO_SIM_RX_BUFFER_SIZE - rs->rx_buffer_tail) +
+                                   rs->rx_buffer_head;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(ground_data) - requested, remaining);
+
+    simulith_transport_close(&spi);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -1067,7 +1207,7 @@ static void test_init_fails_when_spi_address_is_dir(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mkdir(path, 0755), "could not stage path squat");
 
     component_state_t *state = NULL;
-    int                rc    = g_iface->init(&state);
+    int                rc    = g_iface->create(&state);
 
     (void)rmdir(path);
 
@@ -1084,7 +1224,7 @@ static void test_init_fails_when_power_gpio_address_is_dir(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mkdir(path, 0755), "could not stage path squat");
 
     component_state_t *state = NULL;
-    int rc = g_iface->init(&state);
+    int rc = g_iface->create(&state);
 
     (void)rmdir(path);
 
@@ -1101,7 +1241,7 @@ static void test_init_fails_when_interrupt_gpio_address_is_dir(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mkdir(path, 0755), "could not stage path squat");
 
     component_state_t *state = NULL;
-    int rc = g_iface->init(&state);
+    int rc = g_iface->create(&state);
 
     (void)rmdir(path);
 
@@ -1119,7 +1259,7 @@ static void test_udp_select_error_stops_thread(void)
      * calls select() on the now-invalid FD, receives EBADF, and breaks —
      * covering the error branch at radio_sim.c lines 68-69. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
@@ -1144,7 +1284,7 @@ static void test_udp_select_error_stops_thread(void)
     rs->udp_rx_socket      = -1; /* prevent double-close in cleanup */
 
     g_state_under_test = NULL;
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -1192,18 +1332,20 @@ int main(void)
         dlclose(g_handle);
         return 1;
     }
-    g_iface = get_iface();
-    if (!g_iface)
+    const component_interface_t *loaded_iface = get_iface();
+    if (!loaded_iface)
     {
         fprintf(stderr, "get_component_interface() returned NULL\n");
         dlclose(g_handle);
         return 1;
     }
+    g_phase_iface = *loaded_iface;
+    g_prepare_tick = loaded_iface->on_tick;
+    g_phase_iface.on_tick = run_tick_phases;
+    g_iface = &g_phase_iface;
 
     g_radio_sim_init    = (radio_init_fn)dlsym(g_handle,    "radio_sim_init");
     g_radio_sim_cleanup = (radio_cleanup_fn)dlsym(g_handle, "radio_sim_cleanup");
-    g_gpio_power        = (simulith_gpio_state_t *)dlsym(g_handle, "gpio_power_state");
-    g_gpio_int          = (simulith_gpio_state_t *)dlsym(g_handle, "gpio_interrupt_state");
 
     UNITY_BEGIN();
 
@@ -1211,6 +1353,7 @@ int main(void)
     RUN_TEST(test_dlopen_radio_sim_so);
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_init_returns_success_and_initial_state);
+    RUN_TEST(test_lifecycle_callbacks_reject_null);
     RUN_TEST(test_cleanup_rebind_ok);
     RUN_TEST(test_cleanup_with_null_is_safe);
 
@@ -1247,6 +1390,7 @@ int main(void)
     RUN_TEST(test_gpio_power_write_same_value_no_op);
     RUN_TEST(test_gpio_power_write_off_clears_state);
     RUN_TEST(test_gpio_interrupt_write);
+    RUN_TEST(test_gpio_rejects_short_wrong_pin_and_invalid_commands);
 
     /* Interrupt flag (state manipulation) */
     RUN_TEST(test_interrupt_asserted_when_buffer_fills);
@@ -1261,6 +1405,7 @@ int main(void)
     RUN_TEST(test_udp_thread_ignores_data_when_powered_off);
     RUN_TEST(test_udp_inject_populates_rx_buffer);
     RUN_TEST(test_spi_receive_cmd_with_udp_data);
+    RUN_TEST(test_spi_receive_cmd_leaves_unrequested_udp_data_buffered);
     RUN_TEST(test_udp_select_error_stops_thread);
 
     /* Init failure */

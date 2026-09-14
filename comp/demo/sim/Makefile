@@ -2,7 +2,7 @@
 .PHONY: all build build-sim clean debug
 
 export BUILDDIR ?= $(CURDIR)/build
-export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:latest
+export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 export RUNTIME_NAME ?= shire-comp-demo-sim
 export SHIRE_DIR ?= $(CURDIR)/../../..
 
@@ -15,7 +15,7 @@ JOBS := $(shell if [ $(NPROC) -le 1 ]; then echo 1; else expr $(NPROC) - 1; fi)
 all: build
 
 build:
-	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME) -w $(CURDIR) --user $(shell id -u):$(shell id -g) -e BUILDDIR=$(BUILDDIR) $(BUILD_IMAGE) make -j$(JOBS) build-sim
+	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME) -w $(CURDIR) --user $(shell id -u):$(shell id -g) -e BUILDDIR=$(BUILDDIR) $(BUILD_IMAGE) make -j$(JOBS) build-sim
 
 build-sim:
 	mkdir -p $(BUILDDIR)
@@ -23,7 +23,7 @@ build-sim:
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
 
 clean:
-	docker run --rm -it -v $(CURDIR):$(CURDIR) --name $(RUNTIME_NAME) -w $(CURDIR) $(BUILD_IMAGE) rm -rf $(BUILDDIR)
+	docker run --rm -v $(CURDIR):$(CURDIR) --name $(RUNTIME_NAME) -w $(CURDIR) $(BUILD_IMAGE) rm -rf $(BUILDDIR)
 
 debug:
 	docker run --rm -it -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) /bin/bash

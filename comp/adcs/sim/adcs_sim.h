@@ -34,18 +34,19 @@
 // Adcs simulator state
 typedef struct 
 {
-    // Communication handles
-    uint8_t uart_port;
-    uint32_t uart_handle;
-    void* time_handle;
+    // Resources and model state are instance-owned; no callback globals.
+    transport_port_t uart_port;
     // Simulator specifics
-    double last_update_time;
+    uint64_t next_sensor_update_ns;
     // Device specifics
     ADCS_Device_HK_tlm_t hk;
     ADCS_Device_Data_tlm_t data;
     // ADCS Controller state
-    double last_control_time;
+    uint64_t next_control_update_ns;
+    uint8_t control_deadline_valid;
+    uint8_t actuator_reset_pending;
     double prev_attitude_error[3];
+    double inertial_target[3];
     int current_mode;
     int controller_active;
 } adcs_sim_state_t;
@@ -54,4 +55,4 @@ typedef struct
 int adcs_sim_init(adcs_sim_state_t* state);
 void adcs_sim_cleanup(adcs_sim_state_t* state);
 
-#endif /* ADCS_SIM_H */ 
+#endif /* ADCS_SIM_H */

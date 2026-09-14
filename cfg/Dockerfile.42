@@ -23,7 +23,7 @@ RUN apt-get update && \
 COPY 42/ /42/
 
 # Build 42 executable once at image build time with our modifications
-RUN cd ./42 && make -j$(nproc)
+RUN cd ./42 && make BUILD_TYPE=release -j$(nproc)
 
 # Start with 42's baseline InOut configuration
 # Then overlay SHIRE's customizations (only files that differ from baseline)

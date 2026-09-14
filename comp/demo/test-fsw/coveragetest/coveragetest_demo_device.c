@@ -37,6 +37,25 @@ void Test_DEMO_ReadData_PartialRead(void)
     UtAssert_True(status != OS_SUCCESS, "DEMO_ReadData should detect partial read (rc=%d)", (int)status);
 }
 
+void Test_DEMO_ReadData_FinalPoll(void)
+{
+    uart_info_t device;
+    uint8_t read_data[8] = {0};
+    uint8_t data_length = sizeof(read_data);
+
+    /* The initial availability check plus DEMO_CFG_MS_TIMEOUT delayed polls
+     * makes the final legal observation call number timeout + 1. */
+    UT_SetDeferredRetcode(UT_KEY(uart_bytes_available),
+                          DEMO_CFG_MS_TIMEOUT + 1, data_length);
+    UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, data_length);
+    UT_SetDataBuffer(UT_KEY(uart_read_port), read_data, data_length, false);
+
+    int32_t status = DEMO_ReadData(&device, read_data, data_length);
+    UtAssert_True(status == OS_SUCCESS,
+                  "DEMO_ReadData should accept data on final poll (rc=%d)",
+                  (int)status);
+}
+
 void Test_DEMO_CommandDevice(void)
 {
     uart_info_t device;
@@ -45,7 +64,9 @@ void Test_DEMO_CommandDevice(void)
     /* Ensure a clean UT state for each sub-case */
     UT_ResetState(0);
     int32_t status = DEMO_CommandDevice(&device, cmd_code, payload);
-    UtAssert_True(status == OS_SUCCESS, "DEMO_CommandDevice returned %d", (int)status);
+    UtAssert_True(status != OS_SUCCESS,
+                  "DEMO_CommandDevice should fail without transport stubs (rc=%d)",
+                  (int)status);
 
     /* Negative: uart_flush error */
     UT_ResetState(0);
@@ -53,6 +74,16 @@ void Test_DEMO_CommandDevice(void)
     status = DEMO_CommandDevice(&device, cmd_code, payload);
     UtAssert_True(status != OS_SUCCESS, "DEMO_CommandDevice should fail when uart_flush errors (rc=%d)", (int)status);
     UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+
+    /* Negative: a short write is a failed transaction, even if uart_flush
+     * succeeded. No echo read should be attempted. */
+    UT_ResetState(0);
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, DEMO_DEVICE_CMD_SIZE - 1);
+    status = DEMO_CommandDevice(&device, cmd_code, payload);
+    UtAssert_True(status != OS_SUCCESS,
+                  "DEMO_CommandDevice should fail on a short UART write (rc=%d)",
+                  (int)status);
 
     /* Positive: successful write */
     UT_ResetState(0);
@@ -137,7 +168,8 @@ void Test_DEMO_RequestHK_Success(void)
     DEMO_Device_HK_tlm_t data;
     
     /* Test successful HK parsing with valid headers and trailers */
-    memset(&data, 0, sizeof(data));
+    /* Preload stale bits to verify each HK response replaces prior values. */
+    memset(&data, 0xFF, sizeof(data));
     /* uart_flush returns success */
     UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
     /* uart_write_port returns correct byte count */
@@ -155,9 +187,10 @@ void Test_DEMO_RequestHK_Success(void)
     UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_CMD_SIZE);
     UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_HK_SIZE);
     UT_SetDataBuffer(UT_KEY(uart_read_port), combined_data, sizeof(combined_data), true);
-    DEMO_RequestHK(&device, &data);
+    int32_t status = DEMO_RequestHK(&device, &data);
     
     /* Verify data was parsed correctly */
+    UtAssert_True(status == OS_SUCCESS, "DEMO_RequestHK should succeed");
     UtAssert_True(data.DeviceCounter == 0x1234, "DeviceCounter should be 0x1234");
     UtAssert_True(data.DeviceConfig == 0x5678, "DeviceConfig should be 0x5678");
 }
@@ -193,6 +226,7 @@ void Test_DEMO_RequestData(void)
 {
     uart_info_t              device;
     DEMO_Device_Data_tlm_t data;
+    memset(&data, 0, sizeof(data));
     int32_t status = DEMO_RequestData(&device, &data);
     UtAssert_True(status != OS_SUCCESS, "DEMO_RequestData should fail without stubs (rc=%d)", (int)status);
 
@@ -253,6 +287,55 @@ void Test_DEMO_RequestData_Success(void)
     UtAssert_True(data.Chan3 == 0x5566, "Chan3 should be 0x5566");
 }
 
+void Test_DEMO_RequestData_InvalidFrame(void)
+{
+    uart_info_t device;
+    DEMO_Device_Data_tlm_t data;
+    uint8_t combined_data[] = {
+        0xC0, 0xFF, 0x00, 0x02, 0x00, 0x00, 0xFE, 0xFE,
+        0xAA, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0xFE, 0xFE
+    };
+
+    memset(&data, 0, sizeof(data));
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, DEMO_DEVICE_CMD_SIZE);
+    UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, DEMO_DEVICE_CMD_SIZE);
+    UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, DEMO_DEVICE_DATA_SIZE);
+    UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_CMD_SIZE);
+    UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_DATA_SIZE);
+    UT_SetDataBuffer(UT_KEY(uart_read_port), combined_data, sizeof(combined_data), true);
+
+    int32_t status = DEMO_RequestData(&device, &data);
+    UtAssert_True(status != OS_SUCCESS,
+                  "DEMO_RequestData should reject an invalid data frame (rc=%d)",
+                  (int)status);
+}
+
+void Test_DEMO_InvalidArguments(void)
+{
+    uart_info_t device;
+    uint8_t byte = 0;
+    DEMO_Device_HK_tlm_t hk;
+    DEMO_Device_Data_tlm_t data;
+
+    UtAssert_True(DEMO_ReadData(NULL, &byte, 1) != OS_SUCCESS,
+                  "DEMO_ReadData should reject a NULL device");
+    UtAssert_True(DEMO_ReadData(&device, NULL, 1) != OS_SUCCESS,
+                  "DEMO_ReadData should reject a NULL output");
+    UtAssert_True(DEMO_ReadData(&device, &byte, 0) != OS_SUCCESS,
+                  "DEMO_ReadData should reject a zero length");
+    UtAssert_True(DEMO_CommandDevice(NULL, DEMO_DEVICE_NOOP_CMD, 0) != OS_SUCCESS,
+                  "DEMO_CommandDevice should reject a NULL device");
+    UtAssert_True(DEMO_RequestHK(&device, NULL) != OS_SUCCESS,
+                  "DEMO_RequestHK should reject a NULL output");
+    UtAssert_True(DEMO_RequestHK(NULL, &hk) != OS_SUCCESS,
+                  "DEMO_RequestHK should reject a NULL device");
+    UtAssert_True(DEMO_RequestData(&device, NULL) != OS_SUCCESS,
+                  "DEMO_RequestData should reject a NULL output");
+    UtAssert_True(DEMO_RequestData(NULL, &data) != OS_SUCCESS,
+                  "DEMO_RequestData should reject a NULL device");
+}
+
 void Test_DEMO_RequestData_Hook(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context, va_list va) {}
 
 /*
@@ -281,5 +364,8 @@ void UtTest_Setup(void)
     ADD_TEST(DEMO_RequestHK_InvalidHeaders);
     ADD_TEST(DEMO_RequestData);
     ADD_TEST(DEMO_RequestData_Success);
+    ADD_TEST(DEMO_RequestData_InvalidFrame);
     ADD_TEST(DEMO_ReadData_PartialRead);
+    ADD_TEST(DEMO_ReadData_FinalPoll);
+    ADD_TEST(DEMO_InvalidArguments);
 }

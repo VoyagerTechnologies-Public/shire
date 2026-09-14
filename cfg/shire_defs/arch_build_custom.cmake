@@ -33,7 +33,22 @@ add_compile_options(
     -Wwrite-strings             # Warn if not treating string literals as "const"
     -Wpointer-arith             # Warn about suspicious pointer operations
     -Werror                     # Treat warnings as errors (code should be clean)
+    -Wno-error=strict-overflow  # GCC 14 warns in upstream OSAL inline time helpers
     -Wno-format-truncation      # Inhibit printf-style format truncation warnings
     -Wno-stringop-truncation    # Inhibit string operation truncation warnings
 )
 
+# Instrument every source target in host unit-test builds, and in the separate
+# target-only baseline build used to account for SHIRE OSAL/PSP sources that
+# cannot execute on the host.
+set(SHIRE_COVERAGE "$ENV{SHIRE_COVERAGE}" CACHE BOOL "Enable SHIRE coverage instrumentation")
+if((ENABLE_UNIT_TESTS OR SHIRE_COVERAGE) AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(
+        -O0
+        -g
+        --coverage
+        -fcondition-coverage
+        -fprofile-update=atomic
+    )
+    add_link_options(--coverage)
+endif()

@@ -23,3 +23,13 @@ add_cfe_tables(sc
     sc_rts014.c
     sc_rts015.c
 )
+
+# Repository-owned coverage tests for upstream applications live in the
+# mission layer so upstream submodules stay pristine.  This hook runs after
+# all application targets have been created, which is when coverage tests can
+# inherit the production target's include paths and compile definitions.
+if(ENABLE_UNIT_TESTS AND NOT TARGET coverage-sch-shire-testrunner)
+    add_subdirectory(
+        "${MISSION_DEFS}/coverage-tests"
+        "${CMAKE_BINARY_DIR}/shire-coverage-tests")
+endif()

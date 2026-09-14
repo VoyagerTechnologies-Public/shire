@@ -13,7 +13,9 @@ CFG_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.abspath(os.path.join(CFG_DIR, "../build"))
 BUILD_YAML = os.path.join(BUILD_DIR, "build.yaml")
 ROOT_DIR = os.path.abspath(os.path.join(CFG_DIR, ".."))
-BUILD_IMAGE = "ghcr.io/voyagertechnologies-public/shire-base:latest"
+BUILD_IMAGE = os.environ.get(
+    "BUILD_IMAGE", "ghcr.io/voyagertechnologies-public/shire-base:0.0.0"
+)
 FSW_DIR = os.environ.get("FSW_DIR", "cfs")
 GSW_DIR = os.environ.get("GSW_DIR", "yamcs")
 
@@ -313,10 +315,12 @@ def build_fsw(config):
     fsw_lib_path = os.path.join(builddirs["fsw"], "amd64-shire", "default_cpu1", "simulith", "libsimulith.so")
     dest_lib_path = os.path.join(lib_dir, "libsimulith.so")
     
-    if os.path.exists(sim_lib_path):
-        subprocess.run(["cp", sim_lib_path, dest_lib_path])
-    elif os.path.exists(fsw_lib_path):
+    # The FSW build just produced this library from the same source/API used by
+    # core-cpu1. Prefer it over a possibly stale simulation build artifact.
+    if os.path.exists(fsw_lib_path):
         subprocess.run(["cp", fsw_lib_path, dest_lib_path])
+    elif os.path.exists(sim_lib_path):
+        subprocess.run(["cp", sim_lib_path, dest_lib_path])
     
     # Build runtime Docker image
     print(f"[build] Building FSW runtime image...")

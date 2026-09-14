@@ -106,12 +106,18 @@ void Test_DEMO_AppMain(void)
      * First call it in "nominal" mode where all
      * dependent calls should be successful by default.
      */
+    UT_CheckEvent_Setup(&EventTest, DEMO_DISABLE_ERR_EID, NULL);
     DEMO_AppMain();
 
     /*
      * Confirm that CFE_ES_ExitApp() was called at the end of execution
      */
     UtAssert_True(UT_GetStubCount(UT_KEY(CFE_ES_ExitApp)) == 1, "CFE_ES_ExitApp() called");
+    UtAssert_True(EventTest.MatchCount == 0,
+                  "App shutdown does not report an already-disabled device as an error (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True(UT_GetStubCount(UT_KEY(uart_close_port)) == 0,
+                  "App shutdown does not close a UART that was never opened");
 
     /*
      * Now set up individual cases for each of the error paths.
@@ -509,9 +515,16 @@ void Test_DEMO_ReportHousekeeping(void)
                   "CFE_SB_TimeStampMsg() address matches expected");
 
     UT_CheckEvent_t EventTest;
+    uint8 initial_error_count = DEMO_AppData.HkTelemetryPkt.DeviceErrorCount;
+    UT_CheckEvent_Setup(&EventTest, DEMO_REQ_HK_ERR_EID,
+                        "DEMO: Request device HK reported error %d");
     UT_SetDeferredRetcode(UT_KEY(DEMO_RequestHK), 1, OS_ERROR);
     DEMO_ReportHousekeeping();
-    UT_CheckEvent_Setup(&EventTest, DEMO_REQ_HK_ERR_EID, "DEMO: Request device HK reported error -1");
+    UtAssert_True(EventTest.MatchCount == 1, "DEMO_REQ_HK_ERR_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.DeviceErrorCount ==
+                      (uint8)(initial_error_count + 1),
+                  "Housekeeping request failure increments the device error count");
 }
 
 void Test_DEMO_VerifyCmdLength(void)
@@ -556,37 +569,92 @@ void Test_DEMO_VerifyCmdLength(void)
 
 void Test_DEMO_ReportDeviceTelemetry(void)
 {
-    DEMO_ReportDeviceTelemetry();
-
-    UT_SetDeferredRetcode(UT_KEY(DEMO_RequestData), 1, OS_SUCCESS);
-    DEMO_ReportDeviceTelemetry();
-
-    UT_SetDeferredRetcode(UT_KEY(DEMO_RequestData), 1, OS_ERROR);
-    DEMO_ReportDeviceTelemetry();
+    UT_CheckEvent_t EventTest;
 
     DEMO_AppData.HkTelemetryPkt.DeviceEnabled = DEMO_DEVICE_DISABLED;
     DEMO_ReportDeviceTelemetry();
+    UtAssert_True(UT_GetStubCount(UT_KEY(DEMO_RequestData)) == 0,
+                  "Disabled device is not queried");
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) == 0,
+                  "Disabled device does not publish telemetry");
 
-    DEMO_AppData.HkTelemetryPkt.DeviceEnabled         = DEMO_DEVICE_ENABLED;
+    DEMO_AppData.HkTelemetryPkt.DeviceEnabled = DEMO_DEVICE_ENABLED;
+    DEMO_AppData.HkTelemetryPkt.DeviceCount = 0;
+    UT_SetDeferredRetcode(UT_KEY(DEMO_RequestData), 1, OS_SUCCESS);
     DEMO_ReportDeviceTelemetry();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.DeviceCount == 1,
+                  "Successful data request increments the device count");
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TimeStampMsg)) == 1,
+                  "Successful device telemetry is timestamped");
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) == 1,
+                  "Successful device telemetry is published");
+
+    DEMO_AppData.HkTelemetryPkt.DeviceErrorCount = 0;
+    UT_CheckEvent_Setup(&EventTest, DEMO_REQ_DATA_ERR_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(DEMO_RequestData), 1, OS_ERROR);
+    DEMO_ReportDeviceTelemetry();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.DeviceErrorCount == 1,
+                  "Failed data request increments the device error count");
+    UtAssert_True(EventTest.MatchCount == 1, "DEMO_REQ_DATA_ERR_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)) == 1,
+                  "Failed device telemetry is not published");
 }
 
 void Test_DEMO_Configure(void)
 {
-    DEMO_Configure();
+    UT_CheckEvent_t EventTest;
+    DEMO_Config_cmd_t command = {0};
+    DEMO_AppData.MsgPtr = (CFE_MSG_Message_t *)&command;
 
-    DEMO_Config_cmd_t command;
-    DEMO_AppData.MsgPtr                                     = (CFE_MSG_Message_t *)&command;
-    ((DEMO_Config_cmd_t *)DEMO_AppData.MsgPtr)->DeviceCfg = 0xFFFF;
+    DEMO_AppData.HkTelemetryPkt.CommandErrorCount = 0;
+    DEMO_AppData.HkTelemetryPkt.DeviceEnabled = DEMO_DEVICE_DISABLED;
+    command.DeviceCfg = 0;
+    UT_CheckEvent_Setup(&EventTest, DEMO_CMD_CONFIG_EN_ERR_EID, NULL);
     DEMO_Configure();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.CommandErrorCount == 1,
+                  "Configuration while disabled increments command errors once");
+    UtAssert_True(EventTest.MatchCount == 1, "DEMO_CMD_CONFIG_EN_ERR_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True(UT_GetStubCount(UT_KEY(DEMO_CommandDevice)) == 0,
+                  "Invalid configuration is not sent to the device");
 
-    ((DEMO_Config_cmd_t *)DEMO_AppData.MsgPtr)->DeviceCfg = 0x0;
-    DEMO_AppData.HkTelemetryPkt.DeviceEnabled               = DEMO_DEVICE_ENABLED;
+    command.DeviceCfg = 0xFFFF;
+    DEMO_AppData.HkTelemetryPkt.CommandErrorCount = 0;
     DEMO_Configure();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.CommandErrorCount == 1,
+                  "One command violating two rules is counted once");
 
-    UT_SetDeferredRetcode(UT_KEY(DEMO_CommandDevice), 1, OS_ERROR);
+    command.DeviceCfg = 0xFFFF;
     DEMO_AppData.HkTelemetryPkt.DeviceEnabled = DEMO_DEVICE_ENABLED;
+    UT_CheckEvent_Setup(&EventTest, DEMO_CMD_CONFIG_VAL_ERR_EID, NULL);
     DEMO_Configure();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.CommandErrorCount == 2,
+                  "Invalid configuration value increments command errors once");
+    UtAssert_True(EventTest.MatchCount == 1, "DEMO_CMD_CONFIG_VAL_ERR_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    command.DeviceCfg = 0;
+    DEMO_AppData.HkTelemetryPkt.CommandCount = 0;
+    DEMO_AppData.HkTelemetryPkt.DeviceCount = 0;
+    UT_CheckEvent_Setup(&EventTest, DEMO_CMD_CONFIG_INF_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(DEMO_CommandDevice), 1, OS_SUCCESS);
+    DEMO_Configure();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.CommandCount == 1,
+                  "Accepted configuration increments the command count");
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.DeviceCount == 1,
+                  "Successful configuration increments the device count");
+    UtAssert_True(EventTest.MatchCount == 1, "DEMO_CMD_CONFIG_INF_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    DEMO_AppData.HkTelemetryPkt.DeviceErrorCount = 0;
+    UT_CheckEvent_Setup(&EventTest, DEMO_CMD_CONFIG_DEV_ERR_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(DEMO_CommandDevice), 1, OS_ERROR);
+    DEMO_Configure();
+    UtAssert_True(DEMO_AppData.HkTelemetryPkt.DeviceErrorCount == 1,
+                  "Failed configuration increments the device error count");
+    UtAssert_True(EventTest.MatchCount == 1, "DEMO_CMD_CONFIG_DEV_ERR_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
 }
 
 void Test_DEMO_Enable(void)

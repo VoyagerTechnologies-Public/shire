@@ -94,6 +94,7 @@
 
     <Define name="TO_LAB_CMD_TOPICID"           value="${CFE_MISSION/TELECOMMAND_BASE_TOPICID} + 128"    />
     <Define name="TO_LAB_SEND_HK_TOPICID"       value="${CFE_MISSION/TELECOMMAND_BASE_TOPICID} + 129"    />
+    <Define name="TO_LAB_WAKEUP_TOPICID"        value="${CFE_MISSION/TELECOMMAND_BASE_TOPICID} + 135"    />
     <Define name="SAMPLE_APP_CMD_TOPICID"       value="${CFE_MISSION/TELECOMMAND_BASE_TOPICID} + 130"    />
     <Define name="SAMPLE_APP_SEND_HK_TOPICID"   value="${CFE_MISSION/TELECOMMAND_BASE_TOPICID} + 131"    />
     <Define name="CI_LAB_CMD_TOPICID"           value="${CFE_MISSION/TELECOMMAND_BASE_TOPICID} + 132"    />

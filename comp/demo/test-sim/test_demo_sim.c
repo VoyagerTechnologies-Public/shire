@@ -4,10 +4,12 @@
 
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/eventfd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -45,6 +47,48 @@ static int open_client_port(transport_port_t *port, const char *name)
     demo_sim_uart_address(port->address, sizeof(port->address));
     port->is_server = 0;
     return simulith_transport_init(port);
+}
+
+typedef struct
+{
+    pthread_mutex_t mutex;
+    pthread_cond_t  condition;
+    uint8_t         request[DEMO_DEVICE_CMD_SIZE];
+    uint8_t         response[DEMO_DEVICE_CMD_SIZE];
+    size_t          request_len;
+    int             started;
+    int             finished;
+    int             open_status;
+    int             request_status;
+    int             response_bytes;
+} framed_request_context_t;
+
+static void *run_framed_request(void *argument)
+{
+    framed_request_context_t *context = argument;
+    transport_port_t client;
+
+    context->open_status = open_client_port(&client, "framed_request_client");
+
+    pthread_mutex_lock(&context->mutex);
+    context->started = 1;
+    pthread_cond_signal(&context->condition);
+    pthread_mutex_unlock(&context->mutex);
+
+    if (context->open_status == SIMULITH_TRANSPORT_SUCCESS)
+    {
+        context->request_status = simulith_transport_request(
+            &client, context->request, context->request_len, 1000);
+        context->response_bytes = simulith_transport_receive(
+            &client, context->response, sizeof(context->response));
+        simulith_transport_close(&client);
+    }
+
+    pthread_mutex_lock(&context->mutex);
+    context->finished = 1;
+    pthread_cond_signal(&context->condition);
+    pthread_mutex_unlock(&context->mutex);
+    return NULL;
 }
 
 static void encode_command(uint8_t *buf, uint16_t cmd_id, uint16_t payload)
@@ -108,44 +152,117 @@ static void test_dlopen_demo_sim_so(void)
 static void test_get_component_interface_symbol(void)
 {
     TEST_ASSERT_NOT_NULL(g_iface);
+    TEST_ASSERT_EQUAL_UINT32(SIMULITH_COMPONENT_API_VERSION,
+                             g_iface->api_version);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(component_interface_t),
+                             g_iface->struct_size);
     TEST_ASSERT_NOT_NULL(g_iface->name);
     TEST_ASSERT_NOT_NULL(g_iface->description);
-    TEST_ASSERT_NOT_NULL(g_iface->init);
-    TEST_ASSERT_NOT_NULL(g_iface->tick);
-    TEST_ASSERT_NOT_NULL(g_iface->cleanup);
+    TEST_ASSERT_NOT_NULL(g_iface->create);
+    TEST_ASSERT_NOT_NULL(g_iface->on_tick);
+    TEST_ASSERT_NOT_NULL(g_iface->wait_for_service);
+    TEST_ASSERT_NOT_NULL(g_iface->service);
+    TEST_ASSERT_NOT_NULL(g_iface->actuate);
+    TEST_ASSERT_NOT_NULL(g_iface->destroy);
     TEST_ASSERT_NOT_NULL(g_iface->backdoor);
     TEST_ASSERT_EQUAL_STRING("demo_sim", g_iface->name);
 }
 
-static void test_init_returns_success_and_state(void)
+static void test_create_returns_success_and_state(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     TEST_ASSERT_NOT_NULL(state);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
-static void test_tick_does_not_crash_with_null_42_context(void)
+static void test_on_tick_handles_null_42_context(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->tick(state, 0ULL, NULL);
-    g_iface->tick(state, 100000000ULL, NULL);
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->on_tick(state, 0ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    g_iface->destroy(state);
 }
 
-static void test_cleanup_releases_ipc_socket(void)
+static void test_destroy_releases_ipc_socket(void)
 {
-    /* If cleanup leaks the bound ipc:///tmp/simulith_pub:51005 socket, a
-     * subsequent init in the same process will fail to rebind. This case
+    /* If destroy leaks the bound ipc:///tmp/simulith_pub:51005 socket, a
+     * subsequent create in the same process will fail to rebind. This case
      * guards against that regression. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->destroy(state);
 
     state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->destroy(state);
+}
+
+static void test_lifecycle_callbacks_handle_null_state(void)
+{
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->create(NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->on_tick(NULL, 0ULL, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->service(NULL, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->actuate(NULL, 0ULL, NULL));
+    g_iface->destroy(NULL);
+    g_iface->backdoor(NULL, DEMO_BD_SET_CONFIG, NULL, 0);
+}
+
+static void test_wait_interrupt_and_deadline_saturation(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    int interrupt_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, interrupt_fd);
+    uint64_t wake = 1;
+    TEST_ASSERT_EQUAL_INT((int)sizeof(wake),
+                          (int)write(interrupt_fd, &wake, sizeof(wake)));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_IDLE,
+                          g_iface->wait_for_service(state, interrupt_fd));
+
+    demo_sim_state_t *demo_state = (demo_sim_state_t *)state;
+    demo_state->next_update_time_ns = UINT64_MAX - 1U;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(state, UINT64_MAX, NULL));
+    TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, demo_state->next_update_time_ns);
+
+    close(interrupt_fd);
+    g_iface->destroy(state);
+}
+
+static void test_prepare_does_not_service_execute_transaction(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_client_port(&client, "phase_test_client"));
+    usleep(2000);
+
+    uint8_t cmd[DEMO_DEVICE_CMD_SIZE];
+    encode_command(cmd, DEMO_DEVICE_NOOP_CMD, 0);
+    TEST_ASSERT_EQUAL_INT((int)sizeof(cmd),
+                          simulith_transport_send(&client, cmd, sizeof(cmd)));
+    usleep(2000);
+
+    /* The actual plugin tick is PREPARE-only. It must not consume device I/O
+     * before FSW EXECUTE. */
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    uint8_t rx[DEMO_DEVICE_CMD_SIZE];
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, rx, sizeof(rx)));
+
+    /* One service call owns the whole atomic-within-this-tick transaction. */
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
+    TEST_ASSERT_EQUAL_size_t(sizeof(cmd), drain_all(&client, rx, sizeof(rx)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(cmd, rx, sizeof(cmd));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_IDLE, g_iface->service(state, 0, NULL));
+
+    simulith_transport_close(&client);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -154,7 +271,7 @@ static void test_cleanup_releases_ipc_socket(void)
 static void test_backdoor_set_config_writes_device_config(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     uint8_t payload[2] = {0xAB, 0xCD};
     g_iface->backdoor(state, DEMO_BD_SET_CONFIG, payload, sizeof(payload));
@@ -162,13 +279,13 @@ static void test_backdoor_set_config_writes_device_config(void)
     demo_sim_state_t *ds = (demo_sim_state_t *)state;
     TEST_ASSERT_EQUAL_HEX16(0xABCD, ds->hk.DeviceConfig);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_backdoor_rand_hk_toggles_flag(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     demo_sim_state_t *ds = (demo_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT8(0, ds->rand_hk_enabled);
@@ -181,13 +298,13 @@ static void test_backdoor_rand_hk_toggles_flag(void)
     g_iface->backdoor(state, DEMO_BD_RAND_HK, &disable, 1);
     TEST_ASSERT_EQUAL_UINT8(0, ds->rand_hk_enabled);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_backdoor_rand_data_toggles_flag(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     demo_sim_state_t *ds = (demo_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT8(0, ds->rand_data_enabled);
@@ -200,7 +317,7 @@ static void test_backdoor_rand_data_toggles_flag(void)
     g_iface->backdoor(state, DEMO_BD_RAND_DATA, &disable, 1);
     TEST_ASSERT_EQUAL_UINT8(0, ds->rand_data_enabled);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_backdoor_unknown_cmd_is_noop(void)
@@ -208,7 +325,7 @@ static void test_backdoor_unknown_cmd_is_noop(void)
     /* Covers the default switch arm in demo_sim_backdoor: state must be
      * unchanged for any cmd_id outside DEMO_BD_SET_CONFIG/RAND_HK/RAND_DATA. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     demo_sim_state_t *ds       = (demo_sim_state_t *)state;
     uint16_t          cfg_b4   = ds->hk.DeviceConfig;
@@ -222,7 +339,37 @@ static void test_backdoor_unknown_cmd_is_noop(void)
     TEST_ASSERT_EQUAL_UINT8(hkflag, ds->rand_hk_enabled);
     TEST_ASSERT_EQUAL_UINT8(dataflag, ds->rand_data_enabled);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_backdoor_short_payloads_use_documented_defaults(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t one_byte = 0xAB;
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, &one_byte, 1);
+    TEST_ASSERT_EQUAL_HEX16(0, ds->hk.DeviceConfig);
+
+    /* RAND commands intentionally treat an omitted value as "enable". */
+    g_iface->backdoor(state, DEMO_BD_RAND_HK, NULL, 0);
+    g_iface->backdoor(state, DEMO_BD_RAND_DATA, NULL, 0);
+    TEST_ASSERT_EQUAL_UINT8(1, ds->rand_hk_enabled);
+    TEST_ASSERT_EQUAL_UINT8(1, ds->rand_data_enabled);
+
+    /* A nonzero length never makes a NULL payload safe to dereference and
+     * does not silently change the existing setting. */
+    ds->rand_hk_enabled = 0;
+    ds->rand_data_enabled = 0;
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, NULL, 2);
+    g_iface->backdoor(state, DEMO_BD_RAND_HK, NULL, 1);
+    g_iface->backdoor(state, DEMO_BD_RAND_DATA, NULL, 1);
+    TEST_ASSERT_EQUAL_HEX16(0, ds->hk.DeviceConfig);
+    TEST_ASSERT_EQUAL_UINT8(0, ds->rand_hk_enabled);
+    TEST_ASSERT_EQUAL_UINT8(0, ds->rand_data_enabled);
+
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -230,44 +377,44 @@ static void test_backdoor_unknown_cmd_is_noop(void)
  * -------------------------------------------------------------------------*/
 static void test_tick_with_rand_data_writes_8bit_random_channels(void)
 {
-    /* Covers the rand_data path in demo_sim_on_tick: when the flag is set,
-     * Chan{1,2,3} are populated from rand() & 0x00FF, so the high byte must
-     * always be zero. */
+    /* Covers the rand_data path in on_tick: when the flag is set,
+     * Chan{1,2,3} use the low byte of the component-owned PRNG, so the high
+     * byte must always be zero. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     uint8_t enable = 1;
     g_iface->backdoor(state, DEMO_BD_RAND_DATA, &enable, 1);
 
     /* Tick past the 100ms update gate. */
-    g_iface->tick(state, 200000000ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);
 
     demo_sim_state_t *ds = (demo_sim_state_t *)state;
     TEST_ASSERT_EQUAL_HEX16(0x0000, ds->data.Chan1 & 0xFF00);
     TEST_ASSERT_EQUAL_HEX16(0x0000, ds->data.Chan2 & 0xFF00);
     TEST_ASSERT_EQUAL_HEX16(0x0000, ds->data.Chan3 & 0xFF00);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_with_rand_hk_writes_high_byte_only_hk(void)
 {
-    /* Covers the rand_hk path in demo_sim_on_tick: when the flag is set,
-     * DeviceConfig and DeviceCounter are set to rand() & 0xFF00, so the
-     * low byte must always be zero. */
+    /* Covers the rand_hk path in on_tick: when the flag is set,
+     * DeviceConfig and DeviceCounter use the high byte of the component-owned
+     * PRNG, so the low byte must always be zero. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     uint8_t enable = 1;
     g_iface->backdoor(state, DEMO_BD_RAND_HK, &enable, 1);
 
-    g_iface->tick(state, 200000000ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);
 
     demo_sim_state_t *ds = (demo_sim_state_t *)state;
     TEST_ASSERT_EQUAL_HEX16(0x0000, ds->hk.DeviceConfig & 0x00FF);
     TEST_ASSERT_EQUAL_HEX16(0x0000, ds->hk.DeviceCounter & 0x00FF);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_with_42_svb_scales_channels(void)
@@ -277,7 +424,7 @@ static void test_tick_with_42_svb_scales_channels(void)
      *   chan = (uint16_t)(svb * 10000.0 + 32768.0)
      * (see comp/demo/sim/demo_sim.c). */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     simulith_42_context_t ctx = {0};
     ctx.valid                 = 1;
@@ -288,14 +435,75 @@ static void test_tick_with_42_svb_scales_channels(void)
 
     /* Update gate fires when (current - last_update) >= 1/10s. last_update
      * starts at 0, so any tick >= 100ms passes the gate. */
-    g_iface->tick(state, 200000000ULL, &ctx);
+    g_iface->on_tick(state, 200000000ULL, &ctx);
 
     demo_sim_state_t *ds = (demo_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT16(37768, ds->data.Chan1);
     TEST_ASSERT_EQUAL_UINT16(30268, ds->data.Chan2);
     TEST_ASSERT_EQUAL_UINT16(32768, ds->data.Chan3);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_seeded_random_sequence_restarts_deterministically(void)
+{
+    uint16_t first_sequence[5];
+    uint16_t second_sequence[5];
+
+    for (int run = 0; run < 2; ++run)
+    {
+        component_state_t *state = NULL;
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+        uint8_t enable = 1;
+        g_iface->backdoor(state, DEMO_BD_RAND_DATA, &enable, 1);
+        g_iface->backdoor(state, DEMO_BD_RAND_HK, &enable, 1);
+        g_iface->on_tick(state, DEMO_SIM_UPDATE_PERIOD_NS, NULL);
+
+        demo_sim_state_t *demo_state = (demo_sim_state_t *)state;
+        uint16_t *sequence = run == 0 ? first_sequence : second_sequence;
+        sequence[0] = demo_state->data.Chan1;
+        sequence[1] = demo_state->data.Chan2;
+        sequence[2] = demo_state->data.Chan3;
+        sequence[3] = demo_state->hk.DeviceConfig;
+        sequence[4] = demo_state->hk.DeviceCounter;
+        g_iface->destroy(state);
+    }
+
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(first_sequence, second_sequence, 5);
+}
+
+static void test_tick_uses_an_absolute_sampling_deadline(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *demo_state = (demo_sim_state_t *)state;
+    uint8_t enable = 1;
+    g_iface->backdoor(state, DEMO_BD_RAND_DATA, &enable, 1);
+
+    uint32_t initial_prng = demo_state->prng_state;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(
+                              state, DEMO_SIM_UPDATE_PERIOD_NS - 1U, NULL));
+    TEST_ASSERT_EQUAL_UINT32(initial_prng, demo_state->prng_state);
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(
+                              state, DEMO_SIM_UPDATE_PERIOD_NS, NULL));
+    TEST_ASSERT_EQUAL_UINT64(2U * DEMO_SIM_UPDATE_PERIOD_NS,
+                             demo_state->next_update_time_ns);
+    uint32_t sampled_prng = demo_state->prng_state;
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(
+                              state, DEMO_SIM_UPDATE_PERIOD_NS, NULL));
+    TEST_ASSERT_EQUAL_UINT32(sampled_prng, demo_state->prng_state);
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(
+                              state, 5U * DEMO_SIM_UPDATE_PERIOD_NS + 1U, NULL));
+    TEST_ASSERT_EQUAL_UINT64(6U * DEMO_SIM_UPDATE_PERIOD_NS,
+                             demo_state->next_update_time_ns);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -309,7 +517,7 @@ static void test_tick_with_42_svb_scales_channels(void)
 static void test_wire_protocol_noop_echoes_command(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -321,7 +529,8 @@ static void test_wire_protocol_noop_echoes_command(void)
                           simulith_transport_send(&client, cmd, sizeof(cmd)));
     usleep(2000); /* Let the message arrive at the simulator. */
 
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     uint8_t rx[DEMO_DEVICE_CMD_SIZE];
     size_t  n = drain_all(&client, rx, sizeof(rx));
@@ -329,13 +538,13 @@ static void test_wire_protocol_noop_echoes_command(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(cmd, rx, sizeof(cmd));
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_req_hk_returns_framed_hk(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     /* Seed a known DeviceConfig via backdoor so we can spot it in the
      * housekeeping response. DeviceCounter increments in handle_command, so
@@ -356,7 +565,8 @@ static void test_wire_protocol_req_hk_returns_framed_hk(void)
                           simulith_transport_send(&client, cmd, sizeof(cmd)));
     usleep(2000);
 
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     /* Expect: 8-byte echo, then 8-byte HK frame:
      *   [C0 FF] [counter_hi counter_lo] [config_hi config_lo] [FE FE] */
@@ -379,13 +589,13 @@ static void test_wire_protocol_req_hk_returns_framed_hk(void)
     TEST_ASSERT_EQUAL_HEX16(0x1234, config);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_req_data_returns_framed_data(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -397,7 +607,7 @@ static void test_wire_protocol_req_data_returns_framed_data(void)
     ctx.sun_vector_body[0]    = 0.5;
     ctx.sun_vector_body[1]    = -0.25;
     ctx.sun_vector_body[2]    = 0.0;
-    g_iface->tick(state, 200000000ULL, &ctx);
+    g_iface->on_tick(state, 200000000ULL, &ctx);
 
     uint8_t cmd[DEMO_DEVICE_CMD_SIZE];
     encode_command(cmd, DEMO_DEVICE_REQ_DATA_CMD, 0);
@@ -408,7 +618,8 @@ static void test_wire_protocol_req_data_returns_framed_data(void)
     /* Tick at the same time as the previous tick so the SVB-update gate does
      * NOT re-fire — channel values must remain at the values we just
      * computed when the device frame is built. */
-    g_iface->tick(state, 200000000ULL, NULL);
+    g_iface->on_tick(state, 200000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     /* Expect: 8-byte echo, then 10-byte data frame:
      *   [C0 FF] [c1_hi c1_lo c2_hi c2_lo c3_hi c3_lo] [FE FE] */
@@ -431,7 +642,7 @@ static void test_wire_protocol_req_data_returns_framed_data(void)
     TEST_ASSERT_EQUAL_UINT16(32768, c3);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_short_packet_is_rejected(void)
@@ -439,7 +650,7 @@ static void test_wire_protocol_short_packet_is_rejected(void)
     /* Covers the length < DEMO_DEVICE_CMD_SIZE guard in handle_command:
      * the simulator must NOT echo and must NOT increment its counter. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -449,7 +660,8 @@ static void test_wire_protocol_short_packet_is_rejected(void)
     TEST_ASSERT_EQUAL_INT((int)sizeof(partial),
                           simulith_transport_send(&client, partial, sizeof(partial)));
     usleep(2000);
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     uint8_t rx[16];
     TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, rx, sizeof(rx)));
@@ -458,14 +670,42 @@ static void test_wire_protocol_short_packet_is_rejected(void)
     TEST_ASSERT_EQUAL_UINT16(0, ds->hk.DeviceCounter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_wire_protocol_overlong_packet_is_rejected(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_client_port(&client, "overlong_test_client"));
+    usleep(2000);
+
+    uint8_t command[DEMO_DEVICE_CMD_SIZE + 1];
+    encode_command(command, DEMO_DEVICE_NOOP_CMD, 0);
+    command[DEMO_DEVICE_CMD_SIZE] = 0xAA;
+    TEST_ASSERT_EQUAL_INT((int)sizeof(command),
+                          simulith_transport_send(&client, command, sizeof(command)));
+    usleep(2000);
+
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
+
+    uint8_t response[DEMO_DEVICE_CMD_SIZE];
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, response, sizeof(response)));
+    TEST_ASSERT_EQUAL_UINT16(0, ((demo_sim_state_t *)state)->hk.DeviceCounter);
+
+    simulith_transport_close(&client);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_bad_header_is_rejected(void)
 {
     /* Covers the header-validation branch in handle_command. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -479,7 +719,8 @@ static void test_wire_protocol_bad_header_is_rejected(void)
     };
     simulith_transport_send(&client, cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     uint8_t rx[16];
     TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, rx, sizeof(rx)));
@@ -488,14 +729,14 @@ static void test_wire_protocol_bad_header_is_rejected(void)
     TEST_ASSERT_EQUAL_UINT16(0, ds->hk.DeviceCounter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_bad_trailer_is_rejected(void)
 {
     /* Covers the trailer-validation branch in handle_command. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -509,7 +750,8 @@ static void test_wire_protocol_bad_trailer_is_rejected(void)
     };
     simulith_transport_send(&client, cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     uint8_t rx[16];
     TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, rx, sizeof(rx)));
@@ -518,7 +760,7 @@ static void test_wire_protocol_bad_trailer_is_rejected(void)
     TEST_ASSERT_EQUAL_UINT16(0, ds->hk.DeviceCounter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_unknown_cmd_is_echoed_only(void)
@@ -527,7 +769,7 @@ static void test_wire_protocol_unknown_cmd_is_echoed_only(void)
      * with an unknown cmd_id is echoed and counted, but no telemetry frame
      * is appended. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -537,7 +779,8 @@ static void test_wire_protocol_unknown_cmd_is_echoed_only(void)
     encode_command(cmd, 0x00FF, 0); /* outside 0..3 */
     simulith_transport_send(&client, cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     uint8_t rx[DEMO_DEVICE_CMD_SIZE * 2];
     size_t  n = drain_all(&client, rx, sizeof(rx));
@@ -548,13 +791,13 @@ static void test_wire_protocol_unknown_cmd_is_echoed_only(void)
     TEST_ASSERT_EQUAL_UINT16(1, ds->hk.DeviceCounter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_set_config_updates_state(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -566,7 +809,8 @@ static void test_wire_protocol_set_config_updates_state(void)
                           simulith_transport_send(&client, cmd, sizeof(cmd)));
     usleep(2000);
 
-    g_iface->tick(state, 100000000ULL, NULL);
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0, NULL));
 
     /* CFG cmd echoes only — no telemetry frame appended. */
     uint8_t rx[DEMO_DEVICE_CMD_SIZE];
@@ -579,16 +823,111 @@ static void test_wire_protocol_set_config_updates_state(void)
     TEST_ASSERT_EQUAL_HEX16(0xBEEF, ds->hk.DeviceConfig);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_framed_request_completes_only_after_execute_service(void)
+{
+    component_state_t *state = NULL;
+    framed_request_context_t request_context;
+    pthread_t request_thread;
+    int service_status = COMPONENT_IDLE;
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    memset(&request_context, 0, sizeof(request_context));
+    encode_command(request_context.request, DEMO_DEVICE_NOOP_CMD, 0);
+    request_context.request_len = sizeof(request_context.request);
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutex_init(&request_context.mutex, NULL));
+    TEST_ASSERT_EQUAL_INT(0, pthread_cond_init(&request_context.condition, NULL));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&request_thread, NULL,
+                                            run_framed_request, &request_context));
+
+    pthread_mutex_lock(&request_context.mutex);
+    while (!request_context.started)
+        pthread_cond_wait(&request_context.condition, &request_context.mutex);
+    pthread_mutex_unlock(&request_context.mutex);
+    usleep(2000);
+
+    /* PREPARE neither completes the request nor changes the device counter. */
+    g_iface->on_tick(state, 100000000ULL, NULL);
+    pthread_mutex_lock(&request_context.mutex);
+    int finished_during_prepare = request_context.finished;
+    pthread_mutex_unlock(&request_context.mutex);
+    TEST_ASSERT_EQUAL_INT(0, finished_during_prepare);
+    TEST_ASSERT_EQUAL_UINT16(0, ((demo_sim_state_t *)state)->hk.DeviceCounter);
+
+    /* EXECUTE processes the transaction. Polling here mirrors the director's
+     * repeated, nonblocking service calls while scheduled FSW is active. */
+    for (int attempt = 0; attempt < 100 && service_status == COMPONENT_IDLE; ++attempt)
+    {
+        service_status = g_iface->service(state, 0, NULL);
+        if (service_status == COMPONENT_IDLE)
+            usleep(1000);
+    }
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(request_thread, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, service_status);
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, request_context.open_status);
+    TEST_ASSERT_EQUAL_INT(DEMO_DEVICE_CMD_SIZE, request_context.request_status);
+    TEST_ASSERT_EQUAL_INT(DEMO_DEVICE_CMD_SIZE, request_context.response_bytes);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(request_context.request, request_context.response,
+                                  DEMO_DEVICE_CMD_SIZE);
+    TEST_ASSERT_EQUAL_UINT16(1, ((demo_sim_state_t *)state)->hk.DeviceCounter);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_IDLE, g_iface->service(state, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->actuate(state, 100000000ULL, NULL));
+
+    pthread_cond_destroy(&request_context.condition);
+    pthread_mutex_destroy(&request_context.mutex);
+    g_iface->destroy(state);
+}
+
+static void test_framed_invalid_request_receives_failed_completion(void)
+{
+    component_state_t *state = NULL;
+    framed_request_context_t request_context;
+    pthread_t request_thread;
+    int service_status = COMPONENT_IDLE;
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    memset(&request_context, 0, sizeof(request_context));
+    encode_command(request_context.request, DEMO_DEVICE_NOOP_CMD, 0);
+    request_context.request_len = DEMO_DEVICE_CMD_SIZE - 1;
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutex_init(&request_context.mutex, NULL));
+    TEST_ASSERT_EQUAL_INT(0, pthread_cond_init(&request_context.condition, NULL));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&request_thread, NULL,
+                                            run_framed_request, &request_context));
+
+    pthread_mutex_lock(&request_context.mutex);
+    while (!request_context.started)
+        pthread_cond_wait(&request_context.condition, &request_context.mutex);
+    pthread_mutex_unlock(&request_context.mutex);
+
+    for (int attempt = 0; attempt < 100 && service_status == COMPONENT_IDLE; ++attempt)
+    {
+        service_status = g_iface->service(state, 0, NULL);
+        if (service_status == COMPONENT_IDLE)
+            usleep(1000);
+    }
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(request_thread, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, service_status);
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, request_context.open_status);
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR, request_context.request_status);
+    TEST_ASSERT_EQUAL_INT(0, request_context.response_bytes);
+    TEST_ASSERT_EQUAL_UINT16(0, ((demo_sim_state_t *)state)->hk.DeviceCounter);
+
+    pthread_cond_destroy(&request_context.condition);
+    pthread_mutex_destroy(&request_context.mutex);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
  * Init failure path
  * -------------------------------------------------------------------------*/
-static void test_init_fails_when_address_path_is_a_directory(void)
+static void test_create_fails_when_address_path_is_a_directory(void)
 {
-    /* Covers the bind-failure path in demo_sim_init (and the matching error
-     * rollback in demo_sim_component_init). ZMQ allows two binds to the
+    /* Covers the bind-failure path in create() and its matching allocation
+     * rollback. ZMQ allows two binds to the
      * same IPC address, but bind() fails with EADDRINUSE if a directory
      * already occupies the path. */
     char path[256];
@@ -597,7 +936,7 @@ static void test_init_fails_when_address_path_is_a_directory(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mkdir(path, 0755), "could not stage path squat");
 
     component_state_t *state = NULL;
-    int                rc    = g_iface->init(&state);
+    int                rc    = g_iface->create(&state);
 
     /* Always remove the squat dir before asserting so failures don't leak it. */
     (void)rmdir(path);
@@ -653,26 +992,31 @@ int main(void)
         dlclose(g_handle);
         return 1;
     }
-
     UNITY_BEGIN();
 
     /* Lifecycle / loader */
     RUN_TEST(test_dlopen_demo_sim_so);
     RUN_TEST(test_get_component_interface_symbol);
-    RUN_TEST(test_init_returns_success_and_state);
-    RUN_TEST(test_tick_does_not_crash_with_null_42_context);
-    RUN_TEST(test_cleanup_releases_ipc_socket);
+    RUN_TEST(test_create_returns_success_and_state);
+    RUN_TEST(test_on_tick_handles_null_42_context);
+    RUN_TEST(test_destroy_releases_ipc_socket);
+    RUN_TEST(test_lifecycle_callbacks_handle_null_state);
+    RUN_TEST(test_wait_interrupt_and_deadline_saturation);
+    RUN_TEST(test_prepare_does_not_service_execute_transaction);
 
     /* Backdoor */
     RUN_TEST(test_backdoor_set_config_writes_device_config);
     RUN_TEST(test_backdoor_rand_hk_toggles_flag);
     RUN_TEST(test_backdoor_rand_data_toggles_flag);
     RUN_TEST(test_backdoor_unknown_cmd_is_noop);
+    RUN_TEST(test_backdoor_short_payloads_use_documented_defaults);
 
-    /* Tick paths */
+    /* on_tick paths */
     RUN_TEST(test_tick_with_rand_data_writes_8bit_random_channels);
     RUN_TEST(test_tick_with_rand_hk_writes_high_byte_only_hk);
     RUN_TEST(test_tick_with_42_svb_scales_channels);
+    RUN_TEST(test_seeded_random_sequence_restarts_deterministically);
+    RUN_TEST(test_tick_uses_an_absolute_sampling_deadline);
 
     /* Wire protocol */
     RUN_TEST(test_wire_protocol_noop_echoes_command);
@@ -680,12 +1024,15 @@ int main(void)
     RUN_TEST(test_wire_protocol_req_data_returns_framed_data);
     RUN_TEST(test_wire_protocol_set_config_updates_state);
     RUN_TEST(test_wire_protocol_short_packet_is_rejected);
+    RUN_TEST(test_wire_protocol_overlong_packet_is_rejected);
     RUN_TEST(test_wire_protocol_bad_header_is_rejected);
     RUN_TEST(test_wire_protocol_bad_trailer_is_rejected);
     RUN_TEST(test_wire_protocol_unknown_cmd_is_echoed_only);
+    RUN_TEST(test_framed_request_completes_only_after_execute_service);
+    RUN_TEST(test_framed_invalid_request_receives_failed_completion);
 
-    /* Init failure path & alias symbol */
-    RUN_TEST(test_init_fails_when_address_path_is_a_directory);
+    /* Create failure path & alias symbol */
+    RUN_TEST(test_create_fails_when_address_path_is_a_directory);
     RUN_TEST(test_get_demo_sim_component_interface_alias);
 
     int result = UNITY_END();

@@ -785,6 +785,15 @@ void RADIO_ServiceUplink(void)
             break;
         }
 
+        /* A successful zero-length response is the device's authoritative
+         * indication that its receive queue is empty.  The per-poll limit is
+         * a bound on draining queued frames, not a requirement to issue that
+         * many empty bus transactions. */
+        if (actual_length == 0)
+        {
+            break;
+        }
+
         /* --- TC Frame Processing with CryptoLib --- */
         if (RADIO_AppData.ReceiveBuffLength > 0) 
         {
@@ -1038,7 +1047,7 @@ void RADIO_ServiceDownlink(void)
                     RADIO_AppData.HkTelemetryPkt.DeviceErrorCount++;
                     CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
                                     "RADIO: TM frame start failed for packet, status=%d", (int)status);
-                    break;
+                    return;
                 }
             }
 
@@ -1052,7 +1061,7 @@ void RADIO_ServiceDownlink(void)
                     RADIO_AppData.HkTelemetryPkt.DeviceErrorCount++;
                     CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
                                     "RADIO: Failed to add packet to TM frame, status=%d", (int)add_status);
-                    break;
+                    return;
                 }
                 else
                 {

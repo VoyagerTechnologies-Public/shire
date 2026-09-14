@@ -1,7 +1,8 @@
 # Tests for the demo component simulator.
 #
 # Loads the just-built demo_sim.so via dlopen and drives the
-# component_interface_t (init/tick/cleanup/backdoor) entirely in-process.
+# component_interface_t (create/on_tick/service/actuate/destroy/backdoor)
+# entirely in-process.
 #
 # Included from comp/demo/sim/CMakeLists.txt when BUILD_SIM_TESTS=ON.
 # Inherits SIMULITH_DIR, ZeroMQ_*, the demo_sim_component target, and the
