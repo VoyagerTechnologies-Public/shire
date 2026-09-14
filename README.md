@@ -7,9 +7,20 @@
 The Software & Hardware Integration Runtime Environment (SHIRE) is an open source simulation environment that emulates satellite flight hardware and interfaces in software.
 It lets teams develop, integrate, and test a complete mission from day one.
 
-SHIRE is released under a permissive open source license.
+Voyager-authored SHIRE material is released under the repository's permissive
+open source license. Included third-party material remains under its own terms.
 SHIRE follows [Semantic Versioning](https://semver.org/).
 See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+## Licensing and third-party software
+
+SHIRE is a multi-license distribution. The root [LICENSE](LICENSE) applies only
+to Voyager-authored SHIRE material and does not replace the licenses or notices
+shipped with submodules, vendored source, dependencies, or data assets. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for path-level license and
+provenance boundaries and [SBOM.md](SBOM.md) for the source and dependency
+inventory. A recursive checkout and every release package must retain all
+applicable upstream license and notice files.
 
 ## Quick Start
 
