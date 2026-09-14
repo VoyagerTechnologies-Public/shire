@@ -4,7 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
+#include <poll.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifndef DIRECTOR_FIXTURE_DIR
@@ -14,16 +17,32 @@
 struct component_state
 {
     int ticks;
+    int actuations;
     int cleaned;
 };
 
 static struct component_state fake_state;
 static uint64_t               fake_tick_time;
+static uint64_t               fake_actuate_time;
 static int                    fake_context_valid;
 static int                    fake_backdoor_calls;
 static uint16_t               fake_backdoor_command;
 static uint8_t                fake_backdoor_payload[16];
 static size_t                 fake_backdoor_payload_length;
+static int                    fake_service_calls;
+static int                    fake_wait_ready;
+static int                    fail_tick;
+static int                    fail_actuate;
+static int                    fail_service;
+static int                    block_service;
+static int                    service_entered;
+static int                    release_service;
+static pthread_mutex_t        service_test_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t         service_test_condition = PTHREAD_COND_INITIALIZER;
+
+#define VALID_COMPONENT_API \
+    .api_version = SIMULITH_COMPONENT_API_VERSION, \
+    .struct_size = sizeof(component_interface_t)
 
 typedef struct
 {
@@ -80,7 +99,8 @@ static void *director_42_server(void *argument)
     static const char state[] =
         "TIME 2026-001-00:00:01.0\n"
         "SC[0].svb = [1 0 0]\n"
-        "Orb[0].PosN = [2 3 4]\n";
+        "Orb[0].PosN = [2 3 4]\n"
+        "[ENDMSG]\n";
     for (int i = 0; i < server->exchanges; i++) {
         if (send(client, state, sizeof(state) - 1, 0) < 0)
             break;
@@ -122,12 +142,76 @@ static int failing_init(component_state_t **state)
     return COMPONENT_ERROR;
 }
 
-static void fake_tick(component_state_t *state, uint64_t time_ns, const simulith_42_context_t *context)
+static int fake_wait_for_service(component_state_t *state, int interrupt_fd)
+{
+    (void)state;
+    if (__atomic_exchange_n(&fake_wait_ready, 0, __ATOMIC_ACQ_REL))
+        return COMPONENT_WORK;
+    struct pollfd item = {.fd = interrupt_fd, .events = POLLIN};
+    int status;
+    do
+    {
+        status = poll(&item, 1, -1);
+    } while (status < 0 && errno == EINTR);
+    if (status <= 0 || (item.revents & POLLIN) == 0)
+        return COMPONENT_ERROR;
+    uint64_t wake_count;
+    return read(interrupt_fd, &wake_count, sizeof(wake_count)) ==
+                   (ssize_t)sizeof(wake_count) ?
+        COMPONENT_IDLE : COMPONENT_ERROR;
+}
+
+static int fake_tick(component_state_t *state, uint64_t time_ns,
+                     const simulith_42_context_t *context)
 {
     struct component_state *value = (struct component_state *)state;
     value->ticks++;
     fake_tick_time = time_ns;
     fake_context_valid = context->valid;
+    return fail_tick ? COMPONENT_ERROR : COMPONENT_SUCCESS;
+}
+
+static int fake_service(component_state_t *state, uint64_t time_ns,
+                         const simulith_42_context_t *context)
+{
+    (void)state;
+    (void)time_ns;
+    (void)context;
+    __atomic_add_fetch(&fake_service_calls, 1, __ATOMIC_RELAXED);
+    pthread_mutex_lock(&service_test_mutex);
+    if (block_service)
+    {
+        service_entered = 1;
+        pthread_cond_broadcast(&service_test_condition);
+        while (!release_service)
+            pthread_cond_wait(&service_test_condition, &service_test_mutex);
+    }
+    pthread_mutex_unlock(&service_test_mutex);
+    return fail_service ? COMPONENT_ERROR : COMPONENT_IDLE;
+}
+
+typedef struct
+{
+    uint64_t sequence;
+    uint64_t time_ns;
+    int result;
+} commit_call_t;
+
+static void *call_commit(void *argument)
+{
+    commit_call_t *call = argument;
+    call->result = director_commit_tick(call->sequence, call->time_ns);
+    return NULL;
+}
+
+static int fake_actuate(component_state_t *state, uint64_t time_ns,
+                        const simulith_42_context_t *context)
+{
+    struct component_state *value = (struct component_state *)state;
+    value->actuations++;
+    fake_actuate_time = time_ns;
+    fake_context_valid = context->valid;
+    return fail_actuate ? COMPONENT_ERROR : COMPONENT_SUCCESS;
 }
 
 static void fake_cleanup(component_state_t *state)
@@ -166,14 +250,24 @@ void setUp(void)
 {
     memset(&g_director_config, 0, sizeof(g_director_config));
     fake_tick_time = 0;
+    fake_actuate_time = 0;
     fake_context_valid = -1;
     fake_backdoor_calls = 0;
     fake_backdoor_command = 0;
     fake_backdoor_payload_length = 0;
+    fake_service_calls = 0;
+    fake_wait_ready = 1;
+    fail_tick = 0;
+    fail_actuate = 0;
+    fail_service = 0;
+    block_service = 0;
+    service_entered = 0;
+    release_service = 0;
     memset(fake_backdoor_payload, 0, sizeof(fake_backdoor_payload));
     unsetenv("FORTYTWO_SOCKET_PATH");
     unsetenv("FORTYTWO_HOST");
     unsetenv("FORTYTWO_PORT");
+    setenv("FORTYTWO_IPC_MODE", "text", 1);
     setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "1", 1);
     setenv("SIMULITH_42_RECONNECT_DELAY_MS", "0", 1);
     setenv("SIMULITH_GSW_HOST", "127.0.0.1", 1);
@@ -181,6 +275,7 @@ void setUp(void)
 
 void tearDown(void)
 {
+    unsetenv("FORTYTWO_IPC_MODE");
 }
 
 static void test_parse_args(void)
@@ -197,13 +292,92 @@ static void test_parse_args(void)
     TEST_ASSERT_EQUAL_INT(1, config.verbose);
     TEST_ASSERT_EQUAL_STRING("/tmp/42", config.fortytwo_config);
 
+    char *scenario[] = {"director", "--scenario", "/tmp/scenario.json"};
+    TEST_ASSERT_EQUAL_INT(0, parse_args(3, scenario, &config));
+    TEST_ASSERT_EQUAL_STRING("/tmp/scenario.json", config.scenario_file);
+
     char *help[] = {"director", "--help"};
     TEST_ASSERT_EQUAL_INT(-1, parse_args(2, help, &config));
 
     /* A value-taking option at argv's boundary must not read past argv. */
     char *missing_config[] = {"director", "--42-config"};
-    TEST_ASSERT_EQUAL_INT(0, parse_args(2, missing_config, &config));
+    TEST_ASSERT_EQUAL_INT(1, parse_args(2, missing_config, &config));
     TEST_ASSERT_EQUAL_STRING("./InOut", config.fortytwo_config);
+
+    char *missing_scenario[] = {"director", "--scenario"};
+    TEST_ASSERT_EQUAL_INT(1, parse_args(2, missing_scenario, &config));
+
+    char *unknown[] = {"director", "--unknown"};
+    TEST_ASSERT_EQUAL_INT(1, parse_args(2, unknown, &config));
+
+    char long_path[300];
+    memset(long_path, 'x', sizeof(long_path) - 1);
+    long_path[sizeof(long_path) - 1] = '\0';
+    char *oversized[] = {"director", "--42-config", long_path};
+    TEST_ASSERT_EQUAL_INT(1, parse_args(3, oversized, &config));
+
+    TEST_ASSERT_EQUAL_INT(1, parse_args(1, defaults, NULL));
+}
+
+static void test_scenario_validation_and_one_shot_injection(void)
+{
+    int receiver = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, receiver);
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    TEST_ASSERT_EQUAL_INT(0, bind(receiver, (struct sockaddr *)&address,
+                                  sizeof(address)));
+    socklen_t address_length = sizeof(address);
+    TEST_ASSERT_EQUAL_INT(0, getsockname(receiver, (struct sockaddr *)&address,
+                                         &address_length));
+    struct timeval timeout = {.tv_sec = 0, .tv_usec = 10000};
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(receiver, SOL_SOCKET, SO_RCVTIMEO,
+                                        &timeout, sizeof(timeout)));
+
+    char path[] = "/tmp/shire-scenario-test-XXXXXX";
+    int file = mkstemp(path);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, file);
+    char json[512];
+    int json_length = snprintf(
+        json, sizeof(json),
+        "{\"schema_version\":1,\"commands\":["
+        "{\"sequence\":7,\"host\":\"127.0.0.1\",\"port\":%u,"
+        "\"packet_hex\":\"18d4c000000102f0\"}]}",
+        (unsigned)ntohs(address.sin_port));
+    TEST_ASSERT_GREATER_THAN_INT(0, json_length);
+    TEST_ASSERT_EQUAL_INT(json_length, (int)write(file, json, (size_t)json_length));
+    close(file);
+
+    director_config_t config;
+    memset(&config, 0, sizeof(config));
+    snprintf(config.scenario_file, sizeof(config.scenario_file), "%s", path);
+    TEST_ASSERT_EQUAL_INT(0, initialize_scenario(&config));
+    TEST_ASSERT_EQUAL_size_t(1, config.scenario_command_count);
+    TEST_ASSERT_EQUAL_UINT64(7, config.scenario_commands[0].sequence);
+    TEST_ASSERT_EQUAL_INT(0, director_inject_scenario_commands(&config, 6));
+
+    uint8_t packet[16];
+    TEST_ASSERT_EQUAL_INT(0, director_inject_scenario_commands(&config, 7));
+    TEST_ASSERT_EQUAL_INT(8, (int)recv(receiver, packet, sizeof(packet), 0));
+    static const uint8_t expected[] = {0x18, 0xd4, 0xc0, 0x00,
+                                      0x00, 0x01, 0x02, 0xf0};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, packet, sizeof(expected));
+    TEST_ASSERT_EQUAL_UINT64(1, config.scenario_injected);
+
+    TEST_ASSERT_EQUAL_INT(0, director_inject_scenario_commands(&config, 7));
+    TEST_ASSERT_EQUAL_INT(-1, (int)recv(receiver, packet, sizeof(packet), 0));
+    TEST_ASSERT_EQUAL_UINT64(1, config.scenario_injected);
+
+    cleanup_components(&config);
+    close(receiver);
+    unlink(path);
+
+    memset(&config, 0, sizeof(config));
+    snprintf(config.scenario_file, sizeof(config.scenario_file), "%s", path);
+    TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
 }
 
 static void test_component_loading_accepts_only_valid_plugins(void)
@@ -215,7 +389,7 @@ static void test_component_loading_accepts_only_valid_plugins(void)
 
     TEST_ASSERT_EQUAL_INT(0, load_components(&config));
     TEST_ASSERT_EQUAL_INT(1, config.component_count);
-    TEST_ASSERT_EQUAL_INT(3, config.lib_count);
+    TEST_ASSERT_EQUAL_INT(1, config.lib_count);
     TEST_ASSERT_NOT_NULL(config.components[0].interface);
     TEST_ASSERT_EQUAL_STRING("director_fixture", config.components[0].interface->name);
     TEST_ASSERT_NOT_NULL(config.components[0].lib_handle);
@@ -252,8 +426,10 @@ static void test_component_loading_paths(void)
 static void test_component_lifecycle_and_tick(void)
 {
     static const component_interface_t interface = {
-        .name = "fake", .description = "test component", .init = fake_init,
-        .tick = fake_tick, .cleanup = fake_cleanup, .backdoor = NULL};
+        VALID_COMPONENT_API,
+        .name = "fake", .description = "test component", .create = fake_init,
+        .on_tick = fake_tick, .service = NULL, .actuate = fake_actuate,
+        .destroy = fake_cleanup, .backdoor = NULL};
 
     g_director_config.component_count = 1;
     g_director_config.components[0].active = 1;
@@ -261,53 +437,207 @@ static void test_component_lifecycle_and_tick(void)
     g_director_config.enable_42 = 0;
 
     TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
-    TEST_ASSERT_EQUAL_INT(1, g_director_config.threads_spawned);
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
     on_tick(1234);
     TEST_ASSERT_EQUAL_INT(1, fake_state.ticks);
+    TEST_ASSERT_EQUAL_INT(1, fake_state.actuations);
     TEST_ASSERT_EQUAL_UINT64(1234, fake_tick_time);
+    TEST_ASSERT_EQUAL_UINT64(1234, fake_actuate_time);
     TEST_ASSERT_EQUAL_INT(0, fake_context_valid);
     cleanup_components(&g_director_config);
     TEST_ASSERT_EQUAL_INT(1, fake_state.cleaned);
     TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
 }
 
+static void test_component_phase_boundaries_and_failures(void)
+{
+    static const component_interface_t interface = {
+        VALID_COMPONENT_API,
+        .name = "phased", .description = "phase test", .create = fake_init,
+        .on_tick = fake_tick, .wait_for_service = fake_wait_for_service,
+        .service = fake_service,
+        .actuate = fake_actuate, .destroy = fake_cleanup, .backdoor = NULL};
+
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_prepare_tick(7, 1234));
+    TEST_ASSERT_EQUAL_INT(0, fake_service_calls);
+    TEST_ASSERT_EQUAL_INT(0, fake_state.actuations);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          director_execute_tick(8, 1234));
+    TEST_ASSERT_EQUAL_INT(0, fake_service_calls);
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_execute_tick(7, 1234));
+    for (int attempt = 0; attempt < 100 && fake_service_calls == 0; ++attempt)
+    {
+        struct timespec delay = {.tv_nsec = 1000000L};
+        nanosleep(&delay, NULL);
+    }
+    TEST_ASSERT_GREATER_THAN_INT(0, fake_service_calls);
+    TEST_ASSERT_EQUAL_INT(0, fake_state.actuations);
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_commit_tick(7, 1234));
+    TEST_ASSERT_EQUAL_INT(1, fake_state.actuations);
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    fail_tick = 1;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          director_prepare_tick(8, 1244));
+    TEST_ASSERT_EQUAL_UINT64(1, g_director_config.component_phase_errors);
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    fail_tick = 0;
+    fail_service = 1;
+    fake_wait_ready = 1;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_prepare_tick(9, 1254));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_execute_tick(9, 1254));
+    pthread_mutex_lock(&g_director_config.tick_mutex);
+    while (g_director_config.components[0].phase_status == COMPONENT_SUCCESS)
+        pthread_cond_wait(&g_director_config.tick_cond,
+                          &g_director_config.tick_mutex);
+    pthread_mutex_unlock(&g_director_config.tick_mutex);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          director_commit_tick(9, 1254));
+    TEST_ASSERT_EQUAL_UINT64(1, g_director_config.component_service_errors);
+    TEST_ASSERT_EQUAL_UINT64(1, g_director_config.component_phase_errors);
+    TEST_ASSERT_EQUAL_INT(0, fake_state.actuations);
+    cleanup_components(&g_director_config);
+
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    fail_service = 0;
+    fail_actuate = 1;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_prepare_tick(10, 1264));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          director_execute_tick(10, 1264));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          director_commit_tick(10, 1264));
+    TEST_ASSERT_EQUAL_UINT64(1, g_director_config.component_phase_errors);
+    TEST_ASSERT_EQUAL_INT(1, fake_state.actuations);
+    cleanup_components(&g_director_config);
+}
+
+static void test_commit_waits_for_active_service_callback(void)
+{
+    static const component_interface_t interface = {
+        VALID_COMPONENT_API,
+        .name = "blocking-service", .description = "commit quiescence test",
+        .create = fake_init, .on_tick = fake_tick,
+        .wait_for_service = fake_wait_for_service, .service = fake_service,
+        .actuate = fake_actuate, .destroy = fake_cleanup, .backdoor = NULL};
+
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &interface;
+    block_service = 1;
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, director_prepare_tick(11, 1274));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, director_execute_tick(11, 1274));
+
+    pthread_mutex_lock(&service_test_mutex);
+    while (!service_entered)
+        pthread_cond_wait(&service_test_condition, &service_test_mutex);
+    pthread_mutex_unlock(&service_test_mutex);
+
+    commit_call_t call = {.sequence = 11, .time_ns = 1274, .result = -1};
+    pthread_t commit_thread;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&commit_thread, NULL, call_commit, &call));
+    struct timespec delay = {.tv_nsec = 5000000L};
+    nanosleep(&delay, NULL);
+    TEST_ASSERT_EQUAL_INT(0, fake_state.actuations);
+
+    pthread_mutex_lock(&service_test_mutex);
+    release_service = 1;
+    pthread_cond_broadcast(&service_test_condition);
+    pthread_mutex_unlock(&service_test_mutex);
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(commit_thread, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, call.result);
+    TEST_ASSERT_EQUAL_INT(1, fake_state.actuations);
+    cleanup_components(&g_director_config);
+}
+
 static void test_component_optional_interface_paths(void)
 {
-    static const component_interface_t no_init = {
-        .name = "no-init", .description = "no init", .init = NULL,
-        .tick = fake_tick, .cleanup = NULL, .backdoor = NULL};
-    static const component_interface_t no_tick = {
-        .name = "no-tick", .description = "no tick", .init = fake_init,
-        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
-    static const component_interface_t complete = {
-        .name = "complete", .description = "complete", .init = fake_init,
-        .tick = fake_tick, .cleanup = fake_cleanup, .backdoor = NULL};
+    static const component_interface_t optional_phases = {
+        VALID_COMPONENT_API,
+        .name = "no-tick", .description = "no tick", .create = fake_init,
+        .on_tick = NULL, .service = NULL, .actuate = NULL,
+        .destroy = fake_cleanup, .backdoor = NULL};
 
-    g_director_config.component_count = 5;
-    g_director_config.components[0].active = 0;
-    g_director_config.components[0].interface = &complete;
-    g_director_config.components[1].active = 1;
-    g_director_config.components[1].interface = NULL;
-    g_director_config.components[2].active = 1;
-    g_director_config.components[2].interface = &no_init;
-    g_director_config.components[3].active = 1;
-    g_director_config.components[3].interface = &no_tick;
-    g_director_config.components[4].active = 1;
-    g_director_config.components[4].interface = &complete;
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &optional_phases;
 
     TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
-    TEST_ASSERT_EQUAL_INT(4, g_director_config.threads_spawned);
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
     on_tick(4321);
-    TEST_ASSERT_EQUAL_UINT64(4321, fake_tick_time);
+    TEST_ASSERT_EQUAL_INT(0, fake_state.ticks);
     cleanup_components(&g_director_config);
     TEST_ASSERT_EQUAL_INT(0, g_director_config.threads_spawned);
+
+    static const component_interface_t missing_create = {
+        VALID_COMPONENT_API,
+        .name = "missing-create", .description = "invalid",
+        .create = NULL, .destroy = fake_cleanup};
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &missing_create;
+    TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.components[0].active);
+
+    static const component_interface_t missing_destroy = {
+        VALID_COMPONENT_API,
+        .name = "missing-destroy", .description = "invalid",
+        .create = fake_init, .destroy = NULL};
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &missing_destroy;
+    TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.components[0].active);
+
+    static const component_interface_t missing_wait = {
+        VALID_COMPONENT_API,
+        .name = "missing-wait", .description = "invalid",
+        .create = fake_init, .service = fake_service, .destroy = fake_cleanup};
+    memset(&g_director_config, 0, sizeof(g_director_config));
+    g_director_config.component_count = 1;
+    g_director_config.components[0].active = 1;
+    g_director_config.components[0].interface = &missing_wait;
+    TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, g_director_config.components[0].active);
 }
 
 static void test_initialization_failures_and_disabled_42(void)
 {
     static const component_interface_t interface = {
-        .name = "failure", .description = "failure", .init = failing_init,
-        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+        VALID_COMPONENT_API,
+        .name = "failure", .description = "failure", .create = failing_init,
+        .on_tick = NULL, .service = NULL, .actuate = NULL,
+        .destroy = fake_cleanup, .backdoor = NULL};
     director_config_t config;
     memset(&config, 0, sizeof(config));
     config.component_count = 1;
@@ -411,8 +741,9 @@ static void test_tick_handles_42_state_failure(void)
 static void test_backdoor_rejects_malformed_and_dispatches_valid_packet(void)
 {
     static const component_interface_t interface = {
-        .name = "fake", .description = "test component", .init = fake_init,
-        .tick = fake_tick, .cleanup = fake_cleanup, .backdoor = fake_backdoor};
+        VALID_COMPONENT_API,
+        .name = "fake", .description = "test component", .create = fake_init,
+        .on_tick = fake_tick, .destroy = fake_cleanup, .backdoor = fake_backdoor};
 
     g_director_config.component_count = 1;
     g_director_config.components[0].active = 1;
@@ -465,20 +796,20 @@ static void test_backdoor_rejects_malformed_and_dispatches_valid_packet(void)
     send_backdoor_datagram(valid, sizeof(valid));
     on_tick(9);
     static const component_interface_t unnamed = {
-        .name = NULL, .description = "unnamed", .init = NULL,
-        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+        .name = NULL, .description = "unnamed", .create = NULL,
+        .on_tick = NULL, .destroy = NULL, .backdoor = NULL};
     g_director_config.components[0].interface = &unnamed;
     send_backdoor_datagram(valid, sizeof(valid));
     on_tick(10);
     static const component_interface_t other = {
-        .name = "other", .description = "other", .init = NULL,
-        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+        .name = "other", .description = "other", .create = NULL,
+        .on_tick = NULL, .destroy = NULL, .backdoor = NULL};
     g_director_config.components[0].interface = &other;
     send_backdoor_datagram(valid, sizeof(valid));
     on_tick(11);
     static const component_interface_t no_backdoor = {
-        .name = "fake", .description = "no backdoor", .init = NULL,
-        .tick = NULL, .cleanup = NULL, .backdoor = NULL};
+        .name = "fake", .description = "no backdoor", .create = NULL,
+        .on_tick = NULL, .destroy = NULL, .backdoor = NULL};
     g_director_config.components[0].interface = &no_backdoor;
     send_backdoor_datagram(valid, sizeof(valid));
     on_tick(12);
@@ -527,9 +858,11 @@ static void test_tick_command_failure_and_boundary_paths(void)
     TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
     on_tick(3);
 
-    /* Fill the director's fixed batch to exercise its capacity boundary. */
-    for (int i = 0; i < 16; ++i)
+    /* Two commands remain queued because failed PREPARE never commits partial
+     * output. Fill the remaining capacity, then verify overflow accounting. */
+    for (int i = 0; i < SIMULITH_42_CMD_QUEUE_SIZE - 2; ++i)
         TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
+    TEST_ASSERT_EQUAL_INT(-1, enqueue_command(&command));
     on_tick(4);
 
     g_director_config.fortytwo_initialized = 0;
@@ -540,16 +873,19 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_parse_args);
+    RUN_TEST(test_scenario_validation_and_one_shot_injection);
     RUN_TEST(test_component_loading_paths);
     RUN_TEST(test_component_loading_accepts_only_valid_plugins);
     RUN_TEST(test_component_lifecycle_and_tick);
+    RUN_TEST(test_component_phase_boundaries_and_failures);
+    RUN_TEST(test_commit_waits_for_active_service_callback);
     RUN_TEST(test_component_optional_interface_paths);
     RUN_TEST(test_initialization_failures_and_disabled_42);
     RUN_TEST(test_backdoor_rejects_malformed_and_dispatches_valid_packet);
     RUN_TEST(test_telemetry_initialization);
-    RUN_TEST(test_tick_command_failure_and_boundary_paths);
     RUN_TEST(test_telemetry_serialization);
     RUN_TEST(test_live_42_tick_and_telemetry);
     RUN_TEST(test_tick_handles_42_state_failure);
+    RUN_TEST(test_tick_command_failure_and_boundary_paths);
     return UNITY_END();
 }

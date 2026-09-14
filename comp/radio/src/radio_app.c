@@ -785,6 +785,15 @@ void RADIO_ServiceUplink(void)
             break;
         }
 
+        /* A successful zero-length response is the device's authoritative
+         * indication that its receive queue is empty.  The per-poll limit is
+         * a bound on draining queued frames, not a requirement to issue that
+         * many empty bus transactions. */
+        if (actual_length == 0)
+        {
+            break;
+        }
+
         /* --- TC Frame Processing with CryptoLib --- */
         if (RADIO_AppData.ReceiveBuffLength > 0) 
         {

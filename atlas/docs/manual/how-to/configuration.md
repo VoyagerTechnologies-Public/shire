@@ -116,6 +116,11 @@ The debug scenario sets `debug: true`.
 The `overrides` dictionary is applied to every selected component, so reserve it for keys that every component template understands.
 Put values for only one component under that component's name in the scenario file.
 
+These configuration scenarios select component settings before the environment
+is built.
+They are distinct from the versioned Director command scenario used by the
+[performance regression workload](../core-concepts/simulations.md#performance-regression-runs).
+
 ## Compose selection
 
 `make start` reads `build/active.yaml` to derive the mission and starts `build/<mission>/shire-compose.yaml`.
@@ -134,4 +139,4 @@ Before a long build, verify:
 6. The generated compose files reference the intended mission and spacecraft image tags.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

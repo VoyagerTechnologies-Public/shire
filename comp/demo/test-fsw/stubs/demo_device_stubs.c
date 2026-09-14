@@ -19,8 +19,8 @@ int32_t DEMO_CommandDevice(uart_info_t *device, uint16_t cmd, uint16_t payload)
     UT_GenStub_SetupReturnBuffer(DEMO_CommandDevice, int32_t);
 
     UT_GenStub_AddParam(DEMO_CommandDevice, uart_info_t *, device);
-    UT_GenStub_AddParam(DEMO_CommandDevice, uint8_t, cmd);
-    UT_GenStub_AddParam(DEMO_CommandDevice, uint32_t, payload);
+    UT_GenStub_AddParam(DEMO_CommandDevice, uint16_t, cmd);
+    UT_GenStub_AddParam(DEMO_CommandDevice, uint16_t, payload);
 
     UT_GenStub_Execute(DEMO_CommandDevice, Basic, NULL);
 

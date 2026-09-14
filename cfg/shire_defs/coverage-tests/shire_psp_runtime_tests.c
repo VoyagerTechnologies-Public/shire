@@ -5,12 +5,12 @@
 #include "cfe_psp_exceptionstorage_api.h"
 #include "cfe_psp_exceptionstorage_types.h"
 #include "cfe_psp_timebase.h"
+#include "simulith.h"
 
 #include "utassert.h"
 #include "uttest.h"
 
 #include <pthread.h>
-#include <sched.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -24,18 +24,24 @@ void  CFE_PSP_SetDefaultExceptionEnvironment(void);
 int32 CFE_PSP_ExceptionGetSummary_Impl(const CFE_PSP_Exception_LogData_t *buffer, char *reason, uint32 size);
 
 extern volatile uint64_t tick_generation;
+extern bool              tick_thread_running;
 
 CFE_PSP_IdleTaskState_t CFE_PSP_IdleTaskState;
 
 static pthread_mutex_t FakeTickMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  FakeTickCondition = PTHREAD_COND_INITIALIZER;
 static int             FakeInitStatus;
+static int             FakeConfigureStatus;
 static int             FakeHandshakeStatus;
+static int             FakeCompletionStatus;
 static bool            FakeClientStopped;
 static uint64_t        FakeNextTick;
+static uint64_t        FakeNextSequence;
 static unsigned int    FakePendingTicks;
 static unsigned int    FakeInitCalls;
+static unsigned int    FakeConfigureCalls;
 static unsigned int    FakeHandshakeCalls;
+static unsigned int    FakeCompletionCalls;
 static unsigned int    FakeShutdownCalls;
 
 static CFE_PSP_Exception_LogData_t ExceptionBuffer;
@@ -59,7 +65,15 @@ int simulith_client_handshake(void)
     return FakeHandshakeStatus;
 }
 
-int simulith_client_wait_for_tick(uint64_t *tick_time_ns)
+int simulith_client_configure_phases(uint32_t phase_mask)
+{
+    UtAssert_UINT32_EQ(phase_mask, SIMULITH_PHASE_MASK_EXECUTE);
+    FakeConfigureCalls++;
+    return FakeConfigureStatus;
+}
+
+int simulith_client_receive_phase(uint64_t *tick_time_ns, uint64_t *sequence,
+                                  simulith_phase_t *phase)
 {
     pthread_mutex_lock(&FakeTickMutex);
     while (FakePendingTicks == 0 && !FakeClientStopped)
@@ -72,10 +86,28 @@ int simulith_client_wait_for_tick(uint64_t *tick_time_ns)
         return -1;
     }
     *tick_time_ns = FakeNextTick;
+    *sequence = FakeNextSequence++;
+    *phase = SIMULITH_PHASE_EXECUTE;
     FakeNextTick += INTERVAL_NS;
     FakePendingTicks--;
     pthread_mutex_unlock(&FakeTickMutex);
     return 0;
+}
+
+int simulith_client_complete_tick(uint64_t sequence, simulith_phase_t phase)
+{
+    (void)sequence;
+    UtAssert_UINT32_EQ(phase, SIMULITH_PHASE_EXECUTE);
+    FakeCompletionCalls++;
+    return FakeCompletionStatus;
+}
+
+void simulith_client_request_stop(void)
+{
+    pthread_mutex_lock(&FakeTickMutex);
+    FakeClientStopped = true;
+    pthread_cond_broadcast(&FakeTickCondition);
+    pthread_mutex_unlock(&FakeTickMutex);
 }
 
 void simulith_client_shutdown(void)
@@ -106,12 +138,17 @@ static void ResetFakeClient(void)
 {
     pthread_mutex_lock(&FakeTickMutex);
     FakeInitStatus      = 0;
+    FakeConfigureStatus = 0;
     FakeHandshakeStatus = 0;
+    FakeCompletionStatus = 0;
     FakeClientStopped   = false;
     FakeNextTick        = 1000000000ULL;
+    FakeNextSequence    = 0;
     FakePendingTicks    = 0;
     FakeInitCalls       = 0;
+    FakeConfigureCalls  = 0;
     FakeHandshakeCalls  = 0;
+    FakeCompletionCalls = 0;
     FakeShutdownCalls   = 0;
     pthread_mutex_unlock(&FakeTickMutex);
 }
@@ -135,55 +172,62 @@ static bool WaitForGeneration(uint64_t expected)
     return tick_generation >= expected;
 }
 
-typedef struct
-{
-    volatile bool started;
-    unsigned int  result;
-} TickWaitContext_t;
-
-static void *WaitForTwoTicks(void *arg)
-{
-    TickWaitContext_t *ctx = arg;
-
-    ctx->started = true;
-    ctx->result  = CFE_PSP_WaitForSimulithTick(2);
-    return NULL;
-}
-
 static void Test_TimebaseInitializationFailures(void)
 {
     ResetFakeClient();
     FakeInitStatus = -11;
     CFE_PSP_InitSimulithTime();
     UtAssert_INT32_EQ(FakeInitCalls, 1);
+    UtAssert_INT32_EQ(FakeConfigureCalls, 0);
     UtAssert_INT32_EQ(FakeHandshakeCalls, 0);
 
     ResetFakeClient();
-    FakeHandshakeStatus = -12;
+    FakeConfigureStatus = -12;
     CFE_PSP_InitSimulithTime();
+    UtAssert_INT32_EQ(FakeConfigureCalls, 1);
+    UtAssert_INT32_EQ(FakeHandshakeCalls, 0);
+    UtAssert_INT32_EQ(FakeShutdownCalls, 1);
+
+    ResetFakeClient();
+    FakeHandshakeStatus = -13;
+    CFE_PSP_InitSimulithTime();
+    UtAssert_INT32_EQ(FakeHandshakeCalls, 0);
+    UtAssert_INT32_EQ(CFE_PSP_StartSynchronizedTicks(), -1);
     UtAssert_INT32_EQ(FakeHandshakeCalls, 1);
     UtAssert_INT32_EQ(FakeShutdownCalls, 1);
+    UtAssert_True(!tick_thread_running, "failed handshake stops the tick clock");
+
+    /* A failed handshake must completely release the client so a later
+     * initialization attempt can recover rather than remaining half-open. */
+    FakeHandshakeStatus = 0;
+    FakeClientStopped   = false;
+    CFE_PSP_InitSimulithTime();
+    UtAssert_INT32_EQ(FakeInitCalls, 2);
+    CFE_PSP_ShutdownSimulithTime();
 }
 
 static void Test_TimebaseTickDistribution(void)
 {
-    TickWaitContext_t wait_ctx = {0};
     struct timespec   timespec;
     OS_time_t         os_time;
     uint32            upper;
     uint32            lower;
-    pthread_t         waiter;
     uint64_t          generation;
 
     ResetFakeClient();
     CFE_PSP_InitSimulithTime();
     UtAssert_INT32_EQ(FakeInitCalls, 1);
-    UtAssert_INT32_EQ(FakeHandshakeCalls, 1);
+    UtAssert_INT32_EQ(FakeConfigureCalls, 1);
+    UtAssert_INT32_EQ(FakeHandshakeCalls, 0);
     CFE_PSP_InitSimulithTime();
     UtAssert_INT32_EQ(FakeInitCalls, 1);
+    UtAssert_INT32_EQ(CFE_PSP_StartSynchronizedTicks(), 0);
+    UtAssert_INT32_EQ(FakeHandshakeCalls, 1);
+    UtAssert_INT32_EQ(CFE_PSP_StartSynchronizedTicks(), 0);
 
+    generation = tick_generation;
     QueueTicks(1);
-    UtAssert_True(WaitForGeneration(1), "PSP distribution thread published a tick");
+    UtAssert_True(WaitForGeneration(generation + 1), "PSP distribution thread published a tick");
     UtAssert_True(CFE_PSP_GetSimulithTimeNs() == 1000000000ULL, "latest Simulith time is retained");
     CFE_PSP_GetSimulithTimespec(&timespec);
     UtAssert_True(timespec.tv_sec == 1 && timespec.tv_nsec == 0, "Simulith time converts to timespec");
@@ -193,15 +237,13 @@ static void Test_TimebaseTickDistribution(void)
     UtAssert_True(OS_TimeGetTotalNanoseconds(os_time) == 1000000000LL, "OS time uses Simulith time");
 
     generation = tick_generation;
-    UtAssert_INT32_EQ(pthread_create(&waiter, NULL, WaitForTwoTicks, &wait_ctx), 0);
-    while (!wait_ctx.started)
-    {
-        sched_yield();
-    }
+    /* Establish the caller's cursor before publishing ticks so an unbounded
+     * producer cannot race ahead of the wait's baseline. */
+    UtAssert_UINT32_EQ(CFE_PSP_WaitForSimulithTick(0), 0);
     QueueTicks(2);
     UtAssert_True(WaitForGeneration(generation + 2), "two ticks were distributed");
-    UtAssert_INT32_EQ(pthread_join(waiter, NULL), 0);
-    UtAssert_INT32_EQ(wait_ctx.result, 2);
+    UtAssert_UINT32_EQ(CFE_PSP_WaitForSimulithTick(2), 2);
+    UtAssert_True(FakeCompletionCalls >= 3, "startup-mode ticks are explicitly completed");
 
     UtAssert_UINT32_EQ(CFE_PSP_GetTimerTicksPerSecond(), 1000000000UL / INTERVAL_NS);
     UtAssert_UINT32_EQ(CFE_PSP_GetTimerLow32Rollover(), 1000000000UL / INTERVAL_NS);
@@ -220,6 +262,86 @@ static void Test_TimebaseTickDistribution(void)
     ResetFakeClient();
     timebase_simulith_clock_Init(42);
     UtAssert_INT32_EQ(FakeInitCalls, 1);
+    CFE_PSP_ShutdownSimulithTime();
+}
+
+static void Test_ParticipantDeliveryAccounting(void)
+{
+    static const uint32_t root_mid = 0x1881;
+    static const uint32_t child_mid = 0x1882;
+    static const uint32_t pipe_a = 11;
+    static const uint32_t pipe_b = 12;
+    static const uint32_t pipe_child = 13;
+    static const uint32_t pipe_failed = 14;
+    static const uint32_t pipe_polled = 15;
+    int root_message_a;
+    int root_message_b;
+    int child_message;
+    int failed_message;
+    int polled_message;
+    int root_token;
+    int second_root_token;
+    int child_token;
+    int failed_token;
+    uint64_t generation;
+
+    ResetFakeClient();
+    CFE_PSP_InitSimulithTime();
+    CFE_PSP_EnableDeferredTickCompletion();
+    UtAssert_INT32_EQ(CFE_PSP_StartSynchronizedTicks(), 0);
+
+    generation = tick_generation;
+    QueueTicks(1);
+    UtAssert_True(WaitForGeneration(generation + 1),
+                  "participant test received a synchronized tick");
+
+    root_token = CFE_PSP_RegisterSimulithParticipant(21, root_mid);
+    UtAssert_True(root_token > 0, "scheduled participant registered");
+    UtAssert_INT32_EQ(CFE_PSP_ReserveSimulithMessageDelivery(
+                          root_mid, pipe_a, &root_message_a),
+                      root_token);
+    second_root_token = CFE_PSP_ReserveSimulithMessageDelivery(
+        root_mid, pipe_b, &root_message_b);
+    UtAssert_True(second_root_token > root_token,
+                  "a second successful destination gets its own participant");
+    CFE_PSP_EndSimulithMessagePublication();
+
+    /* Neither a matching MID on the wrong pipe nor the right pipe with a
+     * different buffer may claim this delivery. */
+    CFE_PSP_SimulithMessageReceived(root_mid, pipe_b, &root_message_a);
+    CFE_PSP_SimulithMessageReceived(root_mid, pipe_a, &root_message_b);
+
+    CFE_PSP_SimulithMessageReceived(root_mid, pipe_a, &root_message_a);
+    CFE_PSP_SimulithTaskBeginReceive(pipe_polled, true);
+    UtAssert_INT32_EQ(CFE_PSP_ReserveSimulithMessageDelivery(
+                          child_mid, pipe_polled, &polled_message),
+                      0);
+    UtAssert_INT32_EQ(CFE_PSP_ReserveSimulithMessageDelivery(
+                          child_mid, pipe_polled, &polled_message),
+                      0);
+    child_token = CFE_PSP_ReserveSimulithMessageDelivery(
+        child_mid, pipe_child, &child_message);
+    failed_token = CFE_PSP_ReserveSimulithMessageDelivery(
+        child_mid, pipe_failed, &failed_message);
+    UtAssert_True(child_token > second_root_token && failed_token > child_token,
+                  "transitive command deliveries get distinct participants");
+    CFE_PSP_EndSimulithMessageDelivery(child_token, true);
+    CFE_PSP_EndSimulithMessageDelivery(failed_token, false);
+    CFE_PSP_SimulithTaskBeginReceive(pipe_a, false);
+
+    CFE_PSP_SimulithMessageReceived(root_mid, pipe_b, &root_message_b);
+    CFE_PSP_SimulithTaskBeginReceive(pipe_b, false);
+    CFE_PSP_SimulithMessageReceived(child_mid, pipe_child, &child_message);
+    CFE_PSP_SimulithTaskBeginReceive(pipe_child, false);
+
+    /* A scheduled publication with no successful destinations is explicitly
+     * retired rather than leaving an unclaimable barrier participant. */
+    UtAssert_True(CFE_PSP_RegisterSimulithParticipant(22, root_mid) > 0,
+                  "second scheduled participant registered");
+    CFE_PSP_EndSimulithMessagePublication();
+
+    UtAssert_INT32_EQ(CFE_PSP_WaitForSimulithParticipants(), 0);
+    UtAssert_INT32_EQ(CFE_PSP_CompleteSimulithTick(), 0);
     CFE_PSP_ShutdownSimulithTime();
 }
 
@@ -305,6 +427,8 @@ void UtTest_Setup(void)
 {
     UtTest_Add(Test_TimebaseInitializationFailures, NULL, NULL, "SHIRE PSP timebase initialization failures");
     UtTest_Add(Test_TimebaseTickDistribution, NULL, NULL, "SHIRE PSP tick distribution runtime");
+    UtTest_Add(Test_ParticipantDeliveryAccounting, NULL, NULL,
+               "SHIRE PSP exact message delivery accounting");
     UtTest_Add(Test_ExceptionSignalIntegration, NULL, NULL, "SHIRE PSP exception signal integration");
     UtTest_Add(Test_ExceptionSummaries, NULL, NULL, "SHIRE PSP exception summaries");
 }

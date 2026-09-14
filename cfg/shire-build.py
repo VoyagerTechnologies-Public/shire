@@ -315,10 +315,12 @@ def build_fsw(config):
     fsw_lib_path = os.path.join(builddirs["fsw"], "amd64-shire", "default_cpu1", "simulith", "libsimulith.so")
     dest_lib_path = os.path.join(lib_dir, "libsimulith.so")
     
-    if os.path.exists(sim_lib_path):
-        subprocess.run(["cp", sim_lib_path, dest_lib_path])
-    elif os.path.exists(fsw_lib_path):
+    # The FSW build just produced this library from the same source/API used by
+    # core-cpu1. Prefer it over a possibly stale simulation build artifact.
+    if os.path.exists(fsw_lib_path):
         subprocess.run(["cp", fsw_lib_path, dest_lib_path])
+    elif os.path.exists(sim_lib_path):
+        subprocess.run(["cp", sim_lib_path, dest_lib_path])
     
     # Build runtime Docker image
     print(f"[build] Building FSW runtime image...")

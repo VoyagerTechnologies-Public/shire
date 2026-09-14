@@ -27,6 +27,9 @@
 
 static void                        *g_handle = NULL;
 static const component_interface_t *g_iface  = NULL;
+static component_interface_t g_phase_iface;
+static int (*g_prepare_tick)(component_state_t *, uint64_t,
+                             const simulith_42_context_t *) = NULL;
 
 typedef uint8_t (*eps_calc_crc_fn)(const uint8_t *, size_t);
 typedef int  (*eps_init_fn)(eps_sim_state_t *);
@@ -36,10 +39,17 @@ static eps_calc_crc_fn g_eps_calc_crc    = NULL;
 static eps_init_fn     g_eps_sim_init    = NULL;
 static eps_cleanup_fn  g_eps_sim_cleanup = NULL;
 
-/* Monotonically-increasing tick time. eps_component_tick uses a function-
- * static last_hk_update that persists across init/cleanup, so every test
- * that wants the 1-second update gate to fire must use a tick_time_ns
- * larger than every previous test's. */
+/* Exercise the same PREPARE and EXECUTE order as the director. */
+static int run_tick_phases(component_state_t *state, uint64_t tick_time_ns,
+                           const simulith_42_context_t *context_42)
+{
+    int status = g_prepare_tick(state, tick_time_ns, context_42);
+    if (state && g_phase_iface.service)
+        g_phase_iface.service(state, 0, NULL);
+    return status;
+}
+
+/* Monotonically-increasing test time also exercises deadline catch-up. */
 static uint64_t g_next_tick_ns = 0;
 static uint64_t next_tick(void)
 {
@@ -123,11 +133,18 @@ static void test_dlopen_eps_sim_so(void)
 static void test_get_component_interface_symbol(void)
 {
     TEST_ASSERT_NOT_NULL(g_iface);
+    TEST_ASSERT_EQUAL_UINT32(SIMULITH_COMPONENT_API_VERSION,
+                             g_iface->api_version);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(component_interface_t),
+                             g_iface->struct_size);
     TEST_ASSERT_NOT_NULL(g_iface->name);
     TEST_ASSERT_NOT_NULL(g_iface->description);
-    TEST_ASSERT_NOT_NULL(g_iface->init);
-    TEST_ASSERT_NOT_NULL(g_iface->tick);
-    TEST_ASSERT_NOT_NULL(g_iface->cleanup);
+    TEST_ASSERT_NOT_NULL(g_iface->create);
+    TEST_ASSERT_NOT_NULL(g_iface->on_tick);
+    TEST_ASSERT_NOT_NULL(g_iface->wait_for_service);
+    TEST_ASSERT_NOT_NULL(g_iface->service);
+    TEST_ASSERT_NULL(g_iface->actuate);
+    TEST_ASSERT_NOT_NULL(g_iface->destroy);
     /* EPS does not implement a backdoor handler — see eps_sim.c
      * eps_component_interface initializer. The .backdoor slot is therefore
      * NULL via designated-initializer zero default. */
@@ -138,7 +155,7 @@ static void test_get_component_interface_symbol(void)
 static void test_init_returns_success_and_state(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     TEST_ASSERT_NOT_NULL(state);
 
     eps_sim_state_t *es = (eps_sim_state_t *)state;
@@ -149,7 +166,17 @@ static void test_init_returns_success_and_state(void)
     double expected = EPS_BATTERY_CAPACITY_WH * EPS_BATTERY_INITIAL_SOC;
     TEST_ASSERT_DOUBLE_WITHIN(1e-6, expected, es->battery_energy_wh);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
+}
+
+static void test_lifecycle_callbacks_reject_null(void)
+{
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->create(NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_prepare_tick(NULL, next_tick(), NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->service(NULL, 0, NULL));
+    g_iface->destroy(NULL);
 }
 
 static void test_cleanup_releases_i2c_socket(void)
@@ -157,12 +184,12 @@ static void test_cleanup_releases_i2c_socket(void)
     /* Guard against the bind-rebind regression: if cleanup leaks the bound
      * IPC socket, a second init in the same process will fail. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->destroy(state);
 
     state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -189,7 +216,7 @@ static void test_eps_sim_cleanup_with_null_is_safe(void)
 static void test_wire_protocol_noop_increments_counter_silently(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -201,7 +228,7 @@ static void test_wire_protocol_noop_increments_counter_silently(void)
                           simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd)));
     usleep(2000);
 
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     uint8_t rx[64];
     TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, rx, sizeof(rx)));
@@ -210,13 +237,13 @@ static void test_wire_protocol_noop_increments_counter_silently(void)
     TEST_ASSERT_EQUAL_UINT32(1, es->device_counter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_get_hk_returns_framed_hk(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -226,7 +253,7 @@ static void test_wire_protocol_get_hk_returns_framed_hk(void)
     encode_command(&cmd, EPS_CMD_GET_HK, 0);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     EPS_Device_HK_tlm_t hk;
     size_t              n = drain_all(&client, (uint8_t *)&hk, sizeof(hk));
@@ -236,13 +263,13 @@ static void test_wire_protocol_get_hk_returns_framed_hk(void)
     TEST_ASSERT_EQUAL_HEX8(expected_crc, hk.crc);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_switch_on_then_off(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     transport_port_t client;
@@ -253,23 +280,23 @@ static void test_wire_protocol_switch_on_then_off(void)
     encode_command(&cmd, EPS_CMD_SWITCH_ON, 3);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
     TEST_ASSERT_EQUAL_UINT8(EPS_SWITCH_ON, es->hk.switches[3].state);
 
     encode_command(&cmd, EPS_CMD_SWITCH_OFF, 3);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
     TEST_ASSERT_EQUAL_UINT8(EPS_SWITCH_OFF, es->hk.switches[3].state);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_short_packet_is_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -278,19 +305,23 @@ static void test_wire_protocol_short_packet_is_rejected(void)
     uint8_t partial[2] = {EPS_CFG_I2C_DEVICE_ADDR, EPS_CMD_NOOP};
     simulith_transport_send(&client, partial, sizeof(partial));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    uint64_t tick_time_ns = next_tick();
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_prepare_tick(state, tick_time_ns, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK,
+                          g_phase_iface.service(state, tick_time_ns, NULL));
 
     eps_sim_state_t *es = (eps_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT32(0, es->device_counter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_wrong_i2c_addr_is_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -303,19 +334,19 @@ static void test_wire_protocol_wrong_i2c_addr_is_rejected(void)
     cmd.crc      = g_eps_calc_crc((const uint8_t *)&cmd, sizeof(cmd) - 1);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     eps_sim_state_t *es = (eps_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT32(0, es->device_counter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_bad_crc_is_rejected(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -330,19 +361,19 @@ static void test_wire_protocol_bad_crc_is_rejected(void)
     cmd.crc         = (uint8_t)(correct ^ 0xFF);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     eps_sim_state_t *es = (eps_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT32(0, es->device_counter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_unknown_cmd_default_arm(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     transport_port_t client;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client, "test_client"));
@@ -352,20 +383,20 @@ static void test_wire_protocol_unknown_cmd_default_arm(void)
     encode_command(&cmd, 0x99, 0); /* outside 0..3 */
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     /* Default arm just logs; counter still increments. */
     eps_sim_state_t *es = (eps_sim_state_t *)state;
     TEST_ASSERT_EQUAL_UINT32(1, es->device_counter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_wire_protocol_switch_invalid_index_is_ignored(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     transport_port_t client;
@@ -378,7 +409,7 @@ static void test_wire_protocol_switch_invalid_index_is_ignored(void)
     encode_command(&cmd, EPS_CMD_SWITCH_ON, EPS_NUM_SWITCHES);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     TEST_ASSERT_EQUAL_UINT32(1, es->device_counter);
     for (int i = 0; i < EPS_NUM_SWITCHES; i++)
@@ -390,11 +421,11 @@ static void test_wire_protocol_switch_invalid_index_is_ignored(void)
     encode_command(&cmd, EPS_CMD_SWITCH_OFF, 99);
     simulith_transport_send(&client, (uint8_t *)&cmd, sizeof(cmd));
     usleep(2000);
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
     TEST_ASSERT_EQUAL_UINT32(2, es->device_counter);
 
     simulith_transport_close(&client);
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -404,21 +435,21 @@ static void test_tick_with_null_state_returns_safely(void)
 {
     /* eps_component_tick guards against a NULL component_state_t* argument
      * with an early return. Calling with NULL must not crash. */
-    g_iface->tick(NULL, next_tick(), NULL);
+    g_iface->on_tick(NULL, next_tick(), NULL);
 }
 
 static void test_tick_with_null_42_no_solar_no_crash(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
-    g_iface->tick(state, next_tick(), NULL);
-    g_iface->cleanup(state);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_iface->on_tick(state, next_tick(), NULL);
+    g_iface->destroy(state);
 }
 
 static void test_tick_with_42_eclipse_yields_no_solar(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     simulith_42_context_t ctx = {0};
@@ -427,44 +458,44 @@ static void test_tick_with_42_eclipse_yields_no_solar(void)
     ctx.sun_vector_body[0]    = 1.0; /* would be peak if not eclipsed */
 
     double before = es->battery_energy_wh;
-    g_iface->tick(state, next_tick(), &ctx);
+    g_iface->on_tick(state, next_tick(), &ctx);
 
     /* No solar (eclipsed), no consumption (all switches OFF) → unchanged. */
     TEST_ASSERT_DOUBLE_WITHIN(1e-6, before, es->battery_energy_wh);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_with_42_invalid_yields_no_solar(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     simulith_42_context_t ctx = {0};
     ctx.valid                 = 0; /* invalid */
     ctx.sun_vector_body[0]    = 1.0;
-    g_iface->tick(state, next_tick(), &ctx);
+    g_iface->on_tick(state, next_tick(), &ctx);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_with_42_negative_sun_x_yields_no_solar(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
 
     simulith_42_context_t ctx = {0};
     ctx.valid                 = 1;
     ctx.sun_vector_body[0]    = -0.9; /* sun behind +X face */
-    g_iface->tick(state, next_tick(), &ctx);
+    g_iface->on_tick(state, next_tick(), &ctx);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_with_42_positive_sun_x_charges_battery(void)
 {
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     /* Drop battery below capacity so positive solar has somewhere to go. */
@@ -473,11 +504,11 @@ static void test_tick_with_42_positive_sun_x_charges_battery(void)
     simulith_42_context_t ctx = {0};
     ctx.valid                 = 1;
     ctx.sun_vector_body[0]    = 1.0; /* peak generation */
-    g_iface->tick(state, next_tick(), &ctx);
+    g_iface->on_tick(state, next_tick(), &ctx);
 
     TEST_ASSERT_TRUE(es->battery_energy_wh > 1.0);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_drains_battery_and_clamps_low(void)
@@ -485,7 +516,7 @@ static void test_tick_drains_battery_and_clamps_low(void)
     /* Stage near-empty battery + all switches ON. One tick of consumption
      * pushes the energy < 0; the low-clamp must pin it to 0. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     es->battery_energy_wh = 0.0001;
@@ -493,11 +524,11 @@ static void test_tick_drains_battery_and_clamps_low(void)
     {
         es->hk.switches[i].state = EPS_SWITCH_ON;
     }
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0, es->battery_energy_wh);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_charges_battery_and_clamps_high(void)
@@ -505,7 +536,7 @@ static void test_tick_charges_battery_and_clamps_high(void)
     /* Stage near-full battery + max solar + no consumption. The high-clamp
      * must pin energy to capacity. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     es->battery_energy_wh = EPS_BATTERY_CAPACITY_WH - 0.0001;
@@ -513,11 +544,11 @@ static void test_tick_charges_battery_and_clamps_high(void)
     simulith_42_context_t ctx = {0};
     ctx.valid                 = 1;
     ctx.sun_vector_body[0]    = 1.0;
-    g_iface->tick(state, next_tick(), &ctx);
+    g_iface->on_tick(state, next_tick(), &ctx);
 
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, EPS_BATTERY_CAPACITY_WH, es->battery_energy_wh);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 static void test_tick_switch_voltage_reflects_index_range(void)
@@ -526,7 +557,7 @@ static void test_tick_switch_voltage_reflects_index_range(void)
      * 6|7) so the per-index voltage assignment in the tick switch loop
      * covers all four ranges. Switches still OFF cover the else arm. */
     component_state_t *state = NULL;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     eps_sim_state_t *es = (eps_sim_state_t *)state;
 
     es->hk.switches[0].state = EPS_SWITCH_ON; /* 3.3V band */
@@ -534,7 +565,7 @@ static void test_tick_switch_voltage_reflects_index_range(void)
     es->hk.switches[4].state = EPS_SWITCH_ON; /* 12.0V band */
     es->hk.switches[6].state = EPS_SWITCH_ON; /* 24.0V band */
 
-    g_iface->tick(state, next_tick(), NULL);
+    g_iface->on_tick(state, next_tick(), NULL);
 
     /* Convert expected voltages to telemetry counts (32V / 255 per count,
      * cast truncates toward zero). */
@@ -552,7 +583,7 @@ static void test_tick_switch_voltage_reflects_index_range(void)
     TEST_ASSERT_EQUAL_UINT8(v24v, es->hk.switches[6].voltage);
     TEST_ASSERT_EQUAL_UINT8(0, es->hk.switches[7].voltage);
 
-    g_iface->cleanup(state);
+    g_iface->destroy(state);
 }
 
 /* -------------------------------------------------------------------------
@@ -570,7 +601,7 @@ static void test_init_fails_when_address_path_is_a_directory(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mkdir(path, 0755), "could not stage path squat");
 
     component_state_t *state = NULL;
-    int                rc    = g_iface->init(&state);
+    int                rc    = g_iface->create(&state);
 
     (void)rmdir(path);
 
@@ -601,13 +632,17 @@ int main(void)
         return 1;
     }
 
-    g_iface = get_iface();
-    if (!g_iface)
+    const component_interface_t *loaded_iface = get_iface();
+    if (!loaded_iface)
     {
         fprintf(stderr, "get_component_interface() returned NULL\n");
         dlclose(g_handle);
         return 1;
     }
+    g_phase_iface = *loaded_iface;
+    g_prepare_tick = loaded_iface->on_tick;
+    g_phase_iface.on_tick = run_tick_phases;
+    g_iface = &g_phase_iface;
 
     g_eps_calc_crc    = (eps_calc_crc_fn)dlsym(g_handle, "EPS_Calculate_CRC8");
     g_eps_sim_init    = (eps_init_fn)dlsym(g_handle, "eps_sim_init");
@@ -619,6 +654,7 @@ int main(void)
     RUN_TEST(test_dlopen_eps_sim_so);
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_init_returns_success_and_state);
+    RUN_TEST(test_lifecycle_callbacks_reject_null);
     RUN_TEST(test_cleanup_releases_i2c_socket);
 
     /* Direct helpers */

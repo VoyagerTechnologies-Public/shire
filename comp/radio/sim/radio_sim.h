@@ -5,6 +5,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -37,8 +38,12 @@
 // Radio simulator state
 typedef struct 
 {
-    // Communication handles
-    void* time_handle;
+    // Communication resources are owned by this model instance.
+    transport_port_t spi_device;
+    transport_port_t power_gpio_device;
+    transport_port_t interrupt_gpio_device;
+    simulith_gpio_state_t power_gpio;
+    simulith_gpio_state_t interrupt_gpio;
     
     // Device state
     uint8_t interrupt_asserted;
@@ -69,22 +74,14 @@ typedef struct
     uint8_t udp_thread_running;
     
     // Timing
-    double last_update_time;
+    uint64_t next_interrupt_update_ns;
     
     // Thread synchronization
     pthread_mutex_t buffer_mutex;
 } radio_sim_state_t;
 
-// Function declarations
-static void* udp_ground_thread(void* arg);
-static void radio_sim_update_interrupt(radio_sim_state_t* state);
-static uint32_t radio_sim_get_rx_buffer_count(radio_sim_state_t* state);
-static int radio_sim_write_to_rx_buffer(radio_sim_state_t* state, const uint8_t* data, uint32_t length);
-static void radio_sim_send_response(radio_sim_state_t* state, const uint8_t* data, uint32_t length);
-static void radio_sim_send_housekeeping(radio_sim_state_t* state);
-static void radio_sim_handle_spi_command(radio_sim_state_t* state, const uint8_t* data, size_t length);
-static void radio_sim_on_tick(uint64_t tick_time_ns, const simulith_42_context_t* context_42);
+// Public simulator lifecycle
 int radio_sim_init(radio_sim_state_t* state);
 void radio_sim_cleanup(radio_sim_state_t* state);
 
-#endif /* RADIO_SIM_H */ 
+#endif /* RADIO_SIM_H */

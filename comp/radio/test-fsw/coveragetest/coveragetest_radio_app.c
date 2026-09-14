@@ -615,6 +615,21 @@ void Test_RADIO_ServiceUplink_ReceiveFail(void)
     UT_ResetState(0);
 }
 
+void Test_RADIO_ServiceUplink_EmptyStopsDrain(void)
+{
+    RADIO_AppData.ReceiveBuffLength = 0;
+    RADIO_AppData.RadioSpi.isOpen = SPI_DEVICE_OPEN;
+
+    /* The default successful stub leaves actual_length at its initialized
+     * zero value.  One completed empty transaction must terminate the drain. */
+    UT_SetDefaultReturnValue(UT_KEY(RADIO_ReceiveData), OS_SUCCESS);
+    RADIO_ServiceUplink();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_ReceiveData)), 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.ReceiveBuffLength, 0);
+    UT_ResetState(0);
+}
+
 void Test_RADIO_ServiceUplink_MultipleTFs(void)
 {
     /* Build a buffer with two back-to-back TFs, each containing a CCSDS packet */
@@ -1506,6 +1521,7 @@ void UtTest_Setup(void)
     ADD_TEST(RADIO_Disable);
     ADD_TEST(RADIO_Configure_DeviceSuccess);
     ADD_TEST(RADIO_ServiceUplink_ReceiveFail);
+    ADD_TEST(RADIO_ServiceUplink_EmptyStopsDrain);
     ADD_TEST(RADIO_ServiceDownlink_InitFail);
     ADD_TEST(RADIO_ServiceUplink_ProcessTF_Success);
     ADD_TEST(RADIO_ServiceUplink_ForwardWithMsgId);

@@ -29,6 +29,7 @@ nav = [
       { "Configuration" = "manual/how-to/configuration.md" },
       { "Development Board" = "manual/how-to/development-board.md" },
       { "Docker" = "manual/how-to/docker.md" },
+      { "Performance" = "manual/how-to/performance.md" },
     ] },
   ] },
   { "Reference" = [

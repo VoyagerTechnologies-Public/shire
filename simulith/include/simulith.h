@@ -28,6 +28,31 @@
 
 #define INTERVAL_NS 10000000UL // 10ms tick interval
 
+#define SIMULITH_PROTOCOL_MAGIC   0x53484D54U /* "SHMT" */
+#define SIMULITH_PROTOCOL_VERSION 1U
+
+typedef enum
+{
+    SIMULITH_PHASE_PREPARE = 1,
+    SIMULITH_PHASE_EXECUTE = 2,
+    SIMULITH_PHASE_COMMIT  = 3,
+    SIMULITH_PHASE_STOP    = 4
+} simulith_phase_t;
+
+#define SIMULITH_PHASE_BIT(phase) (1U << ((unsigned)(phase) - 1U))
+#define SIMULITH_PHASE_MASK_PREPARE SIMULITH_PHASE_BIT(SIMULITH_PHASE_PREPARE)
+#define SIMULITH_PHASE_MASK_EXECUTE SIMULITH_PHASE_BIT(SIMULITH_PHASE_EXECUTE)
+#define SIMULITH_PHASE_MASK_COMMIT  SIMULITH_PHASE_BIT(SIMULITH_PHASE_COMMIT)
+
+typedef struct
+{
+    uint32_t magic;
+    uint16_t version;
+    uint16_t phase;
+    uint64_t sequence;
+    uint64_t time_ns;
+} simulith_tick_message_t;
+
 #define SIMULITH_UART_BASE_PORT 51000
 #define SIMULITH_I2C_BASE_PORT  52000
 #define SIMULITH_SPI_BASE_PORT  53000
@@ -60,6 +85,12 @@ extern "C"
      */
     int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_count, uint64_t interval_ns);
 
+    /** Configure pacing and a finite run. A speed of zero means unbounded. */
+    int simulith_server_configure(double speed, uint64_t duration_ns, const char *metrics_json_path);
+
+    /** Exclude an initial simulated-time interval from steady-state metrics. */
+    int simulith_server_configure_warmup(uint64_t warmup_ns);
+
     /**
      * Run the main server loop. Blocks forever.
      */
@@ -90,6 +121,13 @@ extern "C"
     typedef void (*simulith_tick_callback)(uint64_t tick_time_ns);
 
     /**
+     * Callback signature for one explicitly sequenced synchronization phase.
+     * Returning nonzero fails the phase; the client will not acknowledge it.
+     */
+    typedef int (*simulith_phase_callback)(uint64_t sequence,
+                                           uint64_t tick_time_ns);
+
+    /**
      * Initialize a Simulith client.
      *
      * @param pub_addr The ZeroMQ SUB socket connect address (e.g., "tcp://localhost:5555").
@@ -99,6 +137,9 @@ extern "C"
      * @return 0 on success, -1 on error.
      */
     int simulith_client_init(const char *pub_addr, const char *rep_addr, const char *id, uint64_t rate_ns);
+
+    /** Declare the phases this client must explicitly complete. */
+    int simulith_client_configure_phases(uint32_t phase_mask);
 
     /**
      * Handshake with the Simulith server.
@@ -114,6 +155,11 @@ extern "C"
      */
     void simulith_client_run_loop(simulith_tick_callback on_tick);
 
+    /** Run a director-style PREPARE/EXECUTE/COMMIT loop. */
+    void simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
+                                         simulith_phase_callback on_execute,
+                                         simulith_phase_callback on_commit);
+
     /** Request that a client loop running on another thread return. */
     void simulith_client_request_stop(void);
 
@@ -124,6 +170,16 @@ extern "C"
      * @return 0 on success, -1 on error.
      */
     int simulith_client_wait_for_tick(uint64_t* tick_time_ns);
+
+    /** Receive a tick without acknowledging it. */
+    int simulith_client_receive_tick(uint64_t *tick_time_ns, uint64_t *sequence);
+
+    /** Receive the next sequence/phase frame without completing it. */
+    int simulith_client_receive_phase(uint64_t *tick_time_ns, uint64_t *sequence,
+                                      simulith_phase_t *phase);
+
+    /** Explicitly report completion of work for the received sequence. */
+    int simulith_client_complete_tick(uint64_t sequence, simulith_phase_t phase);
 
     /**
      * Shut down the client and release resources.

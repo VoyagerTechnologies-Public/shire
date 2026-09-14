@@ -116,7 +116,8 @@ static void test_transport_runtime_failures(void)
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
                           simulith_transport_send(&port, &value, sizeof(value)));
     failure = FAIL_MESSAGE_RECEIVE;
-    TEST_ASSERT_EQUAL_INT(0, simulith_transport_available(&port));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
+                          simulith_transport_available(&port));
     failure = POLL_WITHOUT_INPUT;
     TEST_ASSERT_EQUAL_INT(0, simulith_transport_available(&port));
 }

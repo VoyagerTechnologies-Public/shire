@@ -89,6 +89,9 @@ After the component works through cFS and its simulator, continue developing the
 Use repeatable simulation runs to mature application behavior and system tests while the board or physical component is unavailable.
 Record simulator assumptions so they can be checked when hardware arrives.
 The simulator is a development model and does not replace physical hardware testing.
+After the complete DRM path is active, use `make perf-smoke` for a quick
+synchronized diagnostic and `make perf` for the active ADCS fidelity and
+throughput matrix.
 
 ### 5 - Run the board CLI with the physical component
 
@@ -128,6 +131,9 @@ Use the gates and evidence guidance in this workflow when moving from simulation
 | `make test-sim` | Builds Simulith, runs simulator tests selected from the existing `build/build.yaml`, and produces combined simulator coverage. |
 | `make test-simulith` | Runs the standalone Simulith core suite and produces its coverage report. |
 | `make test-fsw` | Builds and runs cFS/application tests and produces coverage output. |
+| `make perf-smoke` | Builds and runs one short synchronized complete-stack diagnostic. |
+| `make perf` | Runs the active 1x and 25x fidelity pair plus three unbounded performance trials. |
+| `make perf-compare BASELINE=<report.json>` | Repeats the matrix and checks it against a reviewed performance baseline. |
 | `make complexity` | Writes the informational `pmccabe` report to `build/coverage-complexity.txt`. |
 
 ## Coverage reporting
@@ -244,8 +250,9 @@ coverage to Codecov.
 `.github/workflows/docs.yml` validates the Atlas on pull requests and pushes to `main` or `dev`.
 It publishes GitHub Pages only after a successful push build on `main`.
 
-These jobs do not currently run the YAMCS submodule tests or a complete DRM scenario.
+These jobs do not currently run the YAMCS submodule tests, a complete DRM
+scenario, or the workstation performance matrix.
 When a CI result is used as evidence, retain the workflow run, logs, coverage, resolved configuration, container image, and revision identifiers rather than treating the presence of the workflow file as a passing result.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20260913

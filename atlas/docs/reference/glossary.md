@@ -16,6 +16,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | CFDP | CCSDS File Delivery Protocol used for file transfer between flight and ground software. |
 | CI_LAB | cFS laboratory command ingest application used by the direct debug command path. |
 | CLI | Command line interface used for focused component protocol and hardware checkout without cFS or YAMCS. |
+| COMMIT | Final Simulith tick phase that quiesces component service, publishes actuator outputs, and commits the combined command batch to 42. |
 | Component | A SHIRE subsystem package containing a flight application, simulated device, shared protocol code, tests, configuration, and ground artifacts as applicable. |
 | Component mold | Mechanical starting point created from the Demo component with `make mold COMP=<name>`. |
 | Component simulator | Director loadable shared library that implements the Simulith lifecycle and models a component's device behavior. |
@@ -25,11 +26,12 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | Debug path | Direct UDP command and telemetry path between YAMCS and CI_LAB or TO_LAB that bypasses the Radio and CryptoLib. |
 | Demo | Minimal reference payload component and source used by the component mold. |
 | Design Reference Mission | The example mission configuration, operating concept, requirements, and scenarios supplied with SHIRE. |
-| Director | Simulith process that loads component simulator shared libraries into its address space, runs their callbacks on each tick, exchanges state with 42, handles backdoor traffic, and publishes truth telemetry. |
+| Director | Simulith process that loads component simulators, runs ordered PREPARE and COMMIT callbacks plus concurrent device service workers, exchanges state with 42, handles backdoor traffic, and publishes truth telemetry. |
 | Do No Harm (DNH) | Conservative DRM startup configuration established through component defaults, SC startup behavior, LC actions, and RTS tables rather than one spacecraft mode command. |
 | DRM | Common abbreviation for Design Reference Mission. |
 | DS | cFS Data Storage application used to record selected packets to files. |
 | EPS | Electrical Power System reference component. |
+| EXECUTE | Simulith tick phase in which SCH releases one slot and component workers service complete FSW device transactions. |
 | ES | cFE Executive Services, which manages cFE startup, applications, resources, and reset behavior. |
 | EVS | cFE Event Services, which distributes application event messages. |
 | FDIR | Fault Detection, Isolation, and Recovery. |
@@ -45,6 +47,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | OSAL | Operating System Abstraction Layer used by cFS. |
 | Procedure stack | YAMCS `.ycs` artifact that contains ordered commands, checks, and operator instructions. |
 | PSP | cFE Platform Support Package used to reach platform and hardware services. |
+| PREPARE | First Simulith tick phase that obtains 42 truth and advances autonomous component state before FSW executes. |
 | Radio | SHIRE reference component that models device commanding, buffered uplink and downlink, and radio operating modes. |
 | Radio path | Representative DRM command and telemetry route through CryptoLib and the Radio simulator rather than a validated physical RF link. |
 | RTS | Relative Time Sequence executed by the cFS Stored Command application. |
@@ -53,7 +56,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | SC | cFS Stored Command application. |
 | Scenario | Atlas exercise that applies SHIRE capabilities to an operational or development objective and states its current evidence level. |
 | SCH | cFS Scheduler application that releases configured messages according to its schedule table. |
-| Server | Simulith process that owns simulation time, broadcasts ticks, and waits for registered clients. |
+| Server | Simulith process that owns simulation time and advances only after every required PREPARE, EXECUTE, and COMMIT completion. |
 | SHIRE | Software & Hardware Integration Runtime Environment. |
 | Simulith | SHIRE simulation middleware that coordinates time, loads component models, provides simulated device transport, and connects to 42. |
 | Target | Named cFS processor and platform build definition such as the active CPU1 target or scaffolded CPU2 target. |
@@ -71,4 +74,4 @@ This glossary defines terms as they are used in the current SHIRE repository and
 When a term in the Atlas is ambiguous, use the source or configuration described in [Quick Reference](quick-reference.md) to confirm its meaning in the current checkout.
 
 ***
-Last reviewed: 20260818
+Last reviewed: 20260913

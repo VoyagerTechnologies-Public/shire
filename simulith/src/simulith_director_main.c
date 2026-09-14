@@ -21,16 +21,36 @@ int main(int argc, char *argv[])
 
     if (initialize_42(&g_director_config) != 0)
     {
-        fprintf(stderr, "Warning: 42 initialization failed; continuing without it\n");
-        g_director_config.enable_42 = 0;
-        g_director_config.fortytwo_initialized = 0;
+        fprintf(stderr, "42 initialization failed; refusing to run an open-loop simulation\n");
+        cleanup_components(&g_director_config);
+        return 1;
     }
 
-    initialize_telemetry();
+    if (initialize_telemetry() != 0)
+    {
+        cleanup_components(&g_director_config);
+        return 1;
+    }
+
+    if (initialize_scenario(&g_director_config) != 0)
+    {
+        fprintf(stderr, "Scenario initialization failed\n");
+        cleanup_components(&g_director_config);
+        return 1;
+    }
 
     sleep(1);
     if (simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "shire-director", INTERVAL_NS) != 0)
     {
+        cleanup_components(&g_director_config);
+        return 1;
+    }
+
+    if (simulith_client_configure_phases(SIMULITH_PHASE_MASK_PREPARE |
+                                         SIMULITH_PHASE_MASK_EXECUTE |
+                                         SIMULITH_PHASE_MASK_COMMIT) != 0)
+    {
+        simulith_client_shutdown();
         cleanup_components(&g_director_config);
         return 1;
     }
@@ -42,7 +62,10 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    simulith_client_run_loop(on_tick);
+    simulith_client_run_phased_loop(director_prepare_tick,
+                                    director_execute_tick,
+                                    director_commit_tick);
+    director_write_terminal_metrics();
     simulith_client_shutdown();
     cleanup_components(&g_director_config);
     return 0;

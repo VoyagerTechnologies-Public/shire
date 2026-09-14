@@ -13,6 +13,8 @@ services:
     mem_limit: 2g
     environment:
       - MESA_NO_SHM=1
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
+      - FORTYTWO_GRAPHICS_HZ=${FORTYTWO_GRAPHICS_HZ:-1}
     volumes:
       - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
     shm_size: '2gb'
@@ -46,6 +48,10 @@ services:
     environment:
       - NUM_CLIENTS=${NUM_CLIENTS:-2}
       - SIMULITH_LOG_MODE=stdout
+      - SIMULITH_SPEED=${SIMULITH_SPEED:-1}
+      - SIMULITH_DURATION=${SIMULITH_DURATION:-}
+      - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
+      - SIMULITH_WATCHDOG_SECONDS=${SIMULITH_WATCHDOG_SECONDS:-5}
     command: ["/bin/sh", "-c", "/app/simulith_server_standalone $${NUM_CLIENTS}"]
     cpus: "4.0"
     mem_limit: 2g
@@ -70,10 +76,14 @@ services:
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
       - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
+      - SIMULITH_SCENARIO_ENABLED=${SIMULITH_SCENARIO_ENABLED:-0}
+    command: ["/bin/sh", "-c", "if [ \"$${SIMULITH_SCENARIO_ENABLED}\" = 1 ]; then exec /app/simulith_director_standalone --scenario /run/shire-scenario.json; else exec /app/simulith_director_standalone; fi"]
     cpus: "4.0"
     mem_limit: 512m
     volumes:
       - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - ${SIMULITH_SCENARIO_FILE:-/dev/null}:/run/shire-scenario.json:ro
     tmpfs:
       - /dev/shm:noexec,nosuid,size=100m
 
@@ -106,6 +116,7 @@ services:
       - shire-server
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SHIRE_GROUND_OUTPUT_HZ=${SHIRE_GROUND_OUTPUT_HZ:-20}
     sysctls:
       - fs.mqueue.msg_max=10000
     ulimits:

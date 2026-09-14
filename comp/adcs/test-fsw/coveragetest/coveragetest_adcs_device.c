@@ -10,21 +10,26 @@ typedef struct {
     int call_count;
 } uart_seq_state_t;
 
-static void UartSeqReadHandler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context, va_list va)
+static void UartSeqReadHandler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
 {
-    uint8_t *dst = va_arg(va, uint8_t *);
-    uint32_t n = va_arg(va, uint32_t);
     uart_seq_state_t *s = (uart_seq_state_t *)UserObj;
+    uint8_t *dst = UT_Hook_GetArgValueByName(Context, "data", uint8_t *);
+    uint32_t n = UT_Hook_GetArgValueByName(Context, "numBytes", uint32_t);
+    int32_t bytes_read;
+
     if (!s || !dst) return;
     if (s->call_count == 0)
     {
         memcpy(dst, s->first_buf, (n < s->first_len) ? n : s->first_len);
+        bytes_read = (int32_t)((n < s->first_len) ? n : s->first_len);
     }
     else
     {
         memcpy(dst, s->second_buf, (n < s->second_len) ? n : s->second_len);
+        bytes_read = (int32_t)((n < s->second_len) ? n : s->second_len);
     }
     s->call_count++;
+    UT_Stub_CopyToReturnValue(FuncKey, &bytes_read, sizeof(bytes_read));
 }
 
 /* Handler that emulates ADCS_ReadData: copy a supplied buffer into the read_data arg and return success */
@@ -434,7 +439,7 @@ void Test_ADCS_RequestHK_EndToEnd(void)
     uart_state.first_buf = echo; uart_state.first_len = ADCS_DEVICE_CMD_SIZE;
     uart_state.second_buf = hk_buf; uart_state.second_len = (int)sizeof(hk_buf);
     uart_state.call_count = 0;
-    UT_SetVaHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &uart_state);
+    UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &uart_state);
 
     /* Call end-to-end */
     ADCS_RequestHK(&device, &data);
@@ -500,7 +505,7 @@ void Test_ADCS_RequestData_EndToEnd(void)
     uart_state2.first_buf = echo; uart_state2.first_len = ADCS_DEVICE_CMD_SIZE;
     uart_state2.second_buf = data_buf; uart_state2.second_len = (int)sizeof(data_buf);
     uart_state2.call_count = 0;
-    UT_SetVaHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &uart_state2);
+    UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &uart_state2);
     ADCS_RequestData(&device, &data, ADCS_DEVICE_GET_CSS_CMD);
     UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
 }
@@ -664,13 +669,13 @@ void Test_ADCS_RequestHK_SuccessPath(void)
     state.first_buf = echo; state.first_len = ADCS_DEVICE_CMD_SIZE;
     state.second_buf = hk_buf; state.second_len = (int)sizeof(hk_buf);
     state.call_count = 0;
-    UT_SetVaHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &state);
+    UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &state);
 
     /* Directly exercise internal HK handling logic */
     int32_t rc = ADCS_HandleRequestHK(state.second_buf, &data);
     UtAssert_True(rc == OS_SUCCESS, "ADCS_HandleRequestHK returned success");
 
-    UT_SetVaHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
+    UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
 }
 
 /* Focused test: ensure ADCS_RequestData exercises header/trailer success branch */
@@ -703,13 +708,13 @@ void Test_ADCS_RequestData_SuccessPath(void)
     state.first_buf = echo; state.first_len = ADCS_DEVICE_CMD_SIZE;
     state.second_buf = data_buf; state.second_len = (int)sizeof(data_buf);
     state.call_count = 0;
-    UT_SetVaHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &state);
+    UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSeqReadHandler, &state);
 
     /* Directly exercise internal data handling logic */
     int32_t rc = ADCS_HandleRequestData(state.second_buf, &data);
     UtAssert_True(rc == OS_SUCCESS, "ADCS_HandleRequestData returned success");
 
-    UT_SetVaHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
+    UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
 }
 
 void Test_ADCS_ReadData_Timeout(void)

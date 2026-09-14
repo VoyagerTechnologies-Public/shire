@@ -164,7 +164,8 @@ static void test_server_rejects_malformed_handshakes_before_two_clients_join(voi
     TEST_ASSERT_EQUAL_INT(0, simulith_server_init("pub", "rep", 2, 1));
     simulith_server_run();
     TEST_ASSERT_EQUAL_INT(6, receive_calls);
-    TEST_ASSERT_EQUAL_INT(4, send_calls);
+    /* Two handshake errors, two READY acknowledgements, and one STOP frame. */
+    TEST_ASSERT_EQUAL_INT(5, send_calls);
 }
 
 int main(void)

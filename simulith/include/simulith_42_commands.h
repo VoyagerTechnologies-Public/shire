@@ -73,11 +73,19 @@ typedef struct {
     int count;               // Number of commands in queue
 } simulith_42_cmd_queue_t;
 
+typedef struct {
+    uint64_t enqueued;
+    uint64_t dequeued;
+    uint64_t overflows;
+    uint64_t high_watermark;
+    uint64_t by_type[SIMULITH_42_CMD_COUNT];
+    uint64_t nonzero_actuator_commands;
+} simulith_42_cmd_queue_stats_t;
+
 // Function prototypes for command interface
 int simulith_42_send_mtb_command(int spacecraft_id, const double dipole[3], int enable_mask);
 int simulith_42_send_wheel_command(int spacecraft_id, const double torque[4], int enable_mask);
 int simulith_42_send_thruster_command(int spacecraft_id, const double thrust[3], const double torque[3], int enable_mask);
-// Set FSW/ADCS mode on a 42 spacecraft (producer-friendly helper)
 // Set FSW/ADCS mode on a 42 spacecraft (producer-friendly helper)
 // If `extra` is non-NULL, its fields will be copied into the queued command so
 // the director can apply explicit target vectors or quaternions.
@@ -88,6 +96,7 @@ int simulith_42_send_set_mode(int spacecraft_id, int mode, const void* extra);
 // provided for advanced use or diagnostics.
 int enqueue_command(const simulith_42_command_t* cmd);
 int dequeue_command(simulith_42_command_t* cmd);
+void simulith_42_get_command_queue_stats(simulith_42_cmd_queue_stats_t *stats);
 
 #ifdef __cplusplus
 }

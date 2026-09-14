@@ -157,11 +157,29 @@ static void test_server_periodic_broadcast_reporting(void)
 {
     static const char pub[] = "ipc:///tmp/simulith-report-pub.sock";
     static const char rep[] = "ipc:///tmp/simulith-report-rep.sock";
+    static const char log_path[] = "/tmp/simulith.log";
+    char line[256];
+    int report_count = 0;
+
+    unlink(log_path);
+    setenv("SIMULITH_LOG_MODE", "file", 1);
+    simulith_log_reset_for_tests();
     TEST_ASSERT_EQUAL_INT(0, simulith_server_init(pub, rep, 1, INTERVAL_NS));
     simulith_server_broadcast_for_test(10000000000ULL);
     test_sleep_us(1000);
     simulith_server_broadcast_for_test(20000000000ULL);
     simulith_server_shutdown();
+    simulith_log_reset_for_tests();
+    unsetenv("SIMULITH_LOG_MODE");
+
+    FILE *log = fopen(log_path, "r");
+    TEST_ASSERT_NOT_NULL(log);
+    while (fgets(line, sizeof(line), log) != NULL)
+        if (strstr(line, "Simulation time:") != NULL)
+            report_count++;
+    fclose(log);
+    TEST_ASSERT_EQUAL_INT(2, report_count);
+    unlink(log_path);
 }
 
 static void test_server_cli_command_parser(void)
@@ -241,7 +259,7 @@ static void test_client_wait_for_tick(void)
     pthread_create(&server, NULL, server_thread_with_clients, p);
     test_sleep_us(10000); // give server time to bind and start
 
-    int rc = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
+    int rc = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "shire-fsw", INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     rc = simulith_client_handshake();
@@ -250,7 +268,7 @@ static void test_client_wait_for_tick(void)
     uint64_t tick_ns = 0;
     rc = simulith_client_wait_for_tick(&tick_ns);
     TEST_ASSERT_EQUAL_INT(0, rc);
-    TEST_ASSERT_GREATER_THAN(0, tick_ns);
+    TEST_ASSERT_EQUAL_UINT64(0, tick_ns);
 
     simulith_client_shutdown();
     simulith_server_request_stop();
@@ -306,7 +324,7 @@ static void test_server_handshake_duplicate_client_id(void)
     simulith_server_shutdown();
 }
 
-// After a proper READY/ACK handshake, sending the client id as an ACK should elicit an "ACK" reply
+// A sequence-numbered completion for the registered participant is accepted.
 static void test_server_ack_handling(void)
 {
     pthread_t server;
@@ -324,7 +342,7 @@ static void test_server_ack_handling(void)
 
     test_sleep_us(20000);
 
-    int rc2 = zmq_req_send_and_recv(LOCAL_REP_ADDR, "ACKTEST", reply, sizeof(reply));
+    int rc2 = zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 ACKTEST", reply, sizeof(reply));
     TEST_ASSERT_EQUAL_INT(0, rc2);
     TEST_ASSERT_EQUAL_STRING("ACK", reply);
 
@@ -378,7 +396,7 @@ static void test_server_standalone_invalid_arg(void)
     TEST_ASSERT_NOT_EQUAL(0, exit_code);
 }
 
-// Sending an ACK with an unknown client id should log an "ACK received from unknown client" message
+// Unknown participants are rejected and attributed in the watchdog/protocol log.
 static void test_server_handle_unknown_client_ack(void)
 {
     pthread_t server;
@@ -397,9 +415,9 @@ static void test_server_handle_unknown_client_ack(void)
 
     test_sleep_us(20000);
 
-    rc = zmq_req_send_and_recv(LOCAL_REP_ADDR, "UNKNOWN123", reply, sizeof(reply));
+    rc = zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 UNKNOWN123", reply, sizeof(reply));
     TEST_ASSERT_EQUAL_INT(0, rc);
-    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    TEST_ASSERT_EQUAL_STRING("ERR_UNKNOWN", reply);
 
     // Give logger a moment to flush to file
     test_sleep_us(10000);
@@ -409,7 +427,7 @@ static void test_server_handle_unknown_client_ack(void)
     char buf[256];
     int found = 0;
     while (fgets(buf, sizeof(buf), f)) {
-        if (strstr(buf, "ACK received from unknown client: UNKNOWN123")) { found = 1; break; }
+        if (strstr(buf, "Completion received from unknown participant: UNKNOWN123")) { found = 1; break; }
     }
     fclose(f);
     TEST_ASSERT_TRUE(found);
@@ -418,6 +436,80 @@ static void test_server_handle_unknown_client_ack(void)
     pthread_join(server, NULL);
     simulith_server_shutdown();
     unsetenv("SIMULITH_LOG_MODE");
+}
+
+static void test_server_rejects_bad_completion_sequences(void)
+{
+    pthread_t server;
+    int expected = 2;
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+
+    char reply[128] = {0};
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY FIRST", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY SECOND", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    test_sleep_us(20000);
+
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 1 3 FIRST", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_FUTURE", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 2 FIRST", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_PHASE", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 FIRST", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 FIRST", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_DUPLICATE", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 SECOND", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    test_sleep_us(20000);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "COMPLETE 0 3 FIRST", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_STALE", reply);
+
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
+}
+
+static void test_server_enforces_prepare_execute_commit_order(void)
+{
+    pthread_t server;
+    int expected = 2;
+    pthread_create(&server, NULL, server_thread_with_clients, &expected);
+    test_sleep_us(20000);
+
+    char reply[128] = {0};
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "READY DIRECTOR 5", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK 0", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "READY FSW 2", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK 1", reply);
+    test_sleep_us(20000);
+
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "COMPLETE 0 2 FSW", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_PHASE", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "COMPLETE 0 3 DIRECTOR", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_PHASE", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "COMPLETE 0 1 DIRECTOR", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "COMPLETE 0 3 DIRECTOR", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ERR_PHASE", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "COMPLETE 0 2 FSW", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+    TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
+        LOCAL_REP_ADDR, "COMPLETE 0 3 DIRECTOR", reply, sizeof(reply)));
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+
+    simulith_server_request_stop();
+    pthread_join(server, NULL);
+    simulith_server_shutdown();
 }
 
 int main(void)
@@ -440,6 +532,8 @@ int main(void)
     RUN_TEST(test_server_cli_commands);
     RUN_TEST(test_server_standalone_invalid_arg);
     RUN_TEST(test_server_handle_unknown_client_ack);
+    RUN_TEST(test_server_rejects_bad_completion_sequences);
+    RUN_TEST(test_server_enforces_prepare_execute_commit_order);
 
     return UNITY_END();
 }

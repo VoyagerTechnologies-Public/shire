@@ -101,6 +101,35 @@ int simulith_transport_receive(transport_port_t *port, uint8_t *data, size_t len
     return 0;
 }
 
+int simulith_transport_receive_request(transport_port_t *port, uint8_t *data, size_t length,
+                                       uint64_t *transaction_id)
+{
+    (void)port;
+    (void)data;
+    (void)length;
+    if (transaction_id)
+        *transaction_id = 0;
+    return 0;
+}
+
+int simulith_transport_wait_for_request(transport_port_t *const ports[],
+                                        size_t port_count, int interrupt_fd)
+{
+    (void)ports;
+    (void)port_count;
+    (void)interrupt_fd;
+    return SIMULITH_TRANSPORT_INTERRUPTED;
+}
+
+int simulith_transport_complete_request(transport_port_t *port, uint64_t transaction_id,
+                                        int status)
+{
+    (void)port;
+    (void)transaction_id;
+    (void)status;
+    return SIMULITH_TRANSPORT_SUCCESS;
+}
+
 int simulith_transport_available(transport_port_t *port)
 {
     (void)port;
@@ -189,11 +218,11 @@ static void test_component_init_failure_paths(void)
     component_state_t *state = NULL;
 
     failure = FAIL_MALLOC;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, interface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, interface->create(&state));
 
     reset_faults();
     failure = FAIL_MUTEX;
-    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, interface->init(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, interface->create(&state));
     TEST_ASSERT_NULL(state);
 }
 

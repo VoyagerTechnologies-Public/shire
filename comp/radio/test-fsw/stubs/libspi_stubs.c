@@ -60,6 +60,13 @@ int32_t spi_read(spi_info_t* device, uint8_t data[], const uint32_t numBytes)
     return UT_GenStub_GetReturnValue(spi_read, int32_t);
 }
 
+int32_t spi_read_timeout(spi_info_t* device, uint8_t data[],
+                         const uint32_t numBytes, const uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    return spi_read(device, data, numBytes);
+}
+
 int32_t spi_transaction(spi_info_t* device, uint8_t *txBuff, uint8_t * rxBuffer, uint32_t length, uint16_t delay, uint8_t bits, uint8_t deselect)
 {
     UT_GenStub_SetupReturnBuffer(spi_transaction, int32_t);
