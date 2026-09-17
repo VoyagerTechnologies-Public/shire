@@ -26,6 +26,12 @@
 #define LOCAL_PUB_ADDR "ipc:///tmp/simulith_pub.sock"
 #define LOCAL_REP_ADDR "ipc:///tmp/simulith_rep.sock"
 
+/* Ground-command interface: a director-backdoor-style UDP listener for
+ * pause/play/speed control, and a UDP status-telemetry sender reporting the
+ * result back to YAMCS. */
+#define SERVER_BACKDOOR_PORT 50061
+#define SERVER_STATUS_PORT   50043
+
 #define INTERVAL_NS 10000000UL // 10ms tick interval
 
 #define SIMULITH_PROTOCOL_MAGIC   0x53484D54U /* "SHMT" */
@@ -102,6 +108,9 @@ extern "C"
 #ifdef SIMULITH_TESTING
     /** Exercise the server's interactive command parser without running its loop. */
     int simulith_server_process_cli_command_for_test(const char *command, int *paused, double *speed);
+    /** Exercise the server's ground-command backdoor parser without a real socket. */
+    void simulith_server_process_backdoor_command_for_test(const uint8_t *frame, size_t frame_len,
+                                                           int *paused, double *speed);
     /** Force a broadcast timestamp to exercise periodic reporting deterministically. */
     void simulith_server_broadcast_for_test(uint64_t time_ns);
 #endif

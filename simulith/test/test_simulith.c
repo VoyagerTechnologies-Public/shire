@@ -232,6 +232,94 @@ static void test_server_cli_command_parser(void)
     TEST_ASSERT_EQUAL_INT(1, simulith_server_process_cli_command_for_test("quit", &paused, &speed));
 }
 
+/* Builds a backdoor frame using the same MAGIC/target/cmd_id/payload layout
+ * process_backdoor_command() parses (mirrors simulith_director.c's backdoor
+ * protocol). Returns the frame length written to buf. */
+static size_t build_backdoor_frame(uint8_t *buf, uint16_t cmd_id,
+                                    const uint8_t *payload, uint16_t payload_len,
+                                    const char *target)
+{
+    size_t off = 0;
+    memcpy(&buf[off], "BACKDOOR", 8);
+    off += 8;
+    size_t target_len = strlen(target);
+    buf[off++] = (uint8_t)target_len;
+    memcpy(&buf[off], target, target_len);
+    off += target_len;
+    buf[off++] = (uint8_t)(cmd_id >> 8);
+    buf[off++] = (uint8_t)(cmd_id & 0xFFu);
+    buf[off++] = (uint8_t)(payload_len >> 8);
+    buf[off++] = (uint8_t)(payload_len & 0xFFu);
+    if (payload_len > 0)
+    {
+        memcpy(&buf[off], payload, payload_len);
+        off += payload_len;
+    }
+    return off;
+}
+
+static void encode_be_double(uint8_t *out, double value)
+{
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    for (int i = 0; i < 8; ++i)
+        out[i] = (uint8_t)(bits >> (8 * (7 - i)));
+}
+
+static void test_server_backdoor_command_parser(void)
+{
+    int paused = 0;
+    double speed = 1.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+    size_t len;
+
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(1, paused);
+
+    len = build_backdoor_frame(frame, 0x0002, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    encode_be_double(payload, 4.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    /* An all-zero payload is the "max" sentinel, same as the CLI's "speed max". */
+    memset(payload, 0, sizeof(payload));
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 0.0);
+
+    /* Out-of-range speed is rejected by the reused CLI validation; speed unchanged. */
+    speed = 4.0;
+    encode_be_double(payload, 2048.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    /* Malformed or unrecognized frames are silently ignored. */
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    frame[0] = 'X';
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "someone_else");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len - 1, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    len = build_backdoor_frame(frame, 0x00FF, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
 // Test invalid client initialization
 static void test_client_init_invalid_address(void)
 {
@@ -734,6 +822,7 @@ int main(void)
     RUN_TEST(test_server_init_invalid_params);
     RUN_TEST(test_server_periodic_broadcast_reporting);
     RUN_TEST(test_server_cli_command_parser);
+    RUN_TEST(test_server_backdoor_command_parser);
     RUN_TEST(test_client_init_invalid_address);
     RUN_TEST(test_client_init_invalid_params);
     RUN_TEST(test_client_handshake_no_server);
