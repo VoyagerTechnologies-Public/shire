@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include <zmq.h>
 
 #include "test_sleep.h"
@@ -315,6 +316,111 @@ static void test_server_backdoor_command_parser(void)
     TEST_ASSERT_EQUAL_INT(0, paused);
 
     len = build_backdoor_frame(frame, 0x00FF, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_set_speed_rejects_wrong_payload_len(void)
+{
+    /* process_backdoor_command() early-returns for any SET_SPEED payload
+     * that isn't exactly 8 bytes, before it ever touches *speed. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[16] = {0};
+    size_t len;
+
+    len = build_backdoor_frame(frame, 0x0003, payload, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    len = build_backdoor_frame(frame, 0x0003, payload, 4, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    len = build_backdoor_frame(frame, 0x0003, payload, 16, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_set_speed_rejects_truncated_payload(void)
+{
+    /* payload_len claims a full 8-byte payload, but the frame handed to the
+     * parser is shorter than off + payload_len requires. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+
+    encode_be_double(payload, 8.0);
+    size_t len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len - 3, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_set_speed_accepts_boundary_values(void)
+{
+    /* The reused CLI validation accepts a closed [0.015625, 1024] range;
+     * confirm both boundaries survive the backdoor's big-endian decode. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+    size_t len;
+
+    encode_be_double(payload, 1024.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 1024.0);
+
+    encode_be_double(payload, 0.015625);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 0.015625);
+}
+
+static void test_server_backdoor_set_speed_rejects_nonfinite_and_negative(void)
+{
+    /* Out-of-range values are rejected via process_cli_command's isfinite()
+     * and range checks; speed must be left unchanged in every case. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+    size_t len;
+
+    encode_be_double(payload, -1.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    encode_be_double(payload, NAN);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    encode_be_double(payload, INFINITY);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_pause_play_ignore_payload(void)
+{
+    /* PAUSE/PLAY take no arguments; a nonzero payload_len must not confuse
+     * the parser (only SET_SPEED inspects payload contents). */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[4] = {0xDE, 0xAD, 0xBE, 0xEF};
+    size_t len;
+
+    len = build_backdoor_frame(frame, 0x0001, payload, sizeof(payload), "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(1, paused);
+
+    len = build_backdoor_frame(frame, 0x0002, payload, sizeof(payload), "shire_server");
     simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
     TEST_ASSERT_EQUAL_INT(0, paused);
     TEST_ASSERT_TRUE(speed == 4.0);
@@ -823,6 +929,11 @@ int main(void)
     RUN_TEST(test_server_periodic_broadcast_reporting);
     RUN_TEST(test_server_cli_command_parser);
     RUN_TEST(test_server_backdoor_command_parser);
+    RUN_TEST(test_server_backdoor_set_speed_rejects_wrong_payload_len);
+    RUN_TEST(test_server_backdoor_set_speed_rejects_truncated_payload);
+    RUN_TEST(test_server_backdoor_set_speed_accepts_boundary_values);
+    RUN_TEST(test_server_backdoor_set_speed_rejects_nonfinite_and_negative);
+    RUN_TEST(test_server_backdoor_pause_play_ignore_payload);
     RUN_TEST(test_client_init_invalid_address);
     RUN_TEST(test_client_init_invalid_params);
     RUN_TEST(test_client_handshake_no_server);

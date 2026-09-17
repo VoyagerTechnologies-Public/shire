@@ -238,6 +238,8 @@ The included YAMCS instance defines these lab links:
 | Radio command | YAMCS to CryptoLib on UDP 12345, then to the Radio simulator library inside the Director on UDP 12343 |
 | Radio telemetry | Radio simulator library inside the Director to CryptoLib on UDP 12344, then to YAMCS on UDP 12346 |
 | Simulator backdoor | YAMCS to Director on UDP 50060 |
+| Server pause/play/speed backdoor | YAMCS to Server on UDP 50061 |
+| Server status telemetry | Server to YAMCS on UDP 50043 |
 | 42 truth | Director to YAMCS on UDP 50042 |
 
 The debug path is useful for lab checkout.

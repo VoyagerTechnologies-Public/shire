@@ -53,9 +53,21 @@ It resets counters, sends NOOP commands, and checks command counters for selecte
 The current sequence covers ES, EVS, SB, TBL, TIME, DS, FM, LC, SC, SCH, Radio, EPS, Demo, and ADCS.
 It also enables ADCS, presents the reported and 42 Sun vectors in one operator check, commands `SUNSAFE`, and verifies the resulting ADCS vector limits.
 
+The stack also exercises three capabilities that sit outside the per-application NOOP/reset pattern:
+
+* **Simulith Server pause/play/speed.**
+  It pauses the simulation with `/SHIRE_SERVER/BACKDOOR_SERVER_PAUSE`, confirms `/SHIRE_SERVER/PAUSED`, resumes with `/SHIRE_SERVER/BACKDOOR_SERVER_PLAY`, confirms telemetry is `RUNNING` again, then sets `/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED` to `2.0`, and confirms `/SHIRE_SERVER/SPEED` settles within a small tolerance of that value.
+  An exact float `eq` check is avoidable rounding noise, so the stack uses a range instead, as described in [Fault injection](simulations.md#fault-injection).
+  These commands route over the `tc_server_backdoor` stream to the Simulith Server itself, not to a component, so they keep working even before any spacecraft application has been enabled.
+* **Demo backdoor configuration.**
+  It enables the Demo component, confirms `/DEMO/DEVICE_CONFIG` is still at its power-on default of `0`, then uses `/DEMO/BACKDOOR_DEMO_SET_CONFIG` to set `CONFIG_VALUE` directly, and confirms the new value is reflected in telemetry.
+  Checking the default first is what proves the backdoor changed the value, rather than the value having already been at the target by coincidence.
+* **CFDP file download.**
+  It re-uploads `/d/checkout_adcs.ycs` with `/CCSDS/CFDP_UPLOAD_CHECKOUT` (the same file the stack uploads earlier, since that copy was deleted on its first downlink) and then downlinks it with `/CF/CF_COMMANDS/CF_TX_FILE`, confirming both the CF command counters and the resulting `CF_EOTPACKET` end-of-transaction telemetry.
+
 The checkout stack changes spacecraft state.
-It resets command counters, enables ADCS, and leaves ADCS in `SUNSAFE` when it completes.
-It does not check every loaded application, exercise every component behavior, transfer a file through CFDP, or implement the full [Commissioning](../../scenarios/commissioning.md) walkthrough.
+It resets command counters, enables ADCS, leaves ADCS in `SUNSAFE`, enables Demo, and leaves the Simulith Server running at 2x speed when it completes.
+It does not check every loaded application, exercise every component behavior, or implement the full [Commissioning](../../scenarios/commissioning.md) walkthrough.
 
 Open **Procedures / Stacks / CheckoutTest.ycs** in YAMCS and review the steps before running it.
 Use a newly started DRM so earlier commands do not affect the stack's absolute counter checks.

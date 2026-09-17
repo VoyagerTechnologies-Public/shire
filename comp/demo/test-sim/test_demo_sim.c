@@ -342,6 +342,46 @@ static void test_backdoor_unknown_cmd_is_noop(void)
     g_iface->destroy(state);
 }
 
+static void test_backdoor_set_config_short_payload_leaves_prior_value(void)
+{
+    /* test_backdoor_short_payloads_use_documented_defaults only proves the
+     * short-payload guard leaves DeviceConfig at its already-zero initial
+     * value, which would also pass if the guard were broken and it just
+     * fell through to a zeroed default. Seed a nonzero value first so a
+     * regression that stops honoring the guard is actually caught. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t seed[2] = {0x12, 0x34};
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, seed, sizeof(seed));
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    uint8_t one_byte = 0xAB;
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, &one_byte, 1);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, NULL, 2);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    g_iface->destroy(state);
+}
+
+static void test_backdoor_set_config_ignores_extra_payload_bytes(void)
+{
+    /* A payload longer than the documented 2 bytes is not an error: only
+     * payload[0..1] are read and any trailing bytes are ignored. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t payload[4] = {0x56, 0x78, 0xFF, 0xFF};
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, payload, sizeof(payload));
+    TEST_ASSERT_EQUAL_HEX16(0x5678, ds->hk.DeviceConfig);
+
+    g_iface->destroy(state);
+}
+
 static void test_backdoor_short_payloads_use_documented_defaults(void)
 {
     component_state_t *state = NULL;
@@ -1010,6 +1050,8 @@ int main(void)
     RUN_TEST(test_backdoor_rand_data_toggles_flag);
     RUN_TEST(test_backdoor_unknown_cmd_is_noop);
     RUN_TEST(test_backdoor_short_payloads_use_documented_defaults);
+    RUN_TEST(test_backdoor_set_config_short_payload_leaves_prior_value);
+    RUN_TEST(test_backdoor_set_config_ignores_extra_payload_bytes);
 
     /* on_tick paths */
     RUN_TEST(test_tick_with_rand_data_writes_8bit_random_channels);

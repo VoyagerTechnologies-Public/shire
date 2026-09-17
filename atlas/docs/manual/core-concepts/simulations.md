@@ -31,6 +31,26 @@ rate.
 To request 25x from startup instead of attaching to the console, run
 `SIMULITH_SPEED=25 make start`.
 
+### Ground-commanded pause/play/speed
+
+The Server also accepts the same pause, resume, and speed-change requests as
+ground commands, over a dedicated backdoor UDP link (target name
+`shire_server`, port 50061) separate from the Director's component backdoor
+described in [Fault injection](#fault-injection).
+YAMCS drives it with three commands, defined in `shire_server.xtce` and routed
+over the `tc_server_backdoor` stream:
+
+* `/SHIRE_SERVER/BACKDOOR_SERVER_PAUSE` and `/SHIRE_SERVER/BACKDOOR_SERVER_PLAY` pause and resume the simulation clock.
+  Both are idempotent.
+* `/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED` sets the attempted rate from its `SPEED` argument, a 64-bit float using the same big-endian convention as the Demo component's backdoor arguments.
+  `0` requests the unbounded "max" rate, matching the CLI's `speed max`.
+  Values are validated the same way as the CLI's `speed <factor>` command: they must be finite and fall within 1/64x through 1024x, or the request is ignored and the current speed is left unchanged.
+
+The Server reports its state on a separate telemetry link (port 50043) as
+`/SHIRE_SERVER/PAUSED`, `/SHIRE_SERVER/SPEED`, and `/SHIRE_SERVER/SIM_TIME_NS`.
+`CheckoutTest.ycs` exercises all three commands.
+See [Checkout stack](ground-software.md#checkout-stack).
+
 ## Simulith Director
 
 The Director scans its `components` directory for shared objects.
@@ -302,7 +322,8 @@ interactive controls.
 
 The Director listens for backdoor datagrams on UDP 50060 and dispatches a valid packet to the named component's `backdoor` callback.
 Backdoor behavior is specific to each component.
-Demo currently supports changing its device configuration and toggling randomized housekeeping or data.
+Demo currently supports three backdoor commands, all routed over the `tc_backdoor` stream: `/DEMO/BACKDOOR_DEMO_SET_CONFIG` writes `DEVICE_CONFIG` directly, bypassing normal command processing (see `DemoFDIR.ycs` and the [FDIR scenario](../../scenarios/fdir.md) for the fault-injection pattern this enables), and `/DEMO/BACKDOOR_DEMO_RAND_HK` / `/DEMO/BACKDOOR_DEMO_RAND_DATA` toggle randomized housekeeping or channel data.
+This is a component-level backdoor into the Director, a different link from the Simulith Server's own pause/play/speed backdoor described above.
 A backdoor is a test interface, not a flight interface, and should only be used in isolated simulation runs.
 
 ## Tests
