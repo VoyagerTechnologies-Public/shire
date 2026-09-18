@@ -703,6 +703,21 @@ void simulith_server_process_backdoor_command_for_test(const uint8_t *frame, siz
 {
     process_backdoor_command(frame, frame_len, paused, speed);
 }
+
+int simulith_server_ensure_backdoor_socket_for_test(void)
+{
+    return ensure_backdoor_socket();
+}
+
+void simulith_server_ensure_status_socket_for_test(void)
+{
+    ensure_status_socket();
+}
+
+void simulith_server_send_status_update_for_test(int paused, double speed)
+{
+    send_status_update(paused, speed);
+}
 #endif
 
 /* Poll stdin and the ground-command backdoor socket for pending input and
@@ -745,6 +760,13 @@ static int poll_and_dispatch_commands(int *paused, double *speed)
     }
     return should_stop;
 }
+
+#ifdef SIMULITH_TESTING
+int simulith_server_poll_and_dispatch_commands_for_test(int *paused, double *speed)
+{
+    return poll_and_dispatch_commands(paused, speed);
+}
+#endif
 
 void simulith_server_run(void)
 {

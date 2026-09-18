@@ -113,6 +113,14 @@ extern "C"
                                                            int *paused, double *speed);
     /** Force a broadcast timestamp to exercise periodic reporting deterministically. */
     void simulith_server_broadcast_for_test(uint64_t time_ns);
+    /** Exercise the server's ground-command backdoor socket setup without running its loop. */
+    int simulith_server_ensure_backdoor_socket_for_test(void);
+    /** Exercise the server's status-telemetry socket setup without running its loop. */
+    void simulith_server_ensure_status_socket_for_test(void);
+    /** Exercise the server's status-telemetry packet send without running its loop. */
+    void simulith_server_send_status_update_for_test(int paused, double speed);
+    /** Exercise the combined stdin/backdoor poll-and-dispatch step without running its loop. */
+    int simulith_server_poll_and_dispatch_commands_for_test(int *paused, double *speed);
 #endif
 
     /**

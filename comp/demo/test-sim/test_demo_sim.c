@@ -206,6 +206,8 @@ static void test_lifecycle_callbacks_handle_null_state(void)
                           g_iface->on_tick(NULL, 0ULL, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->service(NULL, 0, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->wait_for_service(NULL, -1));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
                           g_iface->actuate(NULL, 0ULL, NULL));
     g_iface->destroy(NULL);
     g_iface->backdoor(NULL, DEMO_BD_SET_CONFIG, NULL, 0);
@@ -481,6 +483,34 @@ static void test_tick_with_42_svb_scales_channels(void)
     TEST_ASSERT_EQUAL_UINT16(37768, ds->data.Chan1);
     TEST_ASSERT_EQUAL_UINT16(30268, ds->data.Chan2);
     TEST_ASSERT_EQUAL_UINT16(32768, ds->data.Chan3);
+
+    g_iface->destroy(state);
+}
+
+static void test_tick_with_invalid_42_context_uses_counter_fallback(void)
+{
+    /* Covers the (rand_data_enabled == 0) && context_42 && context_42->valid
+     * condition in on_tick when context_42 is non-NULL but marked invalid:
+     * the SVB branch must not be taken, and with rand_data_enabled at its
+     * default of 0 the channels fall back to the DeviceCounter-derived
+     * values rather than the SVB or random ones. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+    ds->hk.DeviceCounter = 7;
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid              = 0;
+    ctx.sun_vector_body[0] = 0.5;
+    ctx.sun_vector_body[1] = 0.5;
+    ctx.sun_vector_body[2] = 0.5;
+
+    g_iface->on_tick(state, 200000000ULL, &ctx);
+
+    TEST_ASSERT_EQUAL_UINT16(7, ds->data.Chan1);
+    TEST_ASSERT_EQUAL_UINT16(14, ds->data.Chan2);
+    TEST_ASSERT_EQUAL_UINT16(21, ds->data.Chan3);
 
     g_iface->destroy(state);
 }
@@ -1057,6 +1087,7 @@ int main(void)
     RUN_TEST(test_tick_with_rand_data_writes_8bit_random_channels);
     RUN_TEST(test_tick_with_rand_hk_writes_high_byte_only_hk);
     RUN_TEST(test_tick_with_42_svb_scales_channels);
+    RUN_TEST(test_tick_with_invalid_42_context_uses_counter_fallback);
     RUN_TEST(test_seeded_random_sequence_restarts_deterministically);
     RUN_TEST(test_tick_uses_an_absolute_sampling_deadline);
 

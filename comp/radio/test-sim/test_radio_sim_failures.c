@@ -3,6 +3,8 @@
 #include "simulith_transport.h"
 #include "unity.h"
 
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -19,6 +21,14 @@ typedef enum
     FAIL_THREAD
 } failure_t;
 
+typedef enum
+{
+    DNS_LOOKUP_SUCCESS,
+    DNS_LOOKUP_NOT_FOUND,
+    DNS_LOOKUP_WRONG_ADDR_FAMILY,
+    DNS_LOOKUP_NO_ADDR_ENTRY
+} dns_lookup_mode_t;
+
 static failure_t failure;
 static int transport_calls;
 static int transport_failure_call;
@@ -26,12 +36,17 @@ static int socket_calls;
 static int socket_failure_call;
 static int request_calls;
 static int request_target_call;
+static int request_error_call;
 static uint8_t request_data[32];
 static size_t request_length;
 static int send_failure;
 static int completion_calls;
 static int completion_failure_call;
 static int wait_result;
+static dns_lookup_mode_t dns_lookup_mode;
+static struct hostent stub_hostent;
+static char *stub_addr_list[2];
+static struct in_addr stub_addr;
 
 const component_interface_t *get_component_interface(void);
 
@@ -78,6 +93,23 @@ int __wrap_bind(int socket_fd, const struct sockaddr *address, socklen_t length)
     return failure == FAIL_BIND ? -1 : 0;
 }
 
+struct hostent *__wrap_gethostbyname(const char *name)
+{
+    (void)name;
+    if (dns_lookup_mode == DNS_LOOKUP_NOT_FOUND)
+        return NULL;
+
+    stub_addr.s_addr = htonl(0x7F000001); /* 127.0.0.1 */
+    stub_addr_list[0] = (dns_lookup_mode == DNS_LOOKUP_NO_ADDR_ENTRY)
+                             ? NULL : (char *)&stub_addr;
+    stub_addr_list[1] = NULL;
+    stub_hostent.h_addrtype = (dns_lookup_mode == DNS_LOOKUP_WRONG_ADDR_FAMILY)
+                                   ? AF_INET6 : AF_INET;
+    stub_hostent.h_length = sizeof(struct in_addr);
+    stub_hostent.h_addr_list = stub_addr_list;
+    return &stub_hostent;
+}
+
 int simulith_transport_init(transport_port_t *port)
 {
     transport_calls++;
@@ -116,6 +148,8 @@ int simulith_transport_receive_request(transport_port_t *port, uint8_t *data, si
     request_calls++;
     if (transaction_id)
         *transaction_id = (uint64_t)request_calls;
+    if (request_calls == request_error_call)
+        return -1;
     if (request_calls == request_target_call)
     {
         TEST_ASSERT_LESS_OR_EQUAL_size_t(length, request_length);
@@ -171,11 +205,13 @@ void setUp(void)
     socket_failure_call = 0;
     request_calls = 0;
     request_target_call = 0;
+    request_error_call = 0;
     request_length = 0;
     send_failure = 0;
     completion_calls = 0;
     completion_failure_call = 0;
     wait_result = SIMULITH_TRANSPORT_INTERRUPTED;
+    dns_lookup_mode = DNS_LOOKUP_SUCCESS;
     setenv("RADIO_GROUND_HOST", "127.0.0.1", 1);
 }
 
@@ -193,11 +229,13 @@ static void reset_faults(void)
     socket_failure_call = 0;
     request_calls = 0;
     request_target_call = 0;
+    request_error_call = 0;
     request_length = 0;
     send_failure = 0;
     completion_calls = 0;
     completion_failure_call = 0;
     wait_result = SIMULITH_TRANSPORT_INTERRUPTED;
+    dns_lookup_mode = DNS_LOOKUP_SUCCESS;
 }
 
 static void initialize_service_state(radio_sim_state_t *state)
@@ -351,6 +389,121 @@ static void test_component_completion_failures_propagate(void)
     }
 }
 
+static void test_component_service_receive_request_errors(void)
+{
+    /* simulith_transport_receive_request() returning a negative value (a
+     * transport-layer error) at each of the three polled ports -- power
+     * GPIO, interrupt GPIO, and SPI -- must abort the service call. */
+    const component_interface_t *interface = get_component_interface();
+    radio_sim_state_t state;
+
+    for (int target = 1; target <= 3; ++target)
+    {
+        reset_faults();
+        initialize_service_state(&state);
+        request_error_call = target;
+        TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                              interface->service((component_state_t *)&state,
+                                                 0, NULL));
+        pthread_mutex_destroy(&state.buffer_mutex);
+    }
+}
+
+static void test_component_gpio_read_response_send_failure_is_tolerated(void)
+{
+    /* A failed transport_send() for a GPIO read reply leaves request_status
+     * at its ERROR default, but (unlike SPI) that isn't fatal to service(). */
+    const component_interface_t *interface = get_component_interface();
+    radio_sim_state_t state;
+
+    for (int target = 1; target <= 2; ++target)
+    {
+        reset_faults();
+        initialize_service_state(&state);
+        request_target_call = target;
+        request_length = 2U;
+        request_data[0] = 0; /* read */
+        request_data[1] = (uint8_t)(target == 1 ? state.power_gpio.pin
+                                                 : state.interrupt_gpio.pin);
+        send_failure = 1;
+        TEST_ASSERT_EQUAL_INT(COMPONENT_WORK,
+                              interface->service((component_state_t *)&state,
+                                                 0, NULL));
+        pthread_mutex_destroy(&state.buffer_mutex);
+    }
+}
+
+static void test_component_receive_cmd_send_failure_returns_error(void)
+{
+    const component_interface_t *interface = get_component_interface();
+    radio_sim_state_t state;
+    initialize_service_state(&state);
+
+    uint8_t payload[2] = {0x00, 0x00}; /* requested = 0 */
+    script_spi_command(RADIO_DEVICE_RECEIVE_CMD, 2, payload);
+    send_failure = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          interface->service((component_state_t *)&state,
+                                             0, NULL));
+
+    pthread_mutex_destroy(&state.buffer_mutex);
+}
+
+static void test_radio_init_resolves_ground_host_via_dns_when_env_unset(void)
+{
+    /* RADIO_GROUND_HOST unset -> ground_host_env is NULL, short-circuiting
+     * the inet_pton check and falling into gethostbyname() resolution.
+     * pthread_create is unconditionally wrapped to fail, so init still
+     * returns RADIO_SIM_ERROR, but the ground_tx_addr resolution runs (and
+     * leaves its result in state) well before that final step. */
+    radio_sim_state_t state;
+    unsetenv("RADIO_GROUND_HOST");
+    dns_lookup_mode = DNS_LOOKUP_SUCCESS;
+
+    TEST_ASSERT_EQUAL_INT(RADIO_SIM_ERROR, radio_sim_init(&state));
+    TEST_ASSERT_EQUAL_UINT32(htonl(0x7F000001),
+                             state.ground_tx_addr.sin_addr.s_addr);
+}
+
+static void test_radio_init_falls_back_to_inaddr_any_when_dns_fails(void)
+{
+    /* A non dotted-decimal env value fails inet_pton, and the wrapped
+     * gethostbyname() also reports failure -> INADDR_ANY fallback. */
+    radio_sim_state_t state;
+    setenv("RADIO_GROUND_HOST", "not-an-ip", 1);
+    dns_lookup_mode = DNS_LOOKUP_NOT_FOUND;
+
+    TEST_ASSERT_EQUAL_INT(RADIO_SIM_ERROR, radio_sim_init(&state));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)INADDR_ANY,
+                             state.ground_tx_addr.sin_addr.s_addr);
+}
+
+static void test_radio_init_falls_back_to_inaddr_any_when_dns_wrong_family(void)
+{
+    /* gethostbyname() succeeds but returns a non-AF_INET record -- covers
+     * the `h_addrtype == AF_INET` false outcome. */
+    radio_sim_state_t state;
+    unsetenv("RADIO_GROUND_HOST");
+    dns_lookup_mode = DNS_LOOKUP_WRONG_ADDR_FAMILY;
+
+    TEST_ASSERT_EQUAL_INT(RADIO_SIM_ERROR, radio_sim_init(&state));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)INADDR_ANY,
+                             state.ground_tx_addr.sin_addr.s_addr);
+}
+
+static void test_radio_init_falls_back_to_inaddr_any_when_dns_has_no_addr(void)
+{
+    /* gethostbyname() succeeds with AF_INET but an empty address list --
+     * covers the `h_addr_list[0]` false outcome. */
+    radio_sim_state_t state;
+    unsetenv("RADIO_GROUND_HOST");
+    dns_lookup_mode = DNS_LOOKUP_NO_ADDR_ENTRY;
+
+    TEST_ASSERT_EQUAL_INT(RADIO_SIM_ERROR, radio_sim_init(&state));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)INADDR_ANY,
+                             state.ground_tx_addr.sin_addr.s_addr);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -358,5 +511,12 @@ int main(void)
     RUN_TEST(test_component_init_failure_paths);
     RUN_TEST(test_component_wait_tick_and_service_failures);
     RUN_TEST(test_component_completion_failures_propagate);
+    RUN_TEST(test_component_service_receive_request_errors);
+    RUN_TEST(test_component_gpio_read_response_send_failure_is_tolerated);
+    RUN_TEST(test_component_receive_cmd_send_failure_returns_error);
+    RUN_TEST(test_radio_init_resolves_ground_host_via_dns_when_env_unset);
+    RUN_TEST(test_radio_init_falls_back_to_inaddr_any_when_dns_fails);
+    RUN_TEST(test_radio_init_falls_back_to_inaddr_any_when_dns_wrong_family);
+    RUN_TEST(test_radio_init_falls_back_to_inaddr_any_when_dns_has_no_addr);
     return UNITY_END();
 }

@@ -216,7 +216,35 @@ static void test_lifecycle_callbacks_reject_null(void)
                           g_iface->service(NULL, 0, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
                           g_iface->actuate(NULL, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->wait_for_service(NULL, -1));
     g_iface->destroy(NULL);
+}
+
+typedef int (*adcs_sim_init_fn)(adcs_sim_state_t *);
+typedef void (*adcs_sim_cleanup_fn)(adcs_sim_state_t *);
+
+static void test_adcs_sim_public_init_and_cleanup_reject_null(void)
+{
+    /* adcs_sim_init/adcs_sim_cleanup are exported public API, not only
+     * reachable through component_interface_t: fetch them directly so their
+     * own NULL guards (unreachable via adcs_sim_component_create/destroy,
+     * which never pass NULL) get exercised. */
+    dlerror();
+    adcs_sim_init_fn init_fn =
+        (adcs_sim_init_fn)dlsym(g_handle, "adcs_sim_init");
+    const char *err = dlerror();
+    TEST_ASSERT_NULL_MESSAGE(err, err ? err : "");
+    TEST_ASSERT_NOT_NULL(init_fn);
+    TEST_ASSERT_EQUAL_INT(ADCS_SIM_ERROR, init_fn(NULL));
+
+    dlerror();
+    adcs_sim_cleanup_fn cleanup_fn =
+        (adcs_sim_cleanup_fn)dlsym(g_handle, "adcs_sim_cleanup");
+    err = dlerror();
+    TEST_ASSERT_NULL_MESSAGE(err, err ? err : "");
+    TEST_ASSERT_NOT_NULL(cleanup_fn);
+    cleanup_fn(NULL); /* must not crash */
 }
 
 /* Pass a zero-initialized (non-NULL) context — avoids the NULL-deref in
@@ -324,6 +352,28 @@ static void test_tick_populates_hk_from_42_context(void)
     TEST_ASSERT_EQUAL_FLOAT(100.0f, as->hk.GpsPosition[0]);
     TEST_ASSERT_EQUAL_FLOAT(1.0f,   as->hk.Velocity[0]);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, as->hk.Quaternion[0]);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_tick_negative_dyn_time_clamps_subseconds_to_zero(void)
+{
+    /* GpsSeconds truncates dyn_time toward zero; a negative dyn_time makes
+     * that truncation wrap to a huge unsigned value, driving frac deeply
+     * negative and exercising the frac<0.0 clamp. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid    = 1;
+    ctx.dyn_time = -5.5;
+
+    g_iface->on_tick(state, 200000000ULL, &ctx);
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    TEST_ASSERT_EQUAL_UINT32(0, as->hk.GpsSubseconds);
 
     g_state_under_test = NULL;
     g_iface->destroy(state);
@@ -1263,6 +1313,307 @@ static void test_controller_default_unknown_mode(void)
     g_iface->destroy(state);
 }
 
+static void test_controller_null_context_with_active_controller_returns_success(void)
+{
+    /* controller_active=1 with a NULL context_42 must short-circuit on the
+     * !context_42 operand before ever dereferencing it. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 1, 300000000ULL);
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_phase_iface.actuate(state, 300000000ULL, NULL));
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_deadline_overflow_saturates(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    as->controller_active      = 1;
+    as->current_mode           = 0;
+    as->control_deadline_valid = 1;
+    as->next_control_update_ns = UINT64_MAX - 1U;
+
+    simulith_42_context_t ctx = {0}; ctx.valid = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_phase_iface.actuate(state, UINT64_MAX, &ctx));
+    TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, as->next_control_update_ns);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_convergence_mode1_bdot_dipole_saturates_positive(void)
+{
+    /* Unphysically large w/B force |w x B| well past ADCS_MTB_MAX_DIPOLE so
+     * the positive-saturation clamp is exercised. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 1, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid             = 1;
+    ctx.wn[0]             = 1000.0;
+    ctx.mag_field_body[2] = 1000.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_convergence_mode1_bdot_dipole_saturates_negative(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 1, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid             = 1;
+    ctx.wn[0]             = -1000.0;
+    ctx.mag_field_body[2] = 1000.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)-ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode3_nadir_negative_clamp_branches(void)
+{
+    /* nadir_body=(0,1,0) drives attitude_error[2] negative, exercising the
+     * negative-direction clamps for both u1 and control_torque. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 3, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid    = 1;
+    ctx.qn[0]    = 1.0;
+    ctx.pos_n[1] = -1.0; /* nadir_inertial = (0,1,0) */
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_wheel = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_WHEEL_TORQUE) cmd_wheel = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_WHEEL_TORQUE, cmd_wheel.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)-ADCS_WHEEL_MAX_TORQUE, (float)cmd_wheel.cmd.wheel.torque[2]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode3_point_vector_high_rate_without_saturation(void)
+{
+    /* nadir_body=(0,1,0) drives attitude_error=(0,0,-1), clamping u1[2] to
+     * -max_rate (-0.1). Setting wn[2]=0.11 makes the D-term's rate_error
+     * (0.11) nearly cancel u1 (u1+rate_error=0.01), so control_torque stays
+     * far under the wheel saturation threshold even though rate_magnitude
+     * (0.11) exceeds the 0.1 rad/s MTB-assist threshold: this isolates the
+     * "|| rate_magnitude > 0.1" side of the OR from wheel saturation. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 3, 300000000ULL);
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid    = 1;
+    ctx.qn[0]    = 1.0;
+    ctx.pos_n[1] = -1.0; /* nadir_inertial = (0,1,0) */
+    ctx.wn[2]    = 0.11; /* > 0.1, but nearly cancels the clamped u1[2] */
+    ctx.mag_field_body[2] = 1.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode3_point_vector_mtb_saturates_positive(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 3, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid             = 1;
+    ctx.qn[0]             = 1.0;
+    ctx.pos_n[2]          = -1.0;
+    ctx.wn[0]             = 1000.0;
+    ctx.mag_field_body[2] = 1000.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode3_point_vector_mtb_saturates_negative(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 3, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid             = 1;
+    ctx.qn[0]             = 1.0;
+    ctx.pos_n[2]          = -1.0;
+    ctx.wn[0]             = -1000.0;
+    ctx.mag_field_body[2] = 1000.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)-ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode2_high_rate_without_wheel_saturation(void)
+{
+    /* sun_vector_body=(0,1,0) drives attitude_error=(0,0,-1), clamping
+     * u1[2] to -max_rate (-0.1). wn[2]=0.11 nearly cancels it in the D-term
+     * (u1+rate_error=0.01), keeping control_torque far under the wheel
+     * saturation threshold even though rate_magnitude (0.11) exceeds the
+     * 0.1 rad/s MTB-assist threshold: this isolates the
+     * "|| rate_magnitude > 0.1" side of the OR, and leaves the
+     * "if (wheels_saturated) mtb_gain *= 1.5" step untaken. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 2, 300000000ULL);
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid              = 1;
+    ctx.sun_vector_body[1] = 1.0;
+    ctx.wn[2]              = 0.11; /* > 0.1, but nearly cancels the clamped u1[2] */
+    ctx.mag_field_body[2]  = 1.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode2_mtb_saturates_positive(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 2, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid              = 1;
+    ctx.sun_vector_body[0] = 0.707;
+    ctx.sun_vector_body[1] = 0.707;
+    ctx.wn[0]              = 1000.0;
+    ctx.mag_field_body[2]  = 1000.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode2_mtb_saturates_negative(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 2, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid              = 1;
+    ctx.sun_vector_body[0] = 0.707;
+    ctx.sun_vector_body[1] = 0.707;
+    ctx.wn[0]              = -1000.0;
+    ctx.mag_field_body[2]  = 1000.0;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)-ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
 /* -------------------------------------------------------------------------
  * Init failure path & REGISTER_COMPONENT alias
  * -------------------------------------------------------------------------*/
@@ -1602,6 +1953,7 @@ int main(void)
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_init_returns_success_and_state);
     RUN_TEST(test_lifecycle_callbacks_reject_null);
+    RUN_TEST(test_adcs_sim_public_init_and_cleanup_reject_null);
     RUN_TEST(test_wait_interrupt_and_deadline_saturation);
     RUN_TEST(test_tick_does_not_crash_with_zero_42_context);
     RUN_TEST(test_cleanup_releases_ipc_socket);
@@ -1610,6 +1962,7 @@ int main(void)
     RUN_TEST(test_tick_with_42_context_scales_channels);
     RUN_TEST(test_tick_without_valid_42_context_uses_counter_channels);
     RUN_TEST(test_tick_populates_hk_from_42_context);
+    RUN_TEST(test_tick_negative_dyn_time_clamps_subseconds_to_zero);
 
     /* Wire protocol */
     RUN_TEST(test_wire_protocol_noop_echoes_command);
@@ -1650,6 +2003,17 @@ int main(void)
     RUN_TEST(test_controller_mode4_target_track);
     RUN_TEST(test_controller_mode5_inertial_pointing);
     RUN_TEST(test_controller_default_unknown_mode);
+    RUN_TEST(test_controller_null_context_with_active_controller_returns_success);
+    RUN_TEST(test_controller_deadline_overflow_saturates);
+    RUN_TEST(test_convergence_mode1_bdot_dipole_saturates_positive);
+    RUN_TEST(test_convergence_mode1_bdot_dipole_saturates_negative);
+    RUN_TEST(test_controller_mode3_nadir_negative_clamp_branches);
+    RUN_TEST(test_controller_mode3_point_vector_high_rate_without_saturation);
+    RUN_TEST(test_controller_mode3_point_vector_mtb_saturates_positive);
+    RUN_TEST(test_controller_mode3_point_vector_mtb_saturates_negative);
+    RUN_TEST(test_controller_mode2_high_rate_without_wheel_saturation);
+    RUN_TEST(test_controller_mode2_mtb_saturates_positive);
+    RUN_TEST(test_controller_mode2_mtb_saturates_negative);
 
     /* Init failure & alias */
     RUN_TEST(test_init_fails_when_address_path_is_a_directory);
