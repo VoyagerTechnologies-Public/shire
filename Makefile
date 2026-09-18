@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold perf perf-compare perf-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold perf perf-compare perf-smoke scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -152,6 +152,8 @@ help:
 	@echo "  perf-smoke    - Build and run one short synchronized diagnostic trial"
 	@echo "  perf          - Run 1x/25x fidelity and three unbounded candidate trials"
 	@echo "  perf-compare  - Run perf and compare with BASELINE=<report.json>"
+	@echo "  scenario      - Run SCENARIO=<name> headlessly and confirm a clean pass (no GUI)"
+	@echo "  scenario-smoke - Run the active scenario + IC twice and confirm exact repeat"
 	@echo "  sim           - Build Simulith and component simulators (includes Docker images)"
 	@echo "  start         - Start lab compose"
 	@echo "  stop          - Stop lab and CLI compose, clean up Docker images"
@@ -172,6 +174,17 @@ perf: build
 perf-compare: build
 	@if [ -z "$(BASELINE)" ]; then echo "BASELINE=<report.json> is required"; exit 2; fi
 	python3 cfg/shire-perf.py --mode compare --baseline "$(BASELINE)"
+
+scenario-smoke: build
+	python3 cfg/shire-perf.py --mode determinism
+
+# No `build` prerequisite: shire-scenario.py sets build/active.yaml's
+# scenario itself, then drives `make cfg`/`make build` internally, so the
+# SCENARIO argument actually takes effect (a `build:` prerequisite here
+# would build whatever active.yaml already had *before* this ran).
+scenario:
+	@if [ -z "$(SCENARIO)" ]; then echo "SCENARIO=<name> is required"; exit 2; fi
+	python3 cfg/shire-scenario.py --scenario "$(SCENARIO)"
 
 sim: cfg
 	python3 cfg/shire-build.py sim

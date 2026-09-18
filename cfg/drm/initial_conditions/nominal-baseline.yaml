@@ -1,0 +1,44 @@
+# Initial Condition (IC) bin: reusable starting state for a scenario.
+#
+# This bin reproduces today's static launch IC exactly (the values that were
+# hardcoded in Orb_SHIRE.txt / SC_SHIRE.txt / Inp_Sim.j2 before scenarios
+# could vary them). It is the default IC used by any scenario that does not
+# set `initial_conditions:` (see cfg/drm/scenarios/*.yaml), so existing
+# scenarios (drm-nominal, drm-debug) keep rendering byte-identical output.
+#
+# See atlas/docs/manual/how-to/scenarios.md for the full IC bin schema and
+# how to author a new one (including event-based bins like eclipse-entry).
+name: "nominal-baseline"
+description: >
+  Today's static launch IC: reference LEO orbit at a fixed epoch, spacecraft
+  tumbling slightly at insertion. Use this as the starting point for new IC
+  bins by copying and changing only the fields that differ.
+
+epoch:
+  month: 9
+  day: 16
+  year: 2023
+  hour: 23
+  minute: 0
+  second: 0.0
+  leap_seconds: 37.0
+
+orbit:
+  periapsis_alt_km: 400.0
+  apoapsis_alt_km: 400.0
+  inclination_deg: 52.0
+  raan_deg: 0.0
+  arg_periapsis_deg: 0.0
+  true_anomaly_deg: 200.0
+
+attitude:
+  angular_velocity_deg_s: [5.0, -5.0, 10.0]
+  quaternion: [0.0, 0.0, 0.0, 1.0]
+
+# Optional per-component state overrides (EPS state-of-charge, ADCS starting
+# mode, fault-injection flags, etc). Merged into the same per-component
+# override chain shire-orchestrator.py already uses for scenario overrides
+# (cfg/shire-orchestrator.py, "Full cascading merge" comment), applied before
+# a scenario's own component/overrides so a scenario can still take
+# precedence over an IC's component state if it needs to.
+component_overrides: {}

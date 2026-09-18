@@ -9,6 +9,8 @@ import os
 from jinja2 import Environment, FileSystemLoader
 import yaml
 
+from shire_provenance import git_head_sha
+
 CFG_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.abspath(os.path.join(CFG_DIR, "../build"))
 ACTIVE_PATH = os.path.join(BUILD_DIR, "active.yaml")
@@ -99,6 +101,20 @@ def main():
     scenario_cfg_path = os.path.join(CFG_DIR, os.path.relpath(scenario_entry["config_file"], CFG_DIR))
     scenario_cfg = load_yaml(scenario_cfg_path)
 
+    # Load the Initial Condition (IC) bin this scenario references (orbit,
+    # epoch, attitude, and optional per-component state). Scenarios that
+    # don't set `initial_conditions:` get "nominal-baseline", which
+    # reproduces today's hardcoded values exactly, so existing scenarios
+    # (drm-nominal, drm-debug) render unchanged.
+    ic_name = scenario_cfg.get("initial_conditions", "nominal-baseline")
+    ic_cfg_path = os.path.join(CFG_DIR, "drm", "initial_conditions", f"{ic_name}.yaml")
+    ic_cfg = load_yaml(ic_cfg_path)
+    if ic_cfg is None:
+        fail(f"Initial condition bin '{ic_name}' not found at {ic_cfg_path}.")
+
+    ground_stations_cfg = load_yaml(os.path.join(CFG_DIR, "drm", "ground_stations.yaml"))
+    ground_stations = (ground_stations_cfg or {}).get("ground_stations", [])
+
     # Load spacecraft config if specified
     spacecraft_cfg = {}
     if spacecraft:
@@ -144,7 +160,7 @@ def main():
         if not comp_name:
             continue
 
-        # Full cascading merge: fallback -> global -> mission -> spacecraft -> scenario -> scenario overrides
+        # Full cascading merge: fallback -> global -> mission -> spacecraft -> IC bin -> scenario -> scenario overrides
         # 1. Fallback config
         fallback_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support/device_config.yaml'))
         fallback_data = load_yaml(fallback_path)
@@ -163,17 +179,24 @@ def main():
             spacecraft_cfg_comp = merged["spacecraft_cfg"].get(comp_name, {})
             comp_cfg.update(spacecraft_cfg_comp)
 
-        # 5. Scenario config
+        # 5. Initial condition bin's per-component state (NEW LAYER: EPS SOC,
+        #    ADCS starting mode, fault-injection flags, etc.) — applied
+        #    before the scenario's own component config so a scenario can
+        #    still override an IC's component state if it needs to.
+        ic_comp_overrides = (ic_cfg.get("component_overrides") or {}).get(comp_name, {})
+        comp_cfg.update(ic_comp_overrides)
+
+        # 6. Scenario config
         scenario_cfg_comp = merged["scenario_cfg"].get(comp_name, {})
         comp_cfg.update(scenario_cfg_comp)
 
-        # 6. Scenario-level 'overrides' dict
+        # 7. Scenario-level 'overrides' dict
         overrides = merged["scenario_cfg"].get("overrides", {})
         if overrides is None:
             overrides = {}
         comp_cfg.update(overrides)
 
-        # 7. CLI debug override (highest priority)
+        # 8. CLI debug override (highest priority)
         if args.cli_debug:
             comp_cfg["debug"] = True
 
@@ -227,22 +250,46 @@ def main():
     else:
         print(f"[orchestrator] shire-compose.j2 template not found, skipping shire-compose.yaml generation.")
 
-    # Render 42 Inp_Sim.txt from Jinja2 template using graphics setting
+    # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt from Jinja2
+    # templates using the graphics setting and the scenario's resolved IC.
     sim_template_path = os.path.abspath(os.path.join(CFG_DIR, '42_shire_config'))
-    sim_template_file = "Inp_Sim.j2"
-    sim_template_full_path = os.path.join(sim_template_path, sim_template_file)
     build_42_config_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/42_config'))
     os.makedirs(build_42_config_dir, exist_ok=True)
-    sim_output_path = os.path.join(build_42_config_dir, "Inp_Sim.txt")
-    if os.path.exists(sim_template_full_path):
-        env = Environment(loader=FileSystemLoader(sim_template_path))
-        template = env.get_template(sim_template_file)
-        output = template.render(graphics=graphics)
-        with open(sim_output_path, "w") as f:
-            f.write(output)
-        print(f"[orchestrator] Inp_Sim.txt written to {sim_output_path} (graphics={graphics})")
-    else:
-        print(f"[orchestrator] Inp_Sim.j2 template not found, skipping Inp_Sim.txt generation.")
+
+    for template_file, output_name, extra_context in (
+        ("Inp_Sim.j2", "Inp_Sim.txt", {"graphics": graphics, "ground_stations": ground_stations}),
+        ("Orb_SHIRE.j2", "Orb_SHIRE.txt", {}),
+        ("SC_SHIRE.j2", "SC_SHIRE.txt", {}),
+    ):
+        template_full_path = os.path.join(sim_template_path, template_file)
+        output_path = os.path.join(build_42_config_dir, output_name)
+        if os.path.exists(template_full_path):
+            env = Environment(loader=FileSystemLoader(sim_template_path))
+            template = env.get_template(template_file)
+            output = template.render(ic=ic_cfg, **extra_context)
+            with open(output_path, "w") as f:
+                f.write(output)
+            print(f"[orchestrator] {output_name} written to {output_path} (initial_conditions={ic_name})")
+        else:
+            print(f"[orchestrator] {template_file} template not found, skipping {output_name} generation.")
+
+    # Snapshot the scenario + resolved IC selection for this build, so a
+    # specific run's exact starting state stays traceable even after
+    # build/active.yaml later points at something else. Cheap git SHA only
+    # (not the full submodule/dirty walk shire-perf.py's git_metadata() does)
+    # since this runs on every `make cfg`, including trivial edits.
+    scenario_build_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/scenario'))
+    os.makedirs(scenario_build_dir, exist_ok=True)
+    snapshot_path = os.path.join(scenario_build_dir, f"{scenario}.snapshot.yaml")
+    snapshot = {
+        "scenario_name": scenario,
+        "initial_conditions": ic_name,
+        "resolved_ic": ic_cfg,
+        "git_sha": git_head_sha(),
+    }
+    with open(snapshot_path, "w") as f:
+        yaml.safe_dump(snapshot, f, sort_keys=False)
+    print(f"[orchestrator] Scenario snapshot written to {snapshot_path}")
 
     # Copy and manipulate spacecraft-specific FSW config files
     if spacecraft:

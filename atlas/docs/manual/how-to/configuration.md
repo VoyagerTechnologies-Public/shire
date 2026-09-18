@@ -120,6 +120,22 @@ These configuration scenarios select component settings before the environment
 is built.
 They are distinct from the versioned Director command scenario used by the
 [performance regression workload](../core-concepts/simulations.md#performance-regression-runs).
+See [Scenarios and initial conditions](scenarios.md) for a full walkthrough
+of both, plus a third, unrelated use of the word "scenario" in the Atlas docs.
+
+## Scenario initial conditions
+
+A scenario (`cfg/drm/scenarios/*.yaml`) can also set `initial_conditions:
+<name>` to select a starting orbit, epoch, attitude, and optionally
+per-component state from a reusable Initial Condition (IC) bin under
+`cfg/drm/initial_conditions/*.yaml`, instead of the fixed values that used to
+be hardcoded in `Orb_SHIRE.txt`, `SC_SHIRE.txt`, and `Inp_Sim.txt`.
+A scenario that omits `initial_conditions` gets `nominal-baseline`, which
+reproduces those original hardcoded values exactly, so existing scenarios
+needed no changes.
+See [Scenarios and initial conditions](scenarios.md) for the full IC bin
+schema, how to author a new one, and how to run one autonomously (no GUI) to
+confirm it completes cleanly or check that it reproduces run after run.
 
 ## Compose selection
 

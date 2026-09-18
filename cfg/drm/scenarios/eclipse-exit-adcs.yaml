@@ -1,0 +1,12 @@
+# Companion to eclipse-entry-adcs.yaml: starts the spacecraft exactly at
+# eclipse exit (re-entering sunlight) instead of eclipse entry. See
+# cfg/drm/initial_conditions/eclipse-exit.yaml for how that epoch/orbit
+# state was derived.
+scenario_name: "eclipse-exit-adcs"
+description: >
+  Starts sat-1 already at eclipse exit, for investigating ADCS behavior
+  across the eclipse -> sunlit transition (e.g. sun-point re-acquisition).
+initial_conditions: "eclipse-exit"
+overrides:
+  debug: false
+run_duration_s: 900

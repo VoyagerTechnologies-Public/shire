@@ -1,0 +1,48 @@
+# Initial Condition (IC) bin: spacecraft at eclipse exit on the DRM
+# reference orbit, for ADCS eclipse-transition investigation (issue #8) and
+# as a worked example of authoring an event-based IC bin.
+#
+# HOW THIS WAS DERIVED (no live resolver computes this -- see issue #21
+# decision, and see cfg/drm/initial_conditions/eclipse-entry.yaml for the
+# full step-by-step): ran nominal-baseline for 4600s
+# (SIMULITH_SPEED=10 SIMULITH_DURATION=4600
+# docker compose -f build/drm/shire-compose.yaml up -d, mission=drm,
+# spacecraft=sat-1), read 42's own real svn.42/PosN.42 output, applied 42's
+# own cylindrical shadow test (42/Source/42ephem.c "Eclipse Flag" block).
+# Eclipse entry at row 130194 (t=1301.94s, see eclipse-entry.yaml), exit at
+# row 346798, t=3467.98s -- eclipse duration ~2166s, about 39% of this
+# orbit's ~5553.6s period.
+#
+# True anomaly at exit converted from elapsed time using the same
+# linear-in-time relation as eclipse-entry.yaml (exact for this circular
+# orbit, e=0): true_anomaly(t) = true_anomaly(0) + (t/period)*360deg =
+# 64.803deg. Cross-checked directly against the real PosN.42 vector at that
+# row by rotating it into the orbital plane (fixed, known inclination/RAAN):
+# 64.803deg, agreeing to <0.001deg.
+#
+# epoch = nominal-baseline epoch (2023-09-16T23:00:00Z) + 3467.98s
+#       = 2023-09-16T23:57:47.98Z.
+name: "eclipse-exit"
+description: >
+  Spacecraft on the DRM reference orbit, starting exactly at eclipse exit
+  (re-entering sunlight). See the derivation notes above; reproduce by
+  re-running the same steps if the reference orbit ever changes.
+epoch:
+  month: 9
+  day: 16
+  year: 2023
+  hour: 23
+  minute: 57
+  second: 47.98
+  leap_seconds: 37.0
+orbit:
+  periapsis_alt_km: 400.0
+  apoapsis_alt_km: 400.0
+  inclination_deg: 52.0
+  raan_deg: 0.0
+  arg_periapsis_deg: 0.0
+  true_anomaly_deg: 64.803
+attitude:
+  angular_velocity_deg_s: [5.0, -5.0, 10.0]
+  quaternion: [0.0, 0.0, 0.0, 1.0]
+component_overrides: {}

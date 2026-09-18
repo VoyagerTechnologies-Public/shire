@@ -13,9 +13,9 @@ TRUE   Orb_SHIRE.txt            !  Input file name for Orb 0
 1                               !  Number of Spacecraft
 TRUE  0 SC_SHIRE.txt            !  Existence, RefOrb, Input file for SC 0
 ***************************** Environment  *****************************
-9  16 2023                      !  Date (UTC) (Month, Day, Year)
-23 00 00.00                     !  Time (UTC) (Hr,Min,Sec)
-37.0                            !  Leap Seconds (sec)
+{{ ic.epoch.month }}  {{ ic.epoch.day }} {{ ic.epoch.year }}                      !  Date (UTC) (Month, Day, Year)
+{{ '%02d'|format(ic.epoch.hour) }} {{ '%02d'|format(ic.epoch.minute) }} {{ '%05.2f'|format(ic.epoch.second) }}                     !  Time (UTC) (Hr,Min,Sec)
+{{ ic.epoch.leap_seconds }}                            !  Leap Seconds (sec)
 USER                            !  F10.7, Ap (USER, NOMINAL or TWOSIGMA)
 230.0                           !  USER-provided F10.7
 100.0                           !  USER-provided Ap 
@@ -51,6 +51,7 @@ TRUE                            !  Earth-Moon
 FALSE                           !  Sun-Earth
 FALSE                           !  Sun-Jupiter
 ************************* Ground Stations ***************************
-2                               ! Number of Ground Stations
-TRUE  EARTH  -117.0784 33.0249 "VOYG San Diego, CA" ! Exists, World, Lng, Lat, Label
-TRUE  EARTH  -104.995 39.751 "VOYG Denver, CO" ! Exists, World, Lng, Lat, Label
+{{ ground_stations|length }}                               ! Number of Ground Stations
+{% for gs in ground_stations -%}
+TRUE  {{ gs.world }}  {{ gs.lon_deg }} {{ gs.lat_deg }} "{{ gs.name }}" ! Exists, World, Lng, Lat, Label
+{% endfor -%}

@@ -12,12 +12,12 @@ EARTH                         !  Orbit Center
 FALSE                         !  Secular Orbit Drift Due to J2
 KEP                           !  Use Keplerian elements (KEP) or (RV) or FILE
 PA                            !  Use Peri/Apoapsis (PA) or min alt/ecc (AE)
-400.0      400.0              !  Periapsis & Apoapsis Altitude, km
+{{ ic.orbit.periapsis_alt_km }}      {{ ic.orbit.apoapsis_alt_km }}              !  Periapsis & Apoapsis Altitude, km
 400.0  2.0                    !  Min Altitude (km), Eccentricity
-52.0                          !  Inclination (deg)
-0.0                           !  Right Ascension of Ascending Node (deg)
-0.0                           !  Argument of Periapsis (deg)
-200.0                         !  True Anomaly (deg)
+{{ ic.orbit.inclination_deg }}                          !  Inclination (deg)
+{{ ic.orbit.raan_deg }}                           !  Right Ascension of Ascending Node (deg)
+{{ ic.orbit.arg_periapsis_deg }}                           !  Argument of Periapsis (deg)
+{{ ic.orbit.true_anomaly_deg }}                         !  True Anomaly (deg)
 6778.0  0.0  0.0              !  RV Initial Position (km)
 0.0  8.5  0.0                 !  RV Initial Velocity (km/sec)
 TRV                           !  TLE, TRV, or SPLINE file format

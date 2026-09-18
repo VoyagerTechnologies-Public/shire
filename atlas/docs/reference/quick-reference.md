@@ -86,8 +86,11 @@ The UDP endpoints remain inside the Compose bridge because the templates do not 
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The current DRM scenarios are `nominal` and `debug`.
-They apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
+The current DRM scenarios are `nominal`, `debug`, `eclipse-entry-adcs`, and `eclipse-exit-adcs`.
+`nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
+`eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
+Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.
+See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the IC bin mechanism.
 The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nominal`, and CLI component `demo`.
 
 ## cFS targets

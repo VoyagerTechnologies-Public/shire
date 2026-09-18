@@ -1,0 +1,15 @@
+# Ground station catalog shared by:
+#   - cfg/42_shire_config/Inp_Sim.j2 (renders 42's "Ground Stations" block)
+#   - cfg/drm/initial_conditions/*.yaml (pass-acquisition/loss bins reference a
+#     station here by name for documentation/derivation purposes)
+#
+# Single source of truth so the two never drift apart.
+ground_stations:
+  - name: "VOYG San Diego, CA"
+    world: EARTH
+    lon_deg: -117.0784
+    lat_deg: 33.0249
+  - name: "VOYG Denver, CO"
+    world: EARTH
+    lon_deg: -104.995
+    lat_deg: 39.751
