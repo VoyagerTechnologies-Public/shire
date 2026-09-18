@@ -451,6 +451,29 @@ static void test_wire_protocol_switch_invalid_index_is_ignored(void)
     g_iface->destroy(state);
 }
 
+static void test_wait_for_service_rejects_null(void)
+{
+    /* eps_component_wait_for_service guards against a NULL component_state_t*
+     * before touching interrupt_fd or the transport ports array. */
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->wait_for_service(NULL, -1));
+}
+
+static void test_service_errors_when_transport_uninitialized(void)
+{
+    /* Closing the I2C port makes simulith_transport_receive_request() return
+     * SIMULITH_TRANSPORT_ERROR (-1); eps_component_service must propagate
+     * that as COMPONENT_ERROR via its bytes_read < 0 branch. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    eps_sim_state_t *es = (eps_sim_state_t *)state;
+
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          simulith_transport_close(&es->i2c_device));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->service(state, 0, NULL));
+
+    g_iface->destroy(state);
+}
+
 /* -------------------------------------------------------------------------
  * Tick / 42 context / battery model tests
  * -------------------------------------------------------------------------*/
@@ -466,6 +489,26 @@ static void test_tick_with_null_42_no_solar_no_crash(void)
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_iface->on_tick(state, next_tick(), NULL);
+    g_iface->destroy(state);
+}
+
+static void test_tick_before_deadline_skips_hk_update(void)
+{
+    /* tick_time_ns < next_hk_update_ns must skip the whole HK-update block
+     * (the false side of the deadline check at the top of on_tick). */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    eps_sim_state_t *es = (eps_sim_state_t *)state;
+
+    uint64_t deadline_before = es->next_hk_update_ns;
+    uint8_t  temp_before     = es->hk.battery_temperature;
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_prepare_tick(state, deadline_before - 1U, NULL));
+
+    TEST_ASSERT_EQUAL_UINT64(deadline_before, es->next_hk_update_ns);
+    TEST_ASSERT_EQUAL_UINT8(temp_before, es->hk.battery_temperature);
+
     g_iface->destroy(state);
 }
 
@@ -609,6 +652,35 @@ static void test_tick_switch_voltage_reflects_index_range(void)
     g_iface->destroy(state);
 }
 
+static void test_tick_switch_voltage_reflects_odd_index_range(void)
+{
+    /* Companion to test_tick_switch_voltage_reflects_index_range: turn ON
+     * the second member of each index pair (1, 3, 5, 7) so the "|| i == odd"
+     * side of each band comparison is exercised true as well. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    eps_sim_state_t *es = (eps_sim_state_t *)state;
+
+    es->hk.switches[1].state = EPS_SWITCH_ON; /* 3.3V band */
+    es->hk.switches[3].state = EPS_SWITCH_ON; /* 5.0V band */
+    es->hk.switches[5].state = EPS_SWITCH_ON; /* 12.0V band */
+    es->hk.switches[7].state = EPS_SWITCH_ON; /* 24.0V band */
+
+    g_iface->on_tick(state, next_tick(), NULL);
+
+    uint8_t v3v3 = (uint8_t)(3.3f / (32.0f / 255.0f));
+    uint8_t v5v  = (uint8_t)(5.0f / (32.0f / 255.0f));
+    uint8_t v12v = (uint8_t)(12.0f / (32.0f / 255.0f));
+    uint8_t v24v = (uint8_t)(24.0f / (32.0f / 255.0f));
+
+    TEST_ASSERT_EQUAL_UINT8(v3v3, es->hk.switches[1].voltage);
+    TEST_ASSERT_EQUAL_UINT8(v5v, es->hk.switches[3].voltage);
+    TEST_ASSERT_EQUAL_UINT8(v12v, es->hk.switches[5].voltage);
+    TEST_ASSERT_EQUAL_UINT8(v24v, es->hk.switches[7].voltage);
+
+    g_iface->destroy(state);
+}
+
 /* -------------------------------------------------------------------------
  * Init failure path
  * -------------------------------------------------------------------------*/
@@ -680,6 +752,8 @@ int main(void)
     RUN_TEST(test_lifecycle_callbacks_reject_null);
     RUN_TEST(test_wait_interrupt_and_deadline_saturation);
     RUN_TEST(test_cleanup_releases_i2c_socket);
+    RUN_TEST(test_wait_for_service_rejects_null);
+    RUN_TEST(test_service_errors_when_transport_uninitialized);
 
     /* Direct helpers */
     RUN_TEST(test_eps_sim_init_rejects_null_state);
@@ -698,6 +772,7 @@ int main(void)
     /* Tick paths */
     RUN_TEST(test_tick_with_null_state_returns_safely);
     RUN_TEST(test_tick_with_null_42_no_solar_no_crash);
+    RUN_TEST(test_tick_before_deadline_skips_hk_update);
     RUN_TEST(test_tick_with_42_eclipse_yields_no_solar);
     RUN_TEST(test_tick_with_42_invalid_yields_no_solar);
     RUN_TEST(test_tick_with_42_negative_sun_x_yields_no_solar);
@@ -705,6 +780,7 @@ int main(void)
     RUN_TEST(test_tick_drains_battery_and_clamps_low);
     RUN_TEST(test_tick_charges_battery_and_clamps_high);
     RUN_TEST(test_tick_switch_voltage_reflects_index_range);
+    RUN_TEST(test_tick_switch_voltage_reflects_odd_index_range);
 
     /* Init failure path */
     RUN_TEST(test_init_fails_when_address_path_is_a_directory);

@@ -73,5 +73,6 @@ target_link_options(test_radio_sim_failures PRIVATE
     -Wl,--wrap=pthread_create
     -Wl,--wrap=socket
     -Wl,--wrap=bind
+    -Wl,--wrap=gethostbyname
 )
 add_test(NAME RadioSimFailureTests COMMAND test_radio_sim_failures)

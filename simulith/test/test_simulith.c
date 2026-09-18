@@ -6,6 +6,10 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/in.h>
 #include <zmq.h>
 
 #include "test_sleep.h"
@@ -230,6 +234,420 @@ static void test_server_cli_command_parser(void)
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("quit-now", &paused, &speed));
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("unknown", &paused, &speed));
     TEST_ASSERT_EQUAL_INT(1, simulith_server_process_cli_command_for_test("quit", &paused, &speed));
+}
+
+/* Builds a backdoor frame using the same MAGIC/target/cmd_id/payload layout
+ * process_backdoor_command() parses (mirrors simulith_director.c's backdoor
+ * protocol). Returns the frame length written to buf. */
+static size_t build_backdoor_frame(uint8_t *buf, uint16_t cmd_id,
+                                    const uint8_t *payload, uint16_t payload_len,
+                                    const char *target)
+{
+    size_t off = 0;
+    memcpy(&buf[off], "BACKDOOR", 8);
+    off += 8;
+    size_t target_len = strlen(target);
+    buf[off++] = (uint8_t)target_len;
+    memcpy(&buf[off], target, target_len);
+    off += target_len;
+    buf[off++] = (uint8_t)(cmd_id >> 8);
+    buf[off++] = (uint8_t)(cmd_id & 0xFFu);
+    buf[off++] = (uint8_t)(payload_len >> 8);
+    buf[off++] = (uint8_t)(payload_len & 0xFFu);
+    if (payload_len > 0)
+    {
+        memcpy(&buf[off], payload, payload_len);
+        off += payload_len;
+    }
+    return off;
+}
+
+static void encode_be_double(uint8_t *out, double value)
+{
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    for (int i = 0; i < 8; ++i)
+        out[i] = (uint8_t)(bits >> (8 * (7 - i)));
+}
+
+static void test_server_backdoor_command_parser(void)
+{
+    int paused = 0;
+    double speed = 1.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+    size_t len;
+
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(1, paused);
+
+    len = build_backdoor_frame(frame, 0x0002, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    encode_be_double(payload, 4.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    /* An all-zero payload is the "max" sentinel, same as the CLI's "speed max". */
+    memset(payload, 0, sizeof(payload));
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 0.0);
+
+    /* Out-of-range speed is rejected by the reused CLI validation; speed unchanged. */
+    speed = 4.0;
+    encode_be_double(payload, 2048.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    /* Malformed or unrecognized frames are silently ignored. */
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    frame[0] = 'X';
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "someone_else");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len - 1, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    len = build_backdoor_frame(frame, 0x00FF, NULL, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_set_speed_rejects_wrong_payload_len(void)
+{
+    /* process_backdoor_command() early-returns for any SET_SPEED payload
+     * that isn't exactly 8 bytes, before it ever touches *speed. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[16] = {0};
+    size_t len;
+
+    len = build_backdoor_frame(frame, 0x0003, payload, 0, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    len = build_backdoor_frame(frame, 0x0003, payload, 4, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    len = build_backdoor_frame(frame, 0x0003, payload, 16, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_set_speed_rejects_truncated_payload(void)
+{
+    /* payload_len claims a full 8-byte payload, but the frame handed to the
+     * parser is shorter than off + payload_len requires. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+
+    encode_be_double(payload, 8.0);
+    size_t len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len - 3, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_set_speed_accepts_boundary_values(void)
+{
+    /* The reused CLI validation accepts a closed [0.015625, 1024] range;
+     * confirm both boundaries survive the backdoor's big-endian decode. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+    size_t len;
+
+    encode_be_double(payload, 1024.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 1024.0);
+
+    encode_be_double(payload, 0.015625);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 0.015625);
+}
+
+static void test_server_backdoor_set_speed_rejects_nonfinite_and_negative(void)
+{
+    /* Out-of-range values are rejected via process_cli_command's isfinite()
+     * and range checks; speed must be left unchanged in every case. */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[8];
+    size_t len;
+
+    encode_be_double(payload, -1.0);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    encode_be_double(payload, NAN);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+
+    encode_be_double(payload, INFINITY);
+    len = build_backdoor_frame(frame, 0x0003, payload, 8, "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_pause_play_ignore_payload(void)
+{
+    /* PAUSE/PLAY take no arguments; a nonzero payload_len must not confuse
+     * the parser (only SET_SPEED inspects payload contents). */
+    int paused = 0;
+    double speed = 4.0;
+    uint8_t frame[256];
+    uint8_t payload[4] = {0xDE, 0xAD, 0xBE, 0xEF};
+    size_t len;
+
+    len = build_backdoor_frame(frame, 0x0001, payload, sizeof(payload), "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(1, paused);
+
+    len = build_backdoor_frame(frame, 0x0002, payload, sizeof(payload), "shire_server");
+    simulith_server_process_backdoor_command_for_test(frame, len, &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+    TEST_ASSERT_TRUE(speed == 4.0);
+}
+
+static void test_server_backdoor_command_rejects_undersized_frame(void)
+{
+    /* frame_len below the fixed 8+1+2+2 header minimum must be rejected
+     * before any field is read. */
+    int paused = 0;
+    double speed = 1.0;
+    uint8_t frame[8];
+    memcpy(frame, "BACKDOOR", 8);
+
+    simulith_server_process_backdoor_command_for_test(frame, sizeof(frame), &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+}
+
+static void test_server_backdoor_command_rejects_invalid_target_len(void)
+{
+    int paused = 0;
+    double speed = 1.0;
+
+    /* target_len == 0 is rejected even though the rest of the header fits. */
+    uint8_t zero_len_frame[13] = {0};
+    memcpy(zero_len_frame, "BACKDOOR", 8);
+    zero_len_frame[8] = 0;
+    simulith_server_process_backdoor_command_for_test(zero_len_frame, sizeof(zero_len_frame),
+                                                       &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    /* target_len > 64 is rejected outright, without reading target bytes. */
+    uint8_t long_len_frame[13] = {0};
+    memcpy(long_len_frame, "BACKDOOR", 8);
+    long_len_frame[8] = 200;
+    simulith_server_process_backdoor_command_for_test(long_len_frame, sizeof(long_len_frame),
+                                                       &paused, &speed);
+    TEST_ASSERT_EQUAL_INT(0, paused);
+}
+
+static void test_server_backdoor_socket_setup_is_idempotent(void)
+{
+    /* Reset any socket state a previous test left open. */
+    simulith_server_shutdown();
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_ensure_backdoor_socket_for_test());
+    /* A second call must be a safe no-op rather than re-binding the port. */
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_ensure_backdoor_socket_for_test());
+
+    simulith_server_shutdown();
+}
+
+static void test_server_status_socket_resolves_configured_hostname(void)
+{
+    simulith_server_shutdown();
+
+    int receiver = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, receiver);
+    int reuse = 1;
+    setsockopt(receiver, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(SERVER_STATUS_PORT);
+    TEST_ASSERT_EQUAL_INT(0, bind(receiver, (struct sockaddr *)&address, sizeof(address)));
+    struct timeval timeout = {.tv_sec = 0, .tv_usec = 200000};
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(receiver, SOL_SOCKET, SO_RCVTIMEO,
+                                        &timeout, sizeof(timeout)));
+
+    /* Every variant below resolves (directly or by fallback) to loopback in
+     * this test environment, so one receiver on the fixed status port can
+     * confirm each variant actually leaves the socket usable. */
+    uint8_t packet[32];
+
+    /* Unset: falls back to the "shire-gsw" default, which does not resolve
+     * in a test environment, exercising the inet_addr("127.0.0.1") path. */
+    unsetenv("SIMULITH_GSW_HOST");
+    simulith_server_ensure_status_socket_for_test();
+    simulith_server_send_status_update_for_test(0, 1.0);
+    TEST_ASSERT_EQUAL_INT(17, (int)recv(receiver, packet, sizeof(packet), 0));
+    simulith_server_shutdown();
+
+    /* An explicitly empty value is treated the same as unset. */
+    setenv("SIMULITH_GSW_HOST", "", 1);
+    simulith_server_ensure_status_socket_for_test();
+    simulith_server_send_status_update_for_test(0, 1.0);
+    TEST_ASSERT_EQUAL_INT(17, (int)recv(receiver, packet, sizeof(packet), 0));
+    simulith_server_shutdown();
+
+    /* A configured, resolvable host takes the gethostbyname() success path,
+     * and a second call is a safe no-op rather than re-resolving. */
+    setenv("SIMULITH_GSW_HOST", "127.0.0.1", 1);
+    simulith_server_ensure_status_socket_for_test();
+    simulith_server_ensure_status_socket_for_test();
+    simulith_server_send_status_update_for_test(0, 1.0);
+    TEST_ASSERT_EQUAL_INT(17, (int)recv(receiver, packet, sizeof(packet), 0));
+    simulith_server_shutdown();
+
+    close(receiver);
+    unsetenv("SIMULITH_GSW_HOST");
+}
+
+static void test_server_send_status_update_serializes_packet(void)
+{
+    simulith_server_shutdown();
+
+    int receiver = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, receiver);
+    int reuse = 1;
+    setsockopt(receiver, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(SERVER_STATUS_PORT);
+    TEST_ASSERT_EQUAL_INT(0, bind(receiver, (struct sockaddr *)&address, sizeof(address)));
+    struct timeval timeout = {.tv_sec = 0, .tv_usec = 200000};
+    TEST_ASSERT_EQUAL_INT(0, setsockopt(receiver, SOL_SOCKET, SO_RCVTIMEO,
+                                        &timeout, sizeof(timeout)));
+
+    setenv("SIMULITH_GSW_HOST", "127.0.0.1", 1);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, 1, INTERVAL_NS));
+    simulith_server_ensure_status_socket_for_test();
+    simulith_server_broadcast_for_test(123456789000ULL);
+
+    simulith_server_send_status_update_for_test(1, 3.5);
+
+    uint8_t packet[32];
+    ssize_t received = recv(receiver, packet, sizeof(packet), 0);
+    TEST_ASSERT_EQUAL_INT(17, (int)received);
+    TEST_ASSERT_EQUAL_UINT8(1, packet[0]);
+    double decoded_speed;
+    memcpy(&decoded_speed, &packet[1], sizeof(decoded_speed));
+    TEST_ASSERT_TRUE(decoded_speed == 3.5);
+    uint64_t decoded_time;
+    memcpy(&decoded_time, &packet[9], sizeof(decoded_time));
+    TEST_ASSERT_EQUAL_UINT64(123456789000ULL, decoded_time);
+
+    close(receiver);
+    simulith_server_shutdown();
+    unsetenv("SIMULITH_GSW_HOST");
+}
+
+static void test_server_poll_dispatch_without_backdoor_socket(void)
+{
+    /* Before the backdoor socket is ever created, poll_and_dispatch_commands
+     * must skip it rather than pass a negative fd to select()/FD_SET(). */
+    simulith_server_shutdown();
+
+    int paused = 0;
+    double speed = 1.0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_poll_and_dispatch_commands_for_test(&paused, &speed));
+    TEST_ASSERT_EQUAL_INT(0, paused);
+}
+
+static void test_server_poll_dispatch_delivers_backdoor_datagram(void)
+{
+    simulith_server_shutdown();
+
+    /* Give stdin a read end with no data pending and no EOF (the write end
+     * stays open), so select() deterministically reports it as not ready
+     * and this test exercises the backdoor-only dispatch path. */
+    int input_pipe[2];
+    TEST_ASSERT_EQUAL_INT(0, pipe(input_pipe));
+    int saved_stdin = dup(STDIN_FILENO);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, saved_stdin);
+    TEST_ASSERT_EQUAL_INT(STDIN_FILENO, dup2(input_pipe[0], STDIN_FILENO));
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_ensure_backdoor_socket_for_test());
+
+    int client_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, client_sock);
+    struct sockaddr_in dest;
+    memset(&dest, 0, sizeof(dest));
+    dest.sin_family = AF_INET;
+    dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    dest.sin_port = htons(SERVER_BACKDOOR_PORT);
+
+    uint8_t frame[32];
+    size_t len = build_backdoor_frame(frame, 0x0001, NULL, 0, "shire_server");
+    TEST_ASSERT_EQUAL_INT((int)len, (int)sendto(client_sock, frame, len, 0,
+                                                (struct sockaddr *)&dest, sizeof(dest)));
+    close(client_sock);
+    test_sleep_us(10000);
+
+    int paused = 0;
+    double speed = 1.0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_poll_and_dispatch_commands_for_test(&paused, &speed));
+    TEST_ASSERT_EQUAL_INT(1, paused);
+
+    dup2(saved_stdin, STDIN_FILENO);
+    close(saved_stdin);
+    close(input_pipe[0]);
+    close(input_pipe[1]);
+    simulith_server_shutdown();
+}
+
+static void test_server_poll_dispatch_ignores_empty_datagram(void)
+{
+    /* recvfrom() returning 0 for a zero-length datagram must not be treated
+     * as a command to dispatch. */
+    simulith_server_shutdown();
+
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_ensure_backdoor_socket_for_test());
+
+    int client_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, client_sock);
+    struct sockaddr_in dest;
+    memset(&dest, 0, sizeof(dest));
+    dest.sin_family = AF_INET;
+    dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    dest.sin_port = htons(SERVER_BACKDOOR_PORT);
+    TEST_ASSERT_EQUAL_INT(0, (int)sendto(client_sock, "", 0, 0,
+                                         (struct sockaddr *)&dest, sizeof(dest)));
+    close(client_sock);
+    test_sleep_us(10000);
+
+    int paused = 0;
+    double speed = 1.0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_poll_and_dispatch_commands_for_test(&paused, &speed));
+    TEST_ASSERT_EQUAL_INT(0, paused);
+
+    simulith_server_shutdown();
 }
 
 // Test invalid client initialization
@@ -734,6 +1152,20 @@ int main(void)
     RUN_TEST(test_server_init_invalid_params);
     RUN_TEST(test_server_periodic_broadcast_reporting);
     RUN_TEST(test_server_cli_command_parser);
+    RUN_TEST(test_server_backdoor_command_parser);
+    RUN_TEST(test_server_backdoor_set_speed_rejects_wrong_payload_len);
+    RUN_TEST(test_server_backdoor_set_speed_rejects_truncated_payload);
+    RUN_TEST(test_server_backdoor_set_speed_accepts_boundary_values);
+    RUN_TEST(test_server_backdoor_set_speed_rejects_nonfinite_and_negative);
+    RUN_TEST(test_server_backdoor_pause_play_ignore_payload);
+    RUN_TEST(test_server_backdoor_command_rejects_undersized_frame);
+    RUN_TEST(test_server_backdoor_command_rejects_invalid_target_len);
+    RUN_TEST(test_server_backdoor_socket_setup_is_idempotent);
+    RUN_TEST(test_server_status_socket_resolves_configured_hostname);
+    RUN_TEST(test_server_send_status_update_serializes_packet);
+    RUN_TEST(test_server_poll_dispatch_without_backdoor_socket);
+    RUN_TEST(test_server_poll_dispatch_delivers_backdoor_datagram);
+    RUN_TEST(test_server_poll_dispatch_ignores_empty_datagram);
     RUN_TEST(test_client_init_invalid_address);
     RUN_TEST(test_client_init_invalid_params);
     RUN_TEST(test_client_handshake_no_server);

@@ -39,7 +39,12 @@ target_link_options(test_server_failures PRIVATE
     -Wl,--wrap=zmq_setsockopt
     -Wl,--wrap=zmq_close
     -Wl,--wrap=zmq_send
-    -Wl,--wrap=zmq_recv)
+    -Wl,--wrap=zmq_recv
+    -Wl,--wrap=socket
+    -Wl,--wrap=bind
+    -Wl,--wrap=fcntl
+    -Wl,--wrap=gethostbyname
+    -Wl,--wrap=sendto)
 add_test(NAME ServerFailureTests COMMAND test_server_failures)
 
 add_executable(test_client_failures test_client_failures.c ../src/simulith_client.c

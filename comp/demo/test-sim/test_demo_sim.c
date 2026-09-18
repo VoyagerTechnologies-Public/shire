@@ -206,6 +206,8 @@ static void test_lifecycle_callbacks_handle_null_state(void)
                           g_iface->on_tick(NULL, 0ULL, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->service(NULL, 0, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->wait_for_service(NULL, -1));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
                           g_iface->actuate(NULL, 0ULL, NULL));
     g_iface->destroy(NULL);
     g_iface->backdoor(NULL, DEMO_BD_SET_CONFIG, NULL, 0);
@@ -342,6 +344,46 @@ static void test_backdoor_unknown_cmd_is_noop(void)
     g_iface->destroy(state);
 }
 
+static void test_backdoor_set_config_short_payload_leaves_prior_value(void)
+{
+    /* test_backdoor_short_payloads_use_documented_defaults only proves the
+     * short-payload guard leaves DeviceConfig at its already-zero initial
+     * value, which would also pass if the guard were broken and it just
+     * fell through to a zeroed default. Seed a nonzero value first so a
+     * regression that stops honoring the guard is actually caught. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t seed[2] = {0x12, 0x34};
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, seed, sizeof(seed));
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    uint8_t one_byte = 0xAB;
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, &one_byte, 1);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, NULL, 2);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    g_iface->destroy(state);
+}
+
+static void test_backdoor_set_config_ignores_extra_payload_bytes(void)
+{
+    /* A payload longer than the documented 2 bytes is not an error: only
+     * payload[0..1] are read and any trailing bytes are ignored. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t payload[4] = {0x56, 0x78, 0xFF, 0xFF};
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, payload, sizeof(payload));
+    TEST_ASSERT_EQUAL_HEX16(0x5678, ds->hk.DeviceConfig);
+
+    g_iface->destroy(state);
+}
+
 static void test_backdoor_short_payloads_use_documented_defaults(void)
 {
     component_state_t *state = NULL;
@@ -441,6 +483,34 @@ static void test_tick_with_42_svb_scales_channels(void)
     TEST_ASSERT_EQUAL_UINT16(37768, ds->data.Chan1);
     TEST_ASSERT_EQUAL_UINT16(30268, ds->data.Chan2);
     TEST_ASSERT_EQUAL_UINT16(32768, ds->data.Chan3);
+
+    g_iface->destroy(state);
+}
+
+static void test_tick_with_invalid_42_context_uses_counter_fallback(void)
+{
+    /* Covers the (rand_data_enabled == 0) && context_42 && context_42->valid
+     * condition in on_tick when context_42 is non-NULL but marked invalid:
+     * the SVB branch must not be taken, and with rand_data_enabled at its
+     * default of 0 the channels fall back to the DeviceCounter-derived
+     * values rather than the SVB or random ones. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+    ds->hk.DeviceCounter = 7;
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid              = 0;
+    ctx.sun_vector_body[0] = 0.5;
+    ctx.sun_vector_body[1] = 0.5;
+    ctx.sun_vector_body[2] = 0.5;
+
+    g_iface->on_tick(state, 200000000ULL, &ctx);
+
+    TEST_ASSERT_EQUAL_UINT16(7, ds->data.Chan1);
+    TEST_ASSERT_EQUAL_UINT16(14, ds->data.Chan2);
+    TEST_ASSERT_EQUAL_UINT16(21, ds->data.Chan3);
 
     g_iface->destroy(state);
 }
@@ -1010,11 +1080,14 @@ int main(void)
     RUN_TEST(test_backdoor_rand_data_toggles_flag);
     RUN_TEST(test_backdoor_unknown_cmd_is_noop);
     RUN_TEST(test_backdoor_short_payloads_use_documented_defaults);
+    RUN_TEST(test_backdoor_set_config_short_payload_leaves_prior_value);
+    RUN_TEST(test_backdoor_set_config_ignores_extra_payload_bytes);
 
     /* on_tick paths */
     RUN_TEST(test_tick_with_rand_data_writes_8bit_random_channels);
     RUN_TEST(test_tick_with_rand_hk_writes_high_byte_only_hk);
     RUN_TEST(test_tick_with_42_svb_scales_channels);
+    RUN_TEST(test_tick_with_invalid_42_context_uses_counter_fallback);
     RUN_TEST(test_seeded_random_sequence_restarts_deterministically);
     RUN_TEST(test_tick_uses_an_absolute_sampling_deadline);
 

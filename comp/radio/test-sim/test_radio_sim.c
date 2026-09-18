@@ -221,6 +221,8 @@ static void test_lifecycle_callbacks_reject_null(void)
                           g_prepare_tick(NULL, 0, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
                           g_iface->service(NULL, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->wait_for_service(NULL, 0));
     g_iface->destroy(NULL);
 }
 
@@ -555,6 +557,43 @@ static void test_spi_send_cmd_in_rx_mode_not_forwarded(void)
     g_iface->destroy(state);
 }
 
+static void test_spi_send_cmd_in_tx_mode_forwarded(void)
+{
+    /* mode == RADIO_MODE_TX short-circuits the `mode == TX || mode == DUPLEX`
+     * OR without evaluating the DUPLEX comparison -- covers that branch
+     * outcome, complementary to the DUPLEX and RX mode SEND_CMD tests. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    power_on(state);
+
+    transport_port_t spi;
+    open_spi_client(&spi, "test_spi");
+    usleep(2000);
+
+    uint8_t cfg[RADIO_CFG_PAYLOAD_SIZE] = {RADIO_MODE_TX, 0, 0, 0, 0};
+    uint8_t cfg_frame[5 + RADIO_CFG_PAYLOAD_SIZE];
+    size_t  cfg_len = encode_spi_frame(cfg_frame, sizeof(cfg_frame),
+                                       RADIO_DEVICE_SET_CFG_CMD, cfg,
+                                       RADIO_CFG_PAYLOAD_SIZE);
+    simulith_transport_send(&spi, cfg_frame, cfg_len);
+    usleep(2000);
+    g_iface->on_tick(state, 0ULL, NULL);  /* counter = 1 after SET_CFG */
+
+    uint8_t data[3] = {0x0A, 0x0B, 0x0C};
+    uint8_t frame[5 + 3];
+    size_t  len = encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_SEND_CMD,
+                                   data, 3);
+    simulith_transport_send(&spi, frame, len);
+    usleep(2000);
+    g_iface->on_tick(state, 0ULL, NULL);
+
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    TEST_ASSERT_EQUAL_UINT16(2, rs->hk.CommandCounter);  /* SET_CFG + forwarded SEND */
+
+    simulith_transport_close(&spi);
+    g_iface->destroy(state);
+}
+
 static void test_spi_send_cmd_fails_on_bad_socket(void)
 {
     /* Close the TX socket before SEND so sendto() returns -1, covering the
@@ -849,6 +888,34 @@ static void test_gpio_power_write_off_clears_state(void)
     g_iface->destroy(state);
 }
 
+static void test_gpio_power_write_on_from_off_does_not_reset_state(void)
+{
+    /* value != current (0 -> 1) takes the state-change branch, but !value is
+     * false so the buffer/config reset block is skipped -- covers the false
+     * outcome of the `if (!value)` guard that only the power-off write hits
+     * elsewhere. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    ((radio_sim_state_t *)state)->power_gpio.value = 0;
+
+    transport_port_t pw;
+    open_gpio_client(&pw, "test_pw", RADIO_POWER_PORT);
+    usleep(5000);
+
+    uint8_t req[3] = {1, RADIO_CFG_GPIO_POWER_PIN, 1};  /* write ON */
+    simulith_transport_send(&pw, req, sizeof(req));
+    usleep(2000);
+    g_iface->on_tick(state, 0ULL, NULL);
+
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    TEST_ASSERT_EQUAL_UINT8(1, rs->power_gpio.value);
+
+    simulith_transport_close(&pw);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
 static void test_gpio_interrupt_write(void)
 {
     component_state_t *state = NULL;
@@ -889,9 +956,17 @@ static void test_gpio_rejects_short_wrong_pin_and_invalid_commands(void)
     const uint8_t wrong_power_pin[] = {0, (uint8_t)(RADIO_CFG_GPIO_POWER_PIN + 1)};
     const uint8_t invalid_power_command[] = {2, RADIO_CFG_GPIO_POWER_PIN, 1};
     const uint8_t short_power_write[] = {1, RADIO_CFG_GPIO_POWER_PIN};
+    /* cmd==0 (read) but 3 bytes instead of 2 -- covers the `gpio_bytes == 2`
+     * false outcome of the read-command guard. */
+    const uint8_t bad_length_power_read[] = {0, RADIO_CFG_GPIO_POWER_PIN, 0xFF};
+    /* cmd==1, 3 bytes, but value > 1 -- covers the `gpio_rx_buf[2] <= 1U`
+     * false outcome of the write-command guard. */
+    const uint8_t invalid_power_value[] = {1, RADIO_CFG_GPIO_POWER_PIN, 2};
     const uint8_t wrong_interrupt_pin[] = {0, (uint8_t)(RADIO_CFG_GPIO_INTERRUPT_PIN + 1)};
     const uint8_t invalid_interrupt_command[] = {2, RADIO_CFG_GPIO_INTERRUPT_PIN, 1};
     const uint8_t short_interrupt_write[] = {1, RADIO_CFG_GPIO_INTERRUPT_PIN};
+    const uint8_t bad_length_interrupt_read[] = {0, RADIO_CFG_GPIO_INTERRUPT_PIN, 0xFF};
+    const uint8_t invalid_interrupt_value[] = {1, RADIO_CFG_GPIO_INTERRUPT_PIN, 2};
 
     simulith_transport_send(&power, short_request, sizeof(short_request));
     usleep(1000);
@@ -903,6 +978,12 @@ static void test_gpio_rejects_short_wrong_pin_and_invalid_commands(void)
     usleep(1000);
     g_iface->on_tick(state, 0ULL, NULL);
     simulith_transport_send(&power, short_power_write, sizeof(short_power_write));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, bad_length_power_read, sizeof(bad_length_power_read));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&power, invalid_power_value, sizeof(invalid_power_value));
     usleep(1000);
     g_iface->on_tick(state, 0ULL, NULL);
 
@@ -918,6 +999,14 @@ static void test_gpio_rejects_short_wrong_pin_and_invalid_commands(void)
     g_iface->on_tick(state, 0ULL, NULL);
     simulith_transport_send(&interrupt, short_interrupt_write,
                             sizeof(short_interrupt_write));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, bad_length_interrupt_read,
+                            sizeof(bad_length_interrupt_read));
+    usleep(1000);
+    g_iface->on_tick(state, 0ULL, NULL);
+    simulith_transport_send(&interrupt, invalid_interrupt_value,
+                            sizeof(invalid_interrupt_value));
     usleep(1000);
     g_iface->on_tick(state, 0ULL, NULL);
 
@@ -1106,6 +1195,63 @@ static void test_udp_inject_populates_rx_buffer(void)
     pthread_mutex_unlock(&rs->buffer_mutex);
 
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32((uint32_t)sizeof(payload), count);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_udp_thread_writes_to_buffer_in_rx_mode(void)
+{
+    /* config.Mode == RADIO_MODE_RX short-circuits the udp thread's
+     * `mode == RX || mode == DUPLEX` OR to true without evaluating the
+     * DUPLEX comparison -- covers that branch outcome. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    power_on(state);
+
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->config.Mode = RADIO_MODE_RX;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    static const uint8_t payload[16] = {0};
+    TEST_ASSERT_TRUE(inject_udp(payload, sizeof(payload)) > 0);
+    usleep(50000);
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    uint32_t count = rs->rx_buffer_head - rs->rx_buffer_tail;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32((uint32_t)sizeof(payload), count);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_udp_thread_drops_data_in_tx_mode(void)
+{
+    /* Powered on but in TX-only mode: neither RX nor DUPLEX, so the udp
+     * thread's OR condition is fully false and the data is dropped. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    power_on(state);
+
+    radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->config.Mode = RADIO_MODE_TX;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    static const uint8_t payload[16] = {0};
+    TEST_ASSERT_TRUE(inject_udp(payload, sizeof(payload)) > 0);
+    usleep(50000);
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    uint32_t count = rs->rx_buffer_head - rs->rx_buffer_tail;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    TEST_ASSERT_EQUAL_UINT32(0, count);
 
     g_state_under_test = NULL;
     g_iface->destroy(state);
@@ -1376,6 +1522,7 @@ int main(void)
     RUN_TEST(test_spi_send_cmd_in_duplex_mode);
     RUN_TEST(test_spi_send_cmd_zero_payload_no_counter);
     RUN_TEST(test_spi_send_cmd_in_rx_mode_not_forwarded);
+    RUN_TEST(test_spi_send_cmd_in_tx_mode_forwarded);
     RUN_TEST(test_spi_send_cmd_fails_on_bad_socket);
     RUN_TEST(test_spi_short_packet_rejected);
     RUN_TEST(test_spi_bad_header_rejected);
@@ -1389,6 +1536,7 @@ int main(void)
     RUN_TEST(test_gpio_interrupt_read_initial);
     RUN_TEST(test_gpio_power_write_same_value_no_op);
     RUN_TEST(test_gpio_power_write_off_clears_state);
+    RUN_TEST(test_gpio_power_write_on_from_off_does_not_reset_state);
     RUN_TEST(test_gpio_interrupt_write);
     RUN_TEST(test_gpio_rejects_short_wrong_pin_and_invalid_commands);
 
@@ -1404,6 +1552,8 @@ int main(void)
     /* UDP / buffer */
     RUN_TEST(test_udp_thread_ignores_data_when_powered_off);
     RUN_TEST(test_udp_inject_populates_rx_buffer);
+    RUN_TEST(test_udp_thread_writes_to_buffer_in_rx_mode);
+    RUN_TEST(test_udp_thread_drops_data_in_tx_mode);
     RUN_TEST(test_spi_receive_cmd_with_udp_data);
     RUN_TEST(test_spi_receive_cmd_leaves_unrequested_udp_data_buffered);
     RUN_TEST(test_udp_select_error_stops_thread);

@@ -7,7 +7,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | 42 | NASA Goddard Space Flight Center spacecraft dynamics and environment simulator used by SHIRE. |
 | ADCS | Attitude Determination and Control System reference component. |
 | Atlas | The public SHIRE documentation site under `atlas/`. |
-| Backdoor | Simulation only Director interface that passes a component packet to the named simulator's backdoor callback. |
+| Backdoor | Simulation only interface that passes a packet to a named simulation target's backdoor handling, either the Director's component simulator `backdoor` callback for fault injection or the Simulith Server's own pause/play/speed control. |
 | BSP | Board Support Package used to adapt startup and platform services to a particular target environment. |
 | CCSDS | Consultative Committee for Space Data Systems, which publishes the packet and file delivery standards used by the DRM. |
 | cFE | Core Flight Executive, which supplies the runtime services at the center of cFS. |
