@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="SIM_42_TRUTH" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+      <xtce:FloatParameterType name="DYN_TIME_Type" sizeInBits="64" shortDescription="Dynamic Time (s since J2000)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="POSITION_N_1_Type" sizeInBits="64" shortDescription="Inertial Position (m) Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="POSITION_N_2_Type" sizeInBits="64" shortDescription="Inertial Position (m) Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="POSITION_N_3_Type" sizeInBits="64" shortDescription="Inertial Position (m) Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SVB_1_Type" sizeInBits="64" shortDescription="Sun Unit Vector in Body Frame Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SVB_2_Type" sizeInBits="64" shortDescription="Sun Unit Vector in Body Frame Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SVB_3_Type" sizeInBits="64" shortDescription="Sun Unit Vector in Body Frame Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="BVB_1_Type" sizeInBits="64" shortDescription="Magnetic Field Vector in Body Frame (T) Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="BVB_2_Type" sizeInBits="64" shortDescription="Magnetic Field Vector in Body Frame (T) Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="BVB_3_Type" sizeInBits="64" shortDescription="Magnetic Field Vector in Body Frame (T) Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="HVB_1_Type" sizeInBits="64" shortDescription="Angular Momentum Vector in Body Frame (Nms) Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="HVB_2_Type" sizeInBits="64" shortDescription="Angular Momentum Vector in Body Frame (Nms) Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="HVB_3_Type" sizeInBits="64" shortDescription="Angular Momentum Vector in Body Frame (Nms) Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WN_1_Type" sizeInBits="64" shortDescription="Body Angular Rate in Body Frame (rad/s) Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WN_2_Type" sizeInBits="64" shortDescription="Body Angular Rate in Body Frame (rad/s) Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WN_3_Type" sizeInBits="64" shortDescription="Body Angular Rate in Body Frame (rad/s) Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_1_Type" sizeInBits="64" shortDescription="Body Quaternion in Inertial Frame Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_2_Type" sizeInBits="64" shortDescription="Body Quaternion in Inertial Frame Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_3_Type" sizeInBits="64" shortDescription="Body Quaternion in Inertial Frame Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_4_Type" sizeInBits="64" shortDescription="Body Quaternion in Inertial Frame Byte 4">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="MASS_Type" sizeInBits="64" shortDescription="Spacecraft Mass (kg)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CM_1_Type" sizeInBits="64" shortDescription="Center of Mass (m) Byte 1">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CM_2_Type" sizeInBits="64" shortDescription="Center of Mass (m) Byte 2">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CM_3_Type" sizeInBits="64" shortDescription="Center of Mass (m) Byte 3">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_11_Type" sizeInBits="64" shortDescription="Inertia Matrix (1,1)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_12_Type" sizeInBits="64" shortDescription="Inertia Matrix (1,2)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_13_Type" sizeInBits="64" shortDescription="Inertia Matrix (1,3)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_21_Type" sizeInBits="64" shortDescription="Inertia Matrix (2,1)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_22_Type" sizeInBits="64" shortDescription="Inertia Matrix (2,2)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_23_Type" sizeInBits="64" shortDescription="Inertia Matrix (2,3)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_31_Type" sizeInBits="64" shortDescription="Inertia Matrix (3,1)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_32_Type" sizeInBits="64" shortDescription="Inertia Matrix (3,2)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="INERTIA_33_Type" sizeInBits="64" shortDescription="Inertia Matrix (3,3)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:IntegerParameterType name="ECLIPSE_Type" sizeInBits="32" shortDescription="Eclipse flag (0/1)">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:FloatParameterType name="ATMO_DENSITY_Type" sizeInBits="64" shortDescription="Atmospheric Density (kg/m^3)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+    </xtce:ParameterTypeSet>
+    <xtce:ParameterSet>
+      <xtce:Parameter name="DYN_TIME" parameterTypeRef="DYN_TIME_Type"/>
+      <xtce:Parameter name="POSITION_N_1" parameterTypeRef="POSITION_N_1_Type"/>
+      <xtce:Parameter name="POSITION_N_2" parameterTypeRef="POSITION_N_2_Type"/>
+      <xtce:Parameter name="POSITION_N_3" parameterTypeRef="POSITION_N_3_Type"/>
+      <xtce:Parameter name="SVB_1" parameterTypeRef="SVB_1_Type"/>
+      <xtce:Parameter name="SVB_2" parameterTypeRef="SVB_2_Type"/>
+      <xtce:Parameter name="SVB_3" parameterTypeRef="SVB_3_Type"/>
+      <xtce:Parameter name="BVB_1" parameterTypeRef="BVB_1_Type"/>
+      <xtce:Parameter name="BVB_2" parameterTypeRef="BVB_2_Type"/>
+      <xtce:Parameter name="BVB_3" parameterTypeRef="BVB_3_Type"/>
+      <xtce:Parameter name="HVB_1" parameterTypeRef="HVB_1_Type"/>
+      <xtce:Parameter name="HVB_2" parameterTypeRef="HVB_2_Type"/>
+      <xtce:Parameter name="HVB_3" parameterTypeRef="HVB_3_Type"/>
+      <xtce:Parameter name="WN_1" parameterTypeRef="WN_1_Type"/>
+      <xtce:Parameter name="WN_2" parameterTypeRef="WN_2_Type"/>
+      <xtce:Parameter name="WN_3" parameterTypeRef="WN_3_Type"/>
+      <xtce:Parameter name="QN_1" parameterTypeRef="QN_1_Type"/>
+      <xtce:Parameter name="QN_2" parameterTypeRef="QN_2_Type"/>
+      <xtce:Parameter name="QN_3" parameterTypeRef="QN_3_Type"/>
+      <xtce:Parameter name="QN_4" parameterTypeRef="QN_4_Type"/>
+      <xtce:Parameter name="MASS" parameterTypeRef="MASS_Type"/>
+      <xtce:Parameter name="CM_1" parameterTypeRef="CM_1_Type"/>
+      <xtce:Parameter name="CM_2" parameterTypeRef="CM_2_Type"/>
+      <xtce:Parameter name="CM_3" parameterTypeRef="CM_3_Type"/>
+      <xtce:Parameter name="INERTIA_11" parameterTypeRef="INERTIA_11_Type"/>
+      <xtce:Parameter name="INERTIA_12" parameterTypeRef="INERTIA_12_Type"/>
+      <xtce:Parameter name="INERTIA_13" parameterTypeRef="INERTIA_13_Type"/>
+      <xtce:Parameter name="INERTIA_21" parameterTypeRef="INERTIA_21_Type"/>
+      <xtce:Parameter name="INERTIA_22" parameterTypeRef="INERTIA_22_Type"/>
+      <xtce:Parameter name="INERTIA_23" parameterTypeRef="INERTIA_23_Type"/>
+      <xtce:Parameter name="INERTIA_31" parameterTypeRef="INERTIA_31_Type"/>
+      <xtce:Parameter name="INERTIA_32" parameterTypeRef="INERTIA_32_Type"/>
+      <xtce:Parameter name="INERTIA_33" parameterTypeRef="INERTIA_33_Type"/>
+      <xtce:Parameter name="ECLIPSE" parameterTypeRef="ECLIPSE_Type"/>
+      <xtce:Parameter name="ATMO_DENSITY" parameterTypeRef="ATMO_DENSITY_Type"/>
+    </xtce:ParameterSet>
+    <xtce:ContainerSet>
+      <xtce:SequenceContainer name="SIM_42_TRUTH_DATA" shortDescription="Simulation Truth Data from 42">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="DYN_TIME"/>
+          <xtce:ParameterRefEntry parameterRef="POSITION_N_1"/>
+          <xtce:ParameterRefEntry parameterRef="POSITION_N_2"/>
+          <xtce:ParameterRefEntry parameterRef="POSITION_N_3"/>
+          <xtce:ParameterRefEntry parameterRef="SVB_1"/>
+          <xtce:ParameterRefEntry parameterRef="SVB_2"/>
+          <xtce:ParameterRefEntry parameterRef="SVB_3"/>
+          <xtce:ParameterRefEntry parameterRef="BVB_1"/>
+          <xtce:ParameterRefEntry parameterRef="BVB_2"/>
+          <xtce:ParameterRefEntry parameterRef="BVB_3"/>
+          <xtce:ParameterRefEntry parameterRef="HVB_1"/>
+          <xtce:ParameterRefEntry parameterRef="HVB_2"/>
+          <xtce:ParameterRefEntry parameterRef="HVB_3"/>
+          <xtce:ParameterRefEntry parameterRef="WN_1"/>
+          <xtce:ParameterRefEntry parameterRef="WN_2"/>
+          <xtce:ParameterRefEntry parameterRef="WN_3"/>
+          <xtce:ParameterRefEntry parameterRef="QN_1"/>
+          <xtce:ParameterRefEntry parameterRef="QN_2"/>
+          <xtce:ParameterRefEntry parameterRef="QN_3"/>
+          <xtce:ParameterRefEntry parameterRef="QN_4"/>
+          <xtce:ParameterRefEntry parameterRef="MASS"/>
+          <xtce:ParameterRefEntry parameterRef="CM_1"/>
+          <xtce:ParameterRefEntry parameterRef="CM_2"/>
+          <xtce:ParameterRefEntry parameterRef="CM_3"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_11"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_12"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_13"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_21"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_22"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_23"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_31"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_32"/>
+          <xtce:ParameterRefEntry parameterRef="INERTIA_33"/>
+          <xtce:ParameterRefEntry parameterRef="ECLIPSE"/>
+          <xtce:ParameterRefEntry parameterRef="ATMO_DENSITY"/>
+        </xtce:EntryList>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+</xtce:SpaceSystem>

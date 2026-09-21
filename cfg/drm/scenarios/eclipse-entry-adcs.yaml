@@ -17,3 +17,6 @@ initial_conditions: "eclipse-entry"
 overrides:
   debug: false
 run_duration_s: 900
+# Only affects `make scenario` (not `make start`); safe here since there's
+# no verify_stacks to race. See drm-nominal.yaml for the full rationale.
+simulith_speed: "max"

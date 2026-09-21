@@ -86,11 +86,12 @@ The UDP endpoints remain inside the Compose bridge because the templates do not 
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The current DRM scenarios are `nominal`, `debug`, `eclipse-entry-adcs`, and `eclipse-exit-adcs`.
+The current DRM scenarios are `nominal`, `debug`, `eclipse-entry-adcs`, `eclipse-exit-adcs`, and `checkout`.
 `nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
 `eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
 Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.
-See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the IC bin mechanism.
+`checkout` runs YAMCS's CheckoutTest.ycs stack headlessly via `verify_stacks` instead of a human clicking through it.
+See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the IC bin and verify_stacks mechanisms.
 The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nominal`, and CLI component `demo`.
 
 ## cFS targets
@@ -159,7 +160,7 @@ Use a reviewed report as `BASELINE` rather than copying only its median speed.
 | How are Compose files generated? | `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
 | Which applications compile and start? | `cfg/shire_defs/targets.cmake` and the generated CPU startup script |
 | Which ground links exist? | `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`, `comp/cryptolib/support/standalone/standalone.h`, `comp/radio/support/device_config.yaml`, `simulith/include/simulith_director.h`, and `simulith/src/simulith_director.c` |
-| Which procedures exist? | `yamcs/src/main/yamcs/procedures/` and `comp/<name>/gsw/procedures/` |
+| Which procedures exist? | `cfg/<mission>/gsw/procedures/` (DRM-level) and `comp/<name>/gsw/procedures/` (component-level), both staged into the `yamcs/` submodule at build time |
 | Which developer commands are supported? | The root `Makefile` and subsystem Makefiles |
 | Which performance workload is injected? | `cfg/perf-scenario.json` |
 | How is a performance report produced and evaluated? | `cfg/shire-perf.py` |

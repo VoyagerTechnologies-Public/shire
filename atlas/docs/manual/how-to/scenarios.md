@@ -195,15 +195,138 @@ Director and FSW reached their terminal marker with no crash or timeout,
 tears everything down, and exits 0 (pass) or 1 (fail).
 Results, container logs, and a copy of the IC snapshot land in
 `build/scenario-runs/<scenario>-<UTC timestamp>/result.json`.
-CI runs exactly this, on `eclipse-entry-adcs`, in the `scenario-confirm-pass`
-job (`.github/workflows/ci.yml`).
+This is not wired into `.github/workflows/ci.yml` yet, by choice: running
+the full Docker Compose stack in CI is new territory for this pipeline
+(no existing job does it), and the resource and timing behavior of a
+hosted runner needs validating on a draft PR before gating merges on it.
+Run it on demand until that validation happens.
 
-Pass/fail here is clean completion only, with no telemetry-value
-assertions.
+On its own, pass/fail here is clean completion only, with no
+telemetry-value assertions.
 That was an explicit scope decision for issue #21.
-Layering tolerance-based telemetry checks on top of this, as issue #8's
-ADCS audit tooling does separately for the fields it cares about, is future
-work, not something this script does today.
+A scenario can layer real telemetry-value checks on top via
+`verify_stacks` (next section).
+Without it, clean completion is all this script confirms.
+
+### Layering telemetry verification (`verify_stacks`)
+
+A scenario can run one or more existing YAMCS Stack (`.ycs`) files
+headlessly, the same command/verify/check sequence a human would
+otherwise run by hand in Procedures / Stacks in the YAMCS web UI (see
+[Ground Software](../core-concepts/ground-software.md)'s "Checkout stack"
+section), and fold their pass/fail into the scenario's own result:
+
+```yaml
+# cfg/drm/scenarios/checkout.yaml
+verify_stacks:
+  - stack: "cfg/drm/gsw/procedures/CheckoutTest.ycs"
+    at_s: 0
+```
+
+`stack` paths point into `cfg/<mission>/gsw/`, not the `yamcs/` submodule:
+DRM-level GSW content (this stack, plus the MDB and display files it
+depends on) is authored in the outer repo and staged into the submodule
+at build time by `yamcs/Makefile`'s `copy-gsw-files` target, the same
+pattern `comp/<name>/gsw/` already uses for per-component content.
+This keeps every editable file in one repo's history instead of needing
+a submodule commit plus an outer-repo pointer bump for something that's
+fundamentally DRM-mission content.
+
+`stack` is a repo-relative `.ycs` path.
+`at_s` schedules it at that many simulated seconds into the run, and
+multiple entries at different times are allowed in one scenario.
+Interpreting the `.ycs` file itself, `command`/`verify`/`check`/`text`
+steps against YAMCS's REST API, lives in `yamcs/yamcs_commander.py
+--stack <path>`, not a separate tool, so there's one implementation to
+maintain for both the CLI (`--command`, `--interactive`) and
+headless-stack use cases.
+
+Each entry runs before `cfg/shire-scenario.py` starts waiting for the run
+to finish, and always waits for at least the first simulated-time sample
+before firing.
+Firing at the literal instant containers start can race FSW apps that
+haven't finished subscribing to their command MIDs yet, confirmed live: a
+command sent too early is silently dropped, with no error at all.
+Every scheduled entry, and the run's own completion, share one overall
+time budget derived from `run_duration_s`, so a stuck stack can't hang
+the run forever.
+
+Results land in `result["verification"]` in `result.json`, plus a
+per-stack `verify-<stem>.json`/`.log` in the run's artifact directory.
+A verification failure is worded distinctly from a clean-completion
+failure, `"clean completion, but stack verification failed..."` versus
+`"missing terminal marker(s)..."`, so the two are never ambiguous.
+
+`checkout` is the only scenario using `verify_stacks` today, running
+`CheckoutTest.ycs`.
+It is a developer tool.
+No CI job runs `make scenario` at all yet (see the note above), so this
+isn't gating anything by extension either.
+Using it needs `requests`/`yamcs-client` installed on whatever host runs
+`make scenario`
+(`python3 -m pip install --requirement yamcs/requirements-commander.txt`),
+a prerequisite only for scenarios that set `verify_stacks`, not for
+`make scenario` in general.
+
+### Tuning wall-clock speed
+
+`run_duration_s` bounds the run in *simulated* seconds.
+How long that takes in real wall-clock time depends on `SIMULITH_SPEED`,
+which a scenario can set via `simulith_speed: "max"` (or a specific
+multiplier).
+This only affects the autonomous `make scenario` path (`shire-scenario.py`
+sets it as an env var before `docker compose up`), never `make start`'s
+manual GUI path, which keeps defaulting to real-time (1x) for watching.
+
+Whether raising it is safe depends on whether the scenario has
+`verify_stacks`.
+
+**No `verify_stacks`**: always safe.
+The scenario exists to exercise `run_duration_s` simulated seconds of
+behavior, and running that faster in wall-clock time doesn't change what's
+exercised.
+`nominal`, `debug`, `eclipse-entry-adcs`, and `eclipse-exit-adcs` all set
+`simulith_speed: "max"` for exactly this reason.
+Confirmed live: a 900-simulated-second scenario that used to take several
+minutes at 1x now finishes in about a minute.
+
+**With `verify_stacks`**: raising it is safe (see `FSW_BOOT_SETTLE_S`
+below), but not automatically a net win, and needs `run_duration_s`
+re-checked either way.
+Some `.ycs` steps have real-wall-clock-bound timing.
+Confirmed live: `CheckoutTest.ycs`'s CFDP upload/downlink steps are a
+YAMCS-side service, not a Simulith tick participant, so they take the same
+real seconds regardless of sim speed.
+If the simulated clock outruns them, telemetry freezes
+(`SIMULITH_PHASE_STOP`) before verification can observe completion, so
+`run_duration_s` has to scale up with speed to preserve the same
+real-time margin.
+That scaling has a real cost, and it can outweigh the speed gain.
+Confirmed live on `checkout`: raising `simulith_speed` to 5 (with
+`run_duration_s` scaled from 240 to 600 to stay safe) did shrink
+verification itself, from about 76 seconds to about 30, exactly the
+tick-bound ADCS convergence step getting faster.
+But the achieved simulated/real ratio wasn't linear with the requested
+speed, so the larger `run_duration_s`'s "wait for the clock to run out"
+phase cost about 212 seconds, more than the roughly 46 seconds saved.
+`checkout` stays at the default speed because 1x measured faster
+end to end, not because raising it was unsafe.
+Treat this as a per-scenario question to measure, with real timestamps
+from an artifact directory, not a rule to apply blindly either way.
+
+One boot-race fix matters for any `verify_stacks` scenario at a raised
+speed.
+cFE apps need a fixed number of *real* seconds to start and subscribe to
+their command MIDs, a real-world constant, not tied to simulated ticks.
+Waiting for one simulated-time log sample (which `wait_for_simulated_time`
+already does before firing the first entry) grants a fixed number of
+*simulated* seconds of settle time, which is fewer real seconds at higher
+speed.
+Confirmed live: this caused a real failure at `simulith_speed=5` (an
+early `CheckoutTest.ycs` verify step read back a nonzero counter that
+should have been freshly reset), fixed by `FSW_BOOT_SETTLE_S` in
+`cfg/shire-scenario.py`, a real-second floor applied once, before the
+first scheduled entry, independent of speed.
 
 ### Confirming a scenario is deterministic
 

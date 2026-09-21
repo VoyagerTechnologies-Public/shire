@@ -53,15 +53,24 @@ Coverage reports show which code executed and do not establish that an acceptanc
 | YAMCS | `cd yamcs && make test` | Tests supplied by the YAMCS submodule build |
 | Focused component integration | `make cli` followed by `make cli-start` | CLI and simulator protocol checkout without cFS or YAMCS |
 | DRM integration | `make` followed by `make start` | Manual observation of the generated flight, ground, security, dynamics, and simulation stack |
+| Scenario initialization | `make scenario SCENARIO=<name>` | Headless, no-GUI confirmation that a named scenario (deterministic orbit, epoch, attitude, and per-component state) completes cleanly, with a reproducible Initial Condition snapshot and container logs retained per run |
+| Scenario determinism | `make scenario-smoke` | Cross-trial repeatability check (exact terminal dynamics state, command deliveries, and protocol counts) for the currently configured scenario |
 | Synchronized performance | `make perf` and `make perf-compare BASELINE=<report.json>` | Active ADCS and radio workload with pacing, throughput, exact-count, and terminal-state acceptance |
-| Component procedures | `comp/*/gsw/procedures/*.ycs` | Repeatable YAMCS component command sequences |
-| DRM procedures | `yamcs/src/main/yamcs/procedures/*.ycs` | Repeatable YAMCS system command sequences |
+| Component procedures | `comp/*/gsw/procedures/*.ycs`, executable manually in the YAMCS web UI or headlessly via `yamcs/yamcs_commander.py --stack` or a scenario's `verify_stacks` | Repeatable YAMCS component command sequences |
+| DRM procedures | `cfg/<mission>/gsw/procedures/*.ycs`, staged into the `yamcs/` submodule at build time, same manual or headless execution paths | Repeatable YAMCS system command sequences |
 | Published scenario | `atlas/docs/scenarios/commissioning.md` | Manual commissioning workflow, expected results, limitations, and evidence guidance |
 | Atlas validation | `make docs-check` | Markdown, asset, procedure, command reference, and strict site build checks |
 | Repository CI | `.github/workflows/ci.yml` | Simulith, flight software, and CLI builds plus flight software and component simulator tests |
 
 The CI test jobs upload flight software and simulator coverage to Codecov.
 The current CI does not run the Simulith core test target, the YAMCS submodule test target, a complete DRM scenario, or the workstation performance gate.
+Running a complete DRM scenario or a `.ycs` procedure headlessly is now
+possible on demand (`make scenario`, `make scenario-smoke`,
+`yamcs_commander.py --stack`), but none of it is wired into CI yet.
+This is a deliberate scope decision, not an oversight: bringing up the
+full Docker Compose stack in CI is new territory for this pipeline (no
+existing job does it), and its resource and timing behavior on a hosted
+runner needs validating on a draft PR before anything gates merges on it.
 The synchronized performance matrix remains a developer-run activity because its
 acceptance threshold is tied to the current 22 logical CPU workstation.
 The documentation workflow validates the Atlas on pull requests and pushes to `main` or `dev`.

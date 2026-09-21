@@ -19,10 +19,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def run(command: list[str], *, env: dict[str, str] | None = None,
-        check: bool = True) -> subprocess.CompletedProcess[str]:
+        check: bool = True,
+        timeout: float | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=ROOT, env=env, check=check,
                           text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT)
+                          stderr=subprocess.STDOUT, timeout=timeout)
 
 
 def untracked_file_hashes(repository: pathlib.Path) -> dict[str, str]:

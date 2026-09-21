@@ -646,7 +646,11 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
             failures.append(f"trial {trial['speed']} graphics-output accounting mismatch")
     if enforce_performance and not report["fidelity"]["passed"]:
         failures.append("1x/25x exact-count fidelity failed")
-    if enforce_performance and not report["repeatability"]["passed"]:
+    # Repeatability is a correctness check, not a performance threshold --
+    # unlike the speed/queue-activity checks above, it must not be skipped
+    # in smoke/determinism modes (enforce_performance=False), or a genuine
+    # non-determinism would print FAIL but still exit 0.
+    if not report["repeatability"]["passed"]:
         failures.append("cross-trial terminal/count repeatability failed")
     if enforce_performance and baseline and max_speeds:
         if baseline.get("schema_version") != report.get("schema_version"):

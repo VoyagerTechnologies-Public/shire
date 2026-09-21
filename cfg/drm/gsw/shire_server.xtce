@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="SHIRE_SERVER" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
+
+  <!-- Ground control of the Simulith Server's pause/play/speed state (issue #13),
+       carried over a dedicated UDP backdoor to shire-server, mirroring the
+       existing sim-backdoor link into shire-director. -->
+
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+      <xtce:EnumeratedParameterType name="SERVER_PAUSED_Type" shortDescription="Simulation pause state">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned"/>
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="RUNNING"/>
+          <xtce:Enumeration value="1" label="PAUSED"/>
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:FloatParameterType name="SERVER_SPEED_Type" sizeInBits="64" shortDescription="Attempted simulation speed factor (0 = max)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:IntegerParameterType name="SERVER_SIM_TIME_NS_Type" sizeInBits="64" signed="false" shortDescription="Simulation time (ns)">
+        <xtce:IntegerDataEncoding sizeInBits="64" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+    </xtce:ParameterTypeSet>
+    <xtce:ParameterSet>
+      <xtce:Parameter name="PAUSED" parameterTypeRef="SERVER_PAUSED_Type"/>
+      <xtce:Parameter name="SPEED" parameterTypeRef="SERVER_SPEED_Type"/>
+      <xtce:Parameter name="SIM_TIME_NS" parameterTypeRef="SERVER_SIM_TIME_NS_Type"/>
+    </xtce:ParameterSet>
+    <xtce:ContainerSet>
+      <xtce:SequenceContainer name="SERVER_STATUS" shortDescription="Simulith Server pause/speed status">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="PAUSED"/>
+          <xtce:ParameterRefEntry parameterRef="SPEED"/>
+          <xtce:ParameterRefEntry parameterRef="SIM_TIME_NS"/>
+        </xtce:EntryList>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+
+  <xtce:CommandMetaData>
+    <xtce:ArgumentTypeSet>
+      <!-- Big-endian, matching BACKDOOR_CONFIG_ArgType's existing convention
+           for backdoor command arguments (see components/demo/demo.xtce). -->
+      <xtce:FloatArgumentType name="SERVER_SPEED_ArgType" sizeInBits="64" shortDescription="Requested simulation speed factor (0 = max)">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="mostSignificantByteFirst"/>
+      </xtce:FloatArgumentType>
+    </xtce:ArgumentTypeSet>
+
+    <xtce:MetaCommandSet>
+      <!-- Backdoor Commands (raw format for the server-backdoor datalink).
+           Fully self-contained per command, with no BaseMetaCommand sharing,
+           matching the one pattern in this codebase actually proven to
+           route to a non-default stream (components/demo/demo.xtce's
+           BACKDOOR_DEMO_* commands). An earlier attempt at sharing the
+           MAGIC/target framing via an abstract base MetaCommand did not
+           reliably carry the yamcs:stream ancillary data to the default
+           stream; don't reintroduce that without a real end-to-end test
+           confirming the command reaches tc_server_backdoor. -->
+      <xtce:MetaCommand name="BACKDOOR_SERVER_PAUSE" shortDescription="Backdoor: Pause Simulation">
+        <xtce:LongDescription>Pauses the Simulith Server's simulation clock via its ground-command backdoor. Idempotent: repeating this command has no additional effect.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_server_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="BACKDOOR_SERVER_PAUSE_Container">
+          <xtce:EntryList>
+            <!-- Magic "BACKDOOR" (8 bytes) -->
+            <xtce:FixedValueEntry name="MAGIC_B" binaryValue="42" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_A" binaryValue="41" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_C" binaryValue="43" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_K" binaryValue="4B" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_D" binaryValue="44" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O1" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O2" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_R" binaryValue="52" sizeInBits="8"/>
+            <!-- Target length and name -->
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="0C" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="73686972655F736572766572" sizeInBits="96"/> <!-- "shire_server" -->
+            <!-- Command ID 0x0001 (PAUSE) -->
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0001" sizeInBits="16"/>
+            <!-- No payload -->
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0000" sizeInBits="16"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="BACKDOOR_SERVER_PLAY" shortDescription="Backdoor: Resume Simulation">
+        <xtce:LongDescription>Resumes the Simulith Server's simulation clock via its ground-command backdoor. Idempotent: repeating this command has no additional effect.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_server_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="BACKDOOR_SERVER_PLAY_Container">
+          <xtce:EntryList>
+            <!-- Magic "BACKDOOR" (8 bytes) -->
+            <xtce:FixedValueEntry name="MAGIC_B" binaryValue="42" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_A" binaryValue="41" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_C" binaryValue="43" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_K" binaryValue="4B" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_D" binaryValue="44" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O1" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O2" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_R" binaryValue="52" sizeInBits="8"/>
+            <!-- Target length and name -->
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="0C" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="73686972655F736572766572" sizeInBits="96"/> <!-- "shire_server" -->
+            <!-- Command ID 0x0002 (PLAY) -->
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0002" sizeInBits="16"/>
+            <!-- No payload -->
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0000" sizeInBits="16"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="BACKDOOR_SERVER_SET_SPEED" shortDescription="Backdoor: Set Simulation Speed">
+        <xtce:LongDescription>Sets the Simulith Server's attempted simulation speed factor via its ground-command backdoor. A value of 0 requests the unbounded "max" rate.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_server_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="SPEED" argumentTypeRef="SERVER_SPEED_ArgType"/>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_SERVER_SET_SPEED_Container">
+          <xtce:EntryList>
+            <!-- Magic "BACKDOOR" (8 bytes) -->
+            <xtce:FixedValueEntry name="MAGIC_B" binaryValue="42" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_A" binaryValue="41" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_C" binaryValue="43" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_K" binaryValue="4B" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_D" binaryValue="44" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O1" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_O2" binaryValue="4F" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="MAGIC_R" binaryValue="52" sizeInBits="8"/>
+            <!-- Target length and name -->
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="0C" sizeInBits="8"/>
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="73686972655F736572766572" sizeInBits="96"/> <!-- "shire_server" -->
+            <!-- Command ID 0x0003 (SET_SPEED) -->
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0003" sizeInBits="16"/>
+            <!-- Payload length 8 bytes -->
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0008" sizeInBits="16"/>
+            <!-- Speed payload -->
+            <xtce:ArgumentRefEntry argumentRef="SPEED"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+    </xtce:MetaCommandSet>
+  </xtce:CommandMetaData>
+</xtce:SpaceSystem>

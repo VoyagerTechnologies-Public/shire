@@ -10,7 +10,7 @@ The instance configuration and mission database are under `yamcs/src/main/yamcs/
 * `etc/yamcs.yaml` exposes the HTTP service on port 8090 and defines persistent data buckets.
 * `etc/yamcs.shire.yaml` defines the SHIRE instance, data links, recorders, parameter archive, replay service, CFDP service, streams, and mission database files.
 * `mdb/cfs/` contains reusable cFS XTCE definitions.
-* `mdb/sim_42_truth.xtce` defines the Director's 42 truth packet.
+* `mdb/sim_42_truth.xtce` defines the Director's 42 truth packet, staged here at build time (see below).
 * `displays/` and `procedures/` contain operator artifacts shared across components.
 
 Supporting tools and runtime defaults are under `yamcs/`:
@@ -19,7 +19,9 @@ Supporting tools and runtime defaults are under `yamcs/`:
 * `yamcs_commander.py` and `yamcs_timeline.py` provide command line access to the YAMCS API.
 
 Files owned by each component remain under `comp/<name>/gsw/`.
-During `make gsw`, the YAMCS Makefile copies component XTCE, displays, and procedures into the YAMCS build context before creating the runtime image.
+DRM-level files that are not owned by any single component, `mdb/ccsds.xtce`, `mdb/sim_42_truth.xtce`, `mdb/shire_server.xtce`, `displays/SpaceVehicle.par`, and `procedures/CheckoutTest.ycs`, are authored in the outer repo's `cfg/<mission>/gsw/` instead, following the same convention.
+During `make gsw`, the YAMCS Makefile's `copy-gsw-files` target copies both the component and DRM-level XTCE, displays, and procedures into the YAMCS build context before creating the runtime image.
+None of those five DRM-level files are committed inside the `yamcs/` submodule itself (see its `.gitignore`).
 
 ## Links
 
@@ -64,6 +66,7 @@ The stack also exercises three capabilities that sit outside the per-application
   Checking the default first is what proves the backdoor changed the value, rather than the value having already been at the target by coincidence.
 * **CFDP file download.**
   It re-uploads `/d/checkout_adcs.ycs` with `/CCSDS/CFDP_UPLOAD_CHECKOUT` (the same file the stack uploads earlier, since that copy was deleted on its first downlink) and then downlinks it with `/CF/CF_COMMANDS/CF_TX_FILE`, confirming both the CF command counters and the resulting `CF_EOTPACKET` end-of-transaction telemetry.
+  `/CCSDS/CFDP_UPLOAD_CHECKOUT` is not a spacecraft telecommand: it routes over a dedicated `checkout_control` stream to a YAMCS-side service (`CheckoutCfdpUploadService`) that publishes its own `Acknowledge_Sent` only once the CFDP transfer completes, so its `advancement.wait` (180000ms, confirmed live to actually take a few seconds) has to be long enough to cover a real transfer, not just a quick command round trip.
 
 The checkout stack changes spacecraft state.
 It resets command counters, enables ADCS, leaves ADCS in `SUNSAFE`, enables Demo, and leaves the Simulith Server running at 2x speed when it completes.
@@ -72,7 +75,8 @@ It does not check every loaded application, exercise every component behavior, o
 Open **Procedures / Stacks / CheckoutTest.ycs** in YAMCS and review the steps before running it.
 Use a newly started DRM so earlier commands do not affect the stack's absolute counter checks.
 YAMCS uses `radio-out` as the preferred command interface and falls back to `debug-out` when the preferred interface is unavailable.
-The stack advances after YAMCS reports `Acknowledge_Queued` and then relies on its telemetry verification steps to establish the result.
+The stack advances after YAMCS reports `Acknowledge_Sent` and then relies on its telemetry verification steps to establish the result.
+Confirmed directly from the checked in file's top-level `advancement` block, not assumed: run `yamcs/yamcs_commander.py --stack <path>` to execute this same acknowledgment/verify sequence headlessly, as a `verify_stacks` entry in a scenario or standalone (see [Scenarios and initial conditions](../how-to/scenarios.md)).
 
 ## Timelines
 
