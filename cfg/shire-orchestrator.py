@@ -35,6 +35,11 @@ def load_yaml(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cli-debug", action="store_true", help="Force debug=True for all components (CLI builds)")
+    parser.add_argument("--compose-only", action="store_true",
+                        help="Only (re-)render cli-compose.yaml/shire-compose.yaml; skip device_cfg.h, "
+                             "42_config, the scenario snapshot, and the FSW startup script edit. Used by "
+                             "Monte Carlo campaign trials (issue #23) that already built their image and "
+                             "only need a per-instance compose file rendered.")
     args = parser.parse_args()
 
     # Ensure build directory exists
@@ -87,6 +92,14 @@ def main():
     fsw_dir = active.get("fsw_dir", DEFAULT_FSW_DIR)
     gsw_dir = active.get("gsw_dir", DEFAULT_GSW_DIR)
 
+    # Monte Carlo campaign (issue #23) instance-scoping fields. All optional
+    # and unset for a plain `make scenario`/`make start` run, in which case
+    # every use below defaults away to today's behavior exactly.
+    instance = active.get("instance")
+    port_offset = active.get("port_offset", 0)
+    image_tag = active.get("image_tag")
+    initial_conditions_file = active.get("initial_conditions_file")
+
     # Find mission config file
     mission_entry = next((m for m in global_cfg["build"]["missions"] if m["name"] == mission), None)
     if not mission_entry:
@@ -106,11 +119,21 @@ def main():
     # don't set `initial_conditions:` get "nominal-baseline", which
     # reproduces today's hardcoded values exactly, so existing scenarios
     # (drm-nominal, drm-debug) render unchanged.
-    ic_name = scenario_cfg.get("initial_conditions", "nominal-baseline")
-    ic_cfg_path = os.path.join(CFG_DIR, "drm", "initial_conditions", f"{ic_name}.yaml")
-    ic_cfg = load_yaml(ic_cfg_path)
-    if ic_cfg is None:
-        fail(f"Initial condition bin '{ic_name}' not found at {ic_cfg_path}.")
+    # A campaign trial's generated, perturbed IC (initial_conditions_file,
+    # an absolute path written by cfg/shire-campaign.py) takes priority
+    # over the scenario's named IC bin -- this is the only hook a per-trial
+    # IC needs into the orchestrator.
+    if initial_conditions_file:
+        ic_name = f"file:{initial_conditions_file}"
+        ic_cfg = load_yaml(initial_conditions_file)
+        if ic_cfg is None:
+            fail(f"Initial condition file '{initial_conditions_file}' not found.")
+    else:
+        ic_name = scenario_cfg.get("initial_conditions", "nominal-baseline")
+        ic_cfg_path = os.path.join(CFG_DIR, "drm", "initial_conditions", f"{ic_name}.yaml")
+        ic_cfg = load_yaml(ic_cfg_path)
+        if ic_cfg is None:
+            fail(f"Initial condition bin '{ic_name}' not found at {ic_cfg_path}.")
 
     ground_stations_cfg = load_yaml(os.path.join(CFG_DIR, "drm", "ground_stations.yaml"))
     ground_stations = (ground_stations_cfg or {}).get("ground_stations", [])
@@ -136,6 +159,7 @@ def main():
         "mission_cfg": mission_cfg,
         "spacecraft_cfg": spacecraft_cfg,
         "scenario_cfg": scenario_cfg,
+        "image_tag": image_tag or spacecraft,
     }
     
     # Override global.build.cli with the active CLI component from active.yaml
@@ -147,76 +171,81 @@ def main():
         yaml.safe_dump(merged, f)
     print(f"[orchestrator] Merged config written to {BUILD_PATH}")
 
-    # Render config files for components
-    # Determine which components to process based on spacecraft or fallback to mission components
-    if spacecraft and merged["spacecraft_cfg"]:
-        components = merged["spacecraft_cfg"].get("components", [])
-    else:
-        # Fallback to mission-level components for backward compatibility
-        components = merged["mission_cfg"].get("components", [])
-    
-    for comp in components:
-        comp_name = comp.get("name")
-        if not comp_name:
-            continue
-
-        # Full cascading merge: fallback -> global -> mission -> spacecraft -> IC bin -> scenario -> scenario overrides
-        # 1. Fallback config
-        fallback_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support/device_config.yaml'))
-        fallback_data = load_yaml(fallback_path)
-        comp_cfg = dict(fallback_data.get(comp_name, {})) if fallback_data and fallback_data.get(comp_name) else {}
-
-        # 2. Global config
-        global_cfg_comp = merged["global"].get(comp_name, {})
-        comp_cfg.update(global_cfg_comp)
-
-        # 3. Mission config
-        mission_cfg_comp = merged["mission_cfg"].get(comp_name, {})
-        comp_cfg.update(mission_cfg_comp)
-
-        # 4. Spacecraft config (NEW LAYER)
-        if merged["spacecraft_cfg"]:
-            spacecraft_cfg_comp = merged["spacecraft_cfg"].get(comp_name, {})
-            comp_cfg.update(spacecraft_cfg_comp)
-
-        # 5. Initial condition bin's per-component state (NEW LAYER: EPS SOC,
-        #    ADCS starting mode, fault-injection flags, etc.) — applied
-        #    before the scenario's own component config so a scenario can
-        #    still override an IC's component state if it needs to.
-        ic_comp_overrides = (ic_cfg.get("component_overrides") or {}).get(comp_name, {})
-        comp_cfg.update(ic_comp_overrides)
-
-        # 6. Scenario config
-        scenario_cfg_comp = merged["scenario_cfg"].get(comp_name, {})
-        comp_cfg.update(scenario_cfg_comp)
-
-        # 7. Scenario-level 'overrides' dict
-        overrides = merged["scenario_cfg"].get("overrides", {})
-        if overrides is None:
-            overrides = {}
-        comp_cfg.update(overrides)
-
-        # 8. CLI debug override (highest priority)
-        if args.cli_debug:
-            comp_cfg["debug"] = True
-
-        # Try to find a template for this component
-        template_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support'))
-        template_file = f'device_config.j2'
-        template_full_path = os.path.join(template_path, template_file)
-        if os.path.exists(template_full_path) and comp_cfg:
-            env = Environment(loader=FileSystemLoader(template_path))
-            template = env.get_template(template_file)
-            output = template.render(config=comp_cfg)
-
-            # Output path for the generated config (e.g., comp/<name>/shared/<name>_cfg.h)
-            output_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/shared/device_cfg.h'))
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            with open(output_path, 'w') as f:
-                f.write(output)
-            print(f"[orchestrator] device_cfg.h written to {output_path}")
+    # Render config files for components. Skipped under --compose-only:
+    # this writes comp/<name>/shared/device_cfg.h, which a Monte Carlo
+    # campaign trial reusing an already-built image must NOT touch (that
+    # file is what got baked into the image; re-rendering it here would
+    # race a concurrently-building trial with different content).
+    if not args.compose_only:
+        # Determine which components to process based on spacecraft or fallback to mission components
+        if spacecraft and merged["spacecraft_cfg"]:
+            components = merged["spacecraft_cfg"].get("components", [])
         else:
-            print(f"[orchestrator] No config or template found for component '{comp_name}', skipping.")
+            # Fallback to mission-level components for backward compatibility
+            components = merged["mission_cfg"].get("components", [])
+
+        for comp in components:
+            comp_name = comp.get("name")
+            if not comp_name:
+                continue
+
+            # Full cascading merge: fallback -> global -> mission -> spacecraft -> IC bin -> scenario -> scenario overrides
+            # 1. Fallback config
+            fallback_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support/device_config.yaml'))
+            fallback_data = load_yaml(fallback_path)
+            comp_cfg = dict(fallback_data.get(comp_name, {})) if fallback_data and fallback_data.get(comp_name) else {}
+
+            # 2. Global config
+            global_cfg_comp = merged["global"].get(comp_name, {})
+            comp_cfg.update(global_cfg_comp)
+
+            # 3. Mission config
+            mission_cfg_comp = merged["mission_cfg"].get(comp_name, {})
+            comp_cfg.update(mission_cfg_comp)
+
+            # 4. Spacecraft config (NEW LAYER)
+            if merged["spacecraft_cfg"]:
+                spacecraft_cfg_comp = merged["spacecraft_cfg"].get(comp_name, {})
+                comp_cfg.update(spacecraft_cfg_comp)
+
+            # 5. Initial condition bin's per-component state (NEW LAYER: EPS SOC,
+            #    ADCS starting mode, fault-injection flags, etc.) — applied
+            #    before the scenario's own component config so a scenario can
+            #    still override an IC's component state if it needs to.
+            ic_comp_overrides = (ic_cfg.get("component_overrides") or {}).get(comp_name, {})
+            comp_cfg.update(ic_comp_overrides)
+
+            # 6. Scenario config
+            scenario_cfg_comp = merged["scenario_cfg"].get(comp_name, {})
+            comp_cfg.update(scenario_cfg_comp)
+
+            # 7. Scenario-level 'overrides' dict
+            overrides = merged["scenario_cfg"].get("overrides", {})
+            if overrides is None:
+                overrides = {}
+            comp_cfg.update(overrides)
+
+            # 8. CLI debug override (highest priority)
+            if args.cli_debug:
+                comp_cfg["debug"] = True
+
+            # Try to find a template for this component
+            template_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support'))
+            template_file = f'device_config.j2'
+            template_full_path = os.path.join(template_path, template_file)
+            if os.path.exists(template_full_path) and comp_cfg:
+                env = Environment(loader=FileSystemLoader(template_path))
+                template = env.get_template(template_file)
+                output = template.render(config=comp_cfg)
+
+                # Output path for the generated config (e.g., comp/<name>/shared/<name>_cfg.h)
+                output_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/shared/device_cfg.h'))
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, 'w') as f:
+                    f.write(output)
+                print(f"[orchestrator] device_cfg.h written to {output_path}")
+            else:
+                print(f"[orchestrator] No config or template found for component '{comp_name}', skipping.")
 
     # Render cli-compose.yaml from Jinja2 template using cli_component
     cli_template_path = os.path.abspath(os.path.join(CFG_DIR))
@@ -235,64 +264,81 @@ def main():
     else:
         print(f"[orchestrator] cli-compose.j2 template not found, skipping cli-compose.yaml generation.")
 
-    # Render shire-compose.yaml from Jinja2 template using log_mode and spacecraft
+    # Render shire-compose.yaml from Jinja2 template using log_mode and
+    # spacecraft. A campaign trial's compose file lives under its own
+    # build/<mission>/<instance>/ subdirectory rather than the shared
+    # build/<mission>/ path, since multiple trials' compose files must
+    # coexist on disk while their stacks run concurrently; a plain
+    # `make scenario`/`make start` run (instance unset) is unaffected.
     lab_template_path = os.path.abspath(os.path.join(CFG_DIR))
     lab_template_file = "shire-compose.j2"
     lab_template_full_path = os.path.join(lab_template_path, lab_template_file)
-    lab_compose_output_path = os.path.join(build_mission_dir, "shire-compose.yaml")
+    lab_compose_dir = os.path.join(build_mission_dir, instance) if instance else build_mission_dir
+    os.makedirs(lab_compose_dir, exist_ok=True)
+    lab_compose_output_path = os.path.join(lab_compose_dir, "shire-compose.yaml")
     if os.path.exists(lab_template_full_path):
         env = Environment(loader=FileSystemLoader(lab_template_path))
         template = env.get_template(lab_template_file)
-        output = template.render(log_mode=log_mode, spacecraft=spacecraft, mission=mission, fsw_dir=fsw_dir, gsw_dir=gsw_dir)
+        output = template.render(log_mode=log_mode, spacecraft=spacecraft, mission=mission, fsw_dir=fsw_dir,
+                                 gsw_dir=gsw_dir, instance=instance, port_offset=port_offset,
+                                 image_tag=merged["image_tag"])
         with open(lab_compose_output_path, "w") as f:
             f.write(output)
-        print(f"[orchestrator] shire-compose.yaml written to {lab_compose_output_path} (log_mode={log_mode}, spacecraft={spacecraft})")
+        print(f"[orchestrator] shire-compose.yaml written to {lab_compose_output_path} "
+              f"(log_mode={log_mode}, spacecraft={spacecraft}, instance={instance}, port_offset={port_offset})")
     else:
         print(f"[orchestrator] shire-compose.j2 template not found, skipping shire-compose.yaml generation.")
 
-    # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt from Jinja2
-    # templates using the graphics setting and the scenario's resolved IC.
-    sim_template_path = os.path.abspath(os.path.join(CFG_DIR, '42_shire_config'))
-    build_42_config_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/42_config'))
-    os.makedirs(build_42_config_dir, exist_ok=True)
+    # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt, snapshot the
+    # scenario, and adjust the FSW startup script. All of these write to
+    # fixed, non-instance-scoped paths that get baked into images at build
+    # time -- skipped under --compose-only, since a campaign trial reusing
+    # an already-built image must not race a concurrently-building trial
+    # with different content over these same paths.
+    if not args.compose_only:
+        # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt from Jinja2
+        # templates using the graphics setting and the scenario's resolved IC.
+        sim_template_path = os.path.abspath(os.path.join(CFG_DIR, '42_shire_config'))
+        build_42_config_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/42_config'))
+        os.makedirs(build_42_config_dir, exist_ok=True)
 
-    for template_file, output_name, extra_context in (
-        ("Inp_Sim.j2", "Inp_Sim.txt", {"graphics": graphics, "ground_stations": ground_stations}),
-        ("Orb_SHIRE.j2", "Orb_SHIRE.txt", {}),
-        ("SC_SHIRE.j2", "SC_SHIRE.txt", {}),
-    ):
-        template_full_path = os.path.join(sim_template_path, template_file)
-        output_path = os.path.join(build_42_config_dir, output_name)
-        if os.path.exists(template_full_path):
-            env = Environment(loader=FileSystemLoader(sim_template_path))
-            template = env.get_template(template_file)
-            output = template.render(ic=ic_cfg, **extra_context)
-            with open(output_path, "w") as f:
-                f.write(output)
-            print(f"[orchestrator] {output_name} written to {output_path} (initial_conditions={ic_name})")
-        else:
-            print(f"[orchestrator] {template_file} template not found, skipping {output_name} generation.")
+        for template_file, output_name, extra_context in (
+            ("Inp_Sim.j2", "Inp_Sim.txt", {"graphics": graphics, "ground_stations": ground_stations}),
+            ("Orb_SHIRE.j2", "Orb_SHIRE.txt", {}),
+            ("SC_SHIRE.j2", "SC_SHIRE.txt", {}),
+        ):
+            template_full_path = os.path.join(sim_template_path, template_file)
+            output_path = os.path.join(build_42_config_dir, output_name)
+            if os.path.exists(template_full_path):
+                env = Environment(loader=FileSystemLoader(sim_template_path))
+                template = env.get_template(template_file)
+                output = template.render(ic=ic_cfg, **extra_context)
+                with open(output_path, "w") as f:
+                    f.write(output)
+                print(f"[orchestrator] {output_name} written to {output_path} (initial_conditions={ic_name})")
+            else:
+                print(f"[orchestrator] {template_file} template not found, skipping {output_name} generation.")
 
-    # Snapshot the scenario + resolved IC selection for this build, so a
-    # specific run's exact starting state stays traceable even after
-    # build/active.yaml later points at something else. Cheap git SHA only
-    # (not the full submodule/dirty walk shire-perf.py's git_metadata() does)
-    # since this runs on every `make cfg`, including trivial edits.
-    scenario_build_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/scenario'))
-    os.makedirs(scenario_build_dir, exist_ok=True)
-    snapshot_path = os.path.join(scenario_build_dir, f"{scenario}.snapshot.yaml")
-    snapshot = {
-        "scenario_name": scenario,
-        "initial_conditions": ic_name,
-        "resolved_ic": ic_cfg,
-        "git_sha": git_head_sha(),
-    }
-    with open(snapshot_path, "w") as f:
-        yaml.safe_dump(snapshot, f, sort_keys=False)
-    print(f"[orchestrator] Scenario snapshot written to {snapshot_path}")
+        # Snapshot the scenario + resolved IC selection for this build, so a
+        # specific run's exact starting state stays traceable even after
+        # build/active.yaml later points at something else. Cheap git SHA only
+        # (not the full submodule/dirty walk shire-perf.py's git_metadata() does)
+        # since this runs on every `make cfg`, including trivial edits.
+        scenario_build_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/scenario'))
+        os.makedirs(scenario_build_dir, exist_ok=True)
+        snapshot_path = os.path.join(scenario_build_dir, f"{scenario}.snapshot.yaml")
+        snapshot = {
+            "scenario_name": scenario,
+            "initial_conditions": ic_name,
+            "resolved_ic": ic_cfg,
+            "git_sha": git_head_sha(),
+        }
+        with open(snapshot_path, "w") as f:
+            yaml.safe_dump(snapshot, f, sort_keys=False)
+        print(f"[orchestrator] Scenario snapshot written to {snapshot_path}")
 
     # Copy and manipulate spacecraft-specific FSW config files
-    if spacecraft:
+    if spacecraft and not args.compose_only:
         build_cfg_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/{spacecraft}/shire_defs'))
         baseline_cfg_dir = os.path.abspath(os.path.join(CFG_DIR, 'shire_defs'))
         os.makedirs(build_cfg_dir, exist_ok=True)

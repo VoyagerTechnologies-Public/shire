@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold perf perf-compare perf-smoke scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 build build-complexity campaign clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cfg-compose-only cli cli-start container debug docs-check docs-serve fsw gsw help mold perf perf-compare perf-smoke scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -40,6 +40,14 @@ cfg: container
 
 cfg-cli: container
 	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
+
+# Only re-renders cli-compose.yaml/shire-compose.yaml (skips device_cfg.h,
+# 42_config, and the scenario snapshot). Used by Monte Carlo campaign
+# trials (issue #23) that already built their image via `make build` and
+# only need a per-instance compose file rendered -- see shire-scenario.py's
+# --no-build flag.
+cfg-compose-only: container
+	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --compose-only
 
 clean:
 	$(MAKE) stop
@@ -129,6 +137,7 @@ help:
 	@echo "Targets:"
 	@echo "  42            - Build 42 simulator container"
 	@echo "  build         - Build the full runtime environment"
+	@echo "  campaign      - Run CAMPAIGN=<name> Monte Carlo trials and aggregate results (optional MAX_PARALLEL=N)"
 	@echo "  cfg           - Run orchestrator to configure environment"
 	@echo "  cfg-cli       - Run orchestrator with debug=true for CLI builds"
 	@echo "  cli           - Build CLI components"
@@ -185,6 +194,14 @@ scenario-smoke: build
 scenario:
 	@if [ -z "$(SCENARIO)" ]; then echo "SCENARIO=<name> is required"; exit 2; fi
 	python3 cfg/shire-scenario.py --scenario "$(SCENARIO)"
+
+# No `build` prerequisite either, for the same reason as `scenario:` above:
+# shire-campaign.py drives shire-scenario.py once per trial, and each of
+# those sets active.yaml and runs its own build step (a full `make build`
+# once per unique image tag, then `make cfg-compose-only` per trial).
+campaign:
+	@if [ -z "$(CAMPAIGN)" ]; then echo "CAMPAIGN=<name> is required"; exit 2; fi
+	python3 cfg/shire-campaign.py --campaign "$(CAMPAIGN)" $(if $(MAX_PARALLEL),--max-parallel "$(MAX_PARALLEL)",)
 
 sim: cfg
 	python3 cfg/shire-build.py sim

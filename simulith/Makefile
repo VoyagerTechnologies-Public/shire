@@ -10,6 +10,10 @@ export RUNTIME_DIRECTOR_NAME ?= shire-director-$(MISSION)
 export RUNTIME_SERVER_NAME ?= shire-server-$(MISSION)
 export SPACECRAFT ?= 0.0.0
 export MISSION ?= default
+# Defaults to SPACECRAFT; a Monte Carlo campaign trial (issue #23) passes
+# its own content-addressed build-key tag instead, so campaign and manual
+# dev-loop builds never collide on the same tag.
+export IMAGE_TAG ?= $(SPACECRAFT)
 
 # Determine number of parallel jobs to avoid maxing out low-power systems (Raspberry Pi etc.).
 # Use `nproc - 1` but ensure at least 1 job.
@@ -89,7 +93,7 @@ director: copy-sims
 		cp -rL $(BUILDDIR)/InOut build/ 2>/dev/null || true; \
 		cp -rL $(BUILDDIR)/Model build/ 2>/dev/null || true; \
 	fi
-	docker build -t $(RUNTIME_DIRECTOR_NAME):$(SPACECRAFT) -f docker/Dockerfile.director .
+	docker build -t $(RUNTIME_DIRECTOR_NAME):$(IMAGE_TAG) -f docker/Dockerfile.director .
 
 server:
 	@if [ ! -d "$(BUILDDIR)" ]; then \
@@ -105,7 +109,7 @@ server:
 		cp -rL $(BUILDDIR)/InOut build/ 2>/dev/null || true; \
 		cp -rL $(BUILDDIR)/Model build/ 2>/dev/null || true; \
 	fi
-	docker build -t $(RUNTIME_SERVER_NAME):$(SPACECRAFT) -f docker/Dockerfile.server .
+	docker build -t $(RUNTIME_SERVER_NAME):$(IMAGE_TAG) -f docker/Dockerfile.server .
 
 stop:
 	docker ps --filter name=shire-* | xargs docker stop

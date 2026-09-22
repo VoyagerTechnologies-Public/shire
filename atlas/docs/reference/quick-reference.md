@@ -27,6 +27,7 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make perf-smoke` | Build and run one short synchronized diagnostic trial. |
 | `make perf` | Build and run the active 1x and 25x fidelity pair plus three unbounded trials. |
 | `make perf-compare BASELINE=<report.json>` | Repeat the performance matrix and compare it with an accepted performance report. |
+| `make campaign CAMPAIGN=<name> MAX_PARALLEL=<n>` | Run a Monte Carlo campaign's trials and aggregate the results. |
 | `make docs-check` | Validate the Atlas content and run a strict production build. |
 | `make docs-serve` | Start the local Atlas preview server. |
 | `make debug` | Open an interactive shell in the SHIRE build image with the repository mounted. |
@@ -164,6 +165,7 @@ Use a reviewed report as `BASELINE` rather than copying only its median speed.
 | Which developer commands are supported? | The root `Makefile` and subsystem Makefiles |
 | Which performance workload is injected? | `cfg/perf-scenario.json` |
 | How is a performance report produced and evaluated? | `cfg/shire-perf.py` |
+| How is a Monte Carlo campaign defined and run? | `cfg/drm/campaigns/<name>.yaml` and `cfg/shire-campaign.py` |
 
 Treat this page as a convenience index.
 When it disagrees with a generated file or source listed above, inspect the current checkout and report the documentation mismatch.

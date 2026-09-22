@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
 import pathlib
@@ -30,13 +31,12 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
 import time
 
 import yaml
 
 from shire_provenance import ROOT, run, git_head_sha
-from shire_runner_lib import container_names, try_parse_marker
+from shire_runner_lib import container_names, run_streaming, try_parse_marker
 
 SIMULATED_TIME_RE = re.compile(r"Simulation time:\s*([0-9.]+)\s*seconds")
 
@@ -48,46 +48,9 @@ SIMULATED_TIME_RE = re.compile(r"Simulation time:\s*([0-9.]+)\s*seconds")
 # periodically instead of only at the very end.
 HEARTBEAT_INTERVAL_S = 10.0
 
-
-def run_streaming(cmd: list[str], *, env: dict[str, str] | None = None,
-                  timeout: float | None = None) -> tuple[int, str]:
-    """Runs `cmd`, printing its combined stdout/stderr live (line by line,
-    flushed immediately) to this process's stdout, while also capturing
-    it to return for writing to a log file afterward -- so a long-running
-    child (a full `make build`, or a `.ycs` stack with a 100+-second CFDP
-    step) shows visible progress instead of going silent until it exits.
-
-    Reads the child's output on a background thread so `timeout` is
-    enforced even if the child produces no output at all (a plain
-    line-blocking read loop wouldn't notice a hang between lines)."""
-    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
-    lines: list[str] = []
-
-    def _pump() -> None:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            print(line, end="", flush=True)
-            lines.append(line)
-
-    pump = threading.Thread(target=_pump, daemon=True)
-    pump.start()
-
-    started = time.monotonic()
-    timed_out = False
-    while proc.poll() is None:
-        if timeout is not None and time.monotonic() - started > timeout:
-            proc.terminate()
-            timed_out = True
-            break
-        time.sleep(0.1)
-    pump.join(timeout=5)
-    if timed_out:
-        raise subprocess.TimeoutExpired(cmd, timeout, output="".join(lines))
-    return proc.returncode, "".join(lines)
-
 CFG_DIR = ROOT / "cfg"
 ACTIVE_PATH = ROOT / "build" / "active.yaml"
+ACTIVE_LOCK_PATH = ROOT / "build" / ".shire-active.lock"
 GLOBAL_CONFIG = CFG_DIR / "shire-config.yaml"
 
 
@@ -117,13 +80,32 @@ def load_scenario_cfg(mission: str, scenario_name: str) -> dict[str, object]:
     return scenario_cfg
 
 
-def update_active(mission: str | None, spacecraft: str | None, scenario: str) -> dict[str, object]:
+INSTANCE_RE = re.compile(r"^[a-z0-9]{1,8}$")
+
+
+def update_active(mission: str | None, spacecraft: str | None, scenario: str, *,
+                  instance: str | None = None, port_offset: int | None = None,
+                  image_tag: str | None = None,
+                  initial_conditions_file: str | None = None) -> dict[str, object]:
     active = load_yaml(ACTIVE_PATH) or {}
     active["scenario"] = scenario
     if mission:
         active["mission"] = mission
     if spacecraft:
         active["spacecraft"] = spacecraft
+    # Monte Carlo campaign (issue #23) instance-scoping fields. These must
+    # always be set explicitly -- including clearing -- rather than only
+    # added when given: active.yaml persists between invocations, so a
+    # plain `make scenario` call with none of these flags must not inherit
+    # a stale instance/port_offset/image_tag/initial_conditions_file left
+    # behind by an earlier campaign trial run on the same checkout.
+    for key, value in (("instance", instance), ("port_offset", port_offset),
+                       ("image_tag", image_tag),
+                       ("initial_conditions_file", initial_conditions_file)):
+        if value is None:
+            active.pop(key, None)
+        else:
+            active[key] = value
     ACTIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
     ACTIVE_PATH.write_text(yaml.safe_dump(active, sort_keys=False), encoding="utf-8")
     return active
@@ -217,7 +199,8 @@ def wait_for_simulated_time(server_container: str, target_s: float, deadline_s: 
 
 
 def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_container: str,
-                                deadline_s: float, report_dir: pathlib.Path) -> dict[str, object]:
+                                deadline_s: float, report_dir: pathlib.Path,
+                                port_offset: int = 0) -> dict[str, object]:
     """Runs each {stack, at_s} entry in ascending at_s order, waiting for
     the run to reach each one's simulated time before firing it. Every
     entry is attempted regardless of earlier failures (same "run to
@@ -254,12 +237,18 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
             continue
         report_path = report_dir / f"verify-{stem}.json"
         remaining_s = deadline_s - (time.monotonic() - started)
+        yamcs_url = f"http://localhost:{8090 + port_offset}"
         print(f"[scenario] running verify stack: {stack_path} "
               f"(scheduled at simulated t={at_s:.0f}s)...", flush=True)
         try:
+            # --yamcs-url must reflect this run's port_offset -- without
+            # it, every campaign trial's verification would silently hit
+            # port 8090 regardless of offset (either verifying nothing, or
+            # worse, verifying a *different* trial's YAMCS instance).
             returncode, stdout = run_streaming(
                 [sys.executable, str(ROOT / "yamcs" / "yamcs_commander.py"),
-                 "--stack", str(ROOT / stack_path), "--report", str(report_path)],
+                 "--stack", str(ROOT / stack_path), "--report", str(report_path),
+                 "--yamcs-url", yamcs_url],
                 timeout=max(1.0, remaining_s))
         except subprocess.TimeoutExpired as e:
             stdout, returncode = (e.output or ""), None
@@ -315,31 +304,84 @@ def main() -> int:
     parser.add_argument("--report-dir",
                         help="Where to write result.json + logs (default: "
                              "build/scenario-runs/<scenario>-<UTC timestamp>/)")
+    parser.add_argument("--instance-id",
+                        help="Monte Carlo campaign (issue #23) trial token, e.g. a zero-padded "
+                             "trial index. Namespaces this run's container/network/volume names "
+                             "so it can run concurrently with other instances. Must match "
+                             "^[a-z0-9]{1,8}$ (also used as a DNS hostname on the bridge network).")
+    parser.add_argument("--port-offset", type=int, default=None,
+                        help="Added to this run's published host ports (8090 YAMCS, 5801 42 VNC) "
+                             "so concurrent instances don't collide. Default: 0.")
+    parser.add_argument("--image-tag", help="Explicit image tag to run (e.g. a campaign build-key "
+                                            "tag) instead of the bare spacecraft tag.")
+    parser.add_argument("--initial-conditions-file",
+                        help="Absolute path to a generated IC bin yaml to use instead of the "
+                             "scenario's named initial_conditions bin.")
+    parser.add_argument("--no-build", action="store_true",
+                        help="Skip `make build`; run `make cfg-compose-only` instead. Assumes an "
+                             "image matching --image-tag was already built (see cfg/shire-campaign.py).")
     args = parser.parse_args()
+
+    if args.instance_id and not INSTANCE_RE.match(args.instance_id):
+        print(f"[scenario] ERROR: --instance-id {args.instance_id!r} must match "
+              f"^[a-z0-9]{{1,8}}$ (it's also used as a container-name/DNS-hostname suffix)",
+              file=sys.stderr)
+        return 2
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report_dir = pathlib.Path(args.report_dir).expanduser().resolve() if args.report_dir \
         else ROOT / "build" / "scenario-runs" / f"{args.scenario}-{timestamp}"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    active = update_active(args.mission, args.spacecraft, args.scenario)
-    mission = str(active.get("mission", "drm"))
-    spacecraft = str(active.get("spacecraft", "sat-1"))
+    port_offset = args.port_offset or 0
 
     result: dict[str, object] = {
         "scenario": args.scenario,
-        "mission": mission,
-        "spacecraft": spacecraft,
+        "mission": None,
+        "spacecraft": None,
         "started_utc": timestamp,
         "git_sha": git_head_sha(),
     }
 
-    print(f"[scenario] Configuring build for scenario={args.scenario} "
-          f"mission={mission} spacecraft={spacecraft}")
-    build_returncode, build_stdout = run_streaming(["make", "build"])
+    # build/active.yaml is shared, global, mutable state: update_active()'s
+    # write and the orchestrator's read of it (inside `make build` /
+    # `make cfg-compose-only`) are two separate steps with no atomicity
+    # between them. Without a lock, two shire-scenario.py invocations
+    # running concurrently (e.g. two Monte Carlo campaign trials) can
+    # interleave -- one process's write, then the other's -- so the first
+    # process's `make` call ends up reading the *second* process's
+    # instance/port_offset/image_tag and renders the wrong compose file.
+    # Held only across the write-then-render step; nothing after this
+    # block touches active.yaml, so the lock is not held for the run's
+    # actual (multi-minute) duration.
+    ACTIVE_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(ACTIVE_LOCK_PATH, "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            active = update_active(args.mission, args.spacecraft, args.scenario,
+                                   instance=args.instance_id, port_offset=args.port_offset,
+                                   image_tag=args.image_tag,
+                                   initial_conditions_file=args.initial_conditions_file)
+            mission = str(active.get("mission", "drm"))
+            spacecraft = str(active.get("spacecraft", "sat-1"))
+            result["mission"] = mission
+            result["spacecraft"] = spacecraft
+
+            print(f"[scenario] Configuring build for scenario={args.scenario} "
+                  f"mission={mission} spacecraft={spacecraft}"
+                  + (f" instance={args.instance_id} port_offset={port_offset}" if args.instance_id else ""))
+            # --no-build assumes a Monte Carlo campaign trial
+            # (cfg/shire-campaign.py) already ran a full `make build` for
+            # this trial's --image-tag; only the per-instance compose file
+            # needs (re-)rendering here.
+            build_target = "cfg-compose-only" if args.no_build else "build"
+            build_returncode, build_stdout = run_streaming(["make", build_target])
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
     (report_dir / "build.log").write_text(build_stdout, encoding="utf-8")
     if build_returncode != 0:
-        return finish(result, False, "make build failed; see build.log", report_dir)
+        return finish(result, False, f"make {build_target} failed; see build.log", report_dir)
 
     scenario_cfg = load_scenario_cfg(mission, args.scenario)
     run_duration_s = float(scenario_cfg.get("run_duration_s", 900))
@@ -347,8 +389,10 @@ def main() -> int:
     director_command_scenario = scenario_cfg.get("director_command_scenario")
     result["run_duration_s"] = run_duration_s
 
-    names = container_names(mission, spacecraft)
-    compose = ROOT / "build" / mission / "shire-compose.yaml"
+    names = container_names(mission, spacecraft, instance=args.instance_id)
+    compose_dir = ROOT / "build" / mission / args.instance_id if args.instance_id \
+        else ROOT / "build" / mission
+    compose = compose_dir / "shire-compose.yaml"
     compose_cmd = ["docker", "compose", "-f", str(compose)]
 
     trial_env = os.environ.copy()
@@ -367,7 +411,15 @@ def main() -> int:
         trial_env["SIMULITH_SCENARIO_ENABLED"] = "1"
         trial_env["SIMULITH_SCENARIO_FILE"] = str(ROOT / director_command_scenario)
 
-    run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+    # Instance-scoped volumes (simulith_ipc_*/gsw-data_* with an -<instance>
+    # suffix) are 100% ephemeral per trial, unlike the plain single-run
+    # path where they may deliberately persist across successive manual
+    # `make scenario` calls -- so campaign trials also drop them with -v,
+    # or a long campaign leaks one set of named volumes per trial.
+    down_cmd = compose_cmd + ["down", "--remove-orphans", "--timeout", "2"]
+    if args.instance_id:
+        down_cmd = down_cmd + ["-v"]
+    run(down_cmd, check=False)
 
     passed = False
     reason = "unknown"
@@ -383,7 +435,7 @@ def main() -> int:
         verify_stacks = scenario_cfg.get("verify_stacks", [])
         if verify_stacks:
             result["verification"] = run_scheduled_verify_stacks(
-                verify_stacks, names["server"], deadline_s, report_dir)
+                verify_stacks, names["server"], deadline_s, report_dir, port_offset=port_offset)
 
         completed = wait_for_completion(names["server"], deadline_s)
 
@@ -433,7 +485,7 @@ def main() -> int:
                           f"({first['type']} {first.get('name')}): "
                           f"{first.get('detail') or first.get('actual')}")
     finally:
-        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        run(down_cmd, check=False)
 
     return finish(result, passed, reason, report_dir)
 

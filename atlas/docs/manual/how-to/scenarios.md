@@ -342,13 +342,11 @@ runs match.
 That answers "does this IC reproduce run after run," which is a different
 question from "did this run complete cleanly" above.
 
-## Looking ahead to Monte Carlo (issue #23)
+## Monte Carlo campaigns (issue #23)
 
-This design's main hook for a future batch campaign is the IC-bin/scenario
-split above.
-A batch driver would enumerate `initial_conditions` bin names, or generate
-perturbed ones matching the same schema, against one fixed scenario, reusing
-everything in this page unmodified.
-`cfg/shire-perf.py`'s report schema, with its provenance and per-trial
-structure, is the intended pattern to extend for aggregating many trials'
-outcomes, the way it already does for performance trials.
+The IC-bin/scenario split above is the axis a Monte Carlo campaign needs:
+one fixed scenario, run across many varied (or generated and perturbed) IC
+bins, reusing this page's autonomous run path unmodified for every trial.
+See [Monte Carlo campaigns](monte-carlo-campaigns.md) for the campaign
+YAML schema, parameter sampling, running one with `make campaign`, and its
+aggregated report and dataset export.
