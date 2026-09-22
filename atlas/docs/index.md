@@ -16,6 +16,7 @@ Start with [Installation](manual/handbook/installation.md), then follow [Getting
 | Prepare the environment | [Installation](manual/handbook/installation.md) |
 | Build and run the default DRM | [Getting Started](manual/handbook/getting-started.md) |
 | Rehearse a developer or operator workflow | [Scenarios](scenarios/overview.md) |
+| Automate a scenario run or sweep initial conditions | [Scenarios and initial conditions](manual/how-to/scenarios.md) and [Monte Carlo campaigns](manual/how-to/monte-carlo-campaigns.md) |
 | Review core concepts | [System Architecture](manual/core-concepts/space-systems.md) |
 | Diagnose a common problem | [FAQ](manual/handbook/faq.md) |
 | Look up a term or command | [Glossary](reference/glossary.md) and [Quick Reference](reference/quick-reference.md) |

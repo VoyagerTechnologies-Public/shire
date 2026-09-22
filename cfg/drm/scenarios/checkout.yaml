@@ -14,16 +14,24 @@ description: >
   smoke stack (cFE app NOOP/reset-counter checks, ADCS enable + SUNSAFE
   Sun-vector convergence, Simulith Server pause/play/speed backdoor, Demo
   backdoor config, and a CFDP upload/downlink round trip) headlessly.
-  Uses nominal-baseline so the stack's absolute counter-starts-at-0 checks
-  are meaningful.
+  Uses nominal-baseline so the SUNSAFE Sun-vector convergence check has a
+  known-good starting geometry to converge from within its timeout. Every
+  counter check resets its own counter first, and the Demo config check
+  establishes its own baseline first, so (unlike the IC choice) neither
+  depends on this being a freshly started DRM -- confirmed live, the
+  stack passes three runs in a row against one already-running instance.
 initial_conditions: "nominal-baseline"
 overrides:
   debug: false
 # run_duration_s is a budget for verify_stacks to finish in, not a mission
 # timeline to exercise -- CheckoutTest.ycs's 142 steps (including two CFDP
-# round trips, confirmed live at ~4-7s each despite their generous 180s
-# timeouts) complete in ~90s. 240s leaves >2.5x margin without wasting
-# minutes waiting out a duration this scenario has no other use for.
+# round trips, confirmed live at ~4-7s each) complete in ~90s. Their
+# advancement.wait is 1000ms (a GUI-facing pause, not a safety margin --
+# see ground-software.md's "CFDP file download" bullet); the real safety
+# margin comes from yamcs_commander.py's own 30s MIN_ACK_POLL_MS floor,
+# not from this scenario's timing. 240s leaves >2.5x margin over the
+# ~90s without wasting minutes waiting out a duration this scenario has
+# no other use for.
 #
 # Deliberately left at the default (1x/real-time) SIMULITH_SPEED. This
 # was tried at simulith_speed=5 with run_duration_s scaled up to 600 to

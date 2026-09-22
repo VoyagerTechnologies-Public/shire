@@ -597,6 +597,8 @@ def export_jsonl(trials: list[dict], campaign_name: str, git_sha: str, out_path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--campaign", help="Name of a campaign in cfg/drm/campaigns/*.yaml (name field)")
+    parser.add_argument("--list-campaigns", action="store_true",
+                        help="Print every campaign name available under cfg/drm/campaigns/ and exit.")
     parser.add_argument("--mission", default="drm", help="Mission to run under (default: drm)")
     parser.add_argument("--spacecraft", default="sat-1", help="Spacecraft to run under (default: sat-1)")
     parser.add_argument("--max-parallel", type=int, default=None,
@@ -611,6 +613,15 @@ def main() -> int:
                                               "campaign_report.json, without running anything")
     parser.add_argument("--jsonl-out", help="Output path for --from-report (default: alongside the report)")
     args = parser.parse_args()
+
+    if args.list_campaigns:
+        names = sorted(p.stem for p in CAMPAIGNS_DIR.glob("*.yaml"))
+        if not names:
+            print(f"\t[campaign] no campaigns found under {CAMPAIGNS_DIR}", file=sys.stderr)
+            return 1
+        for name in names:
+            print("\t" + name)
+        return 0
 
     if args.from_report:
         report_path = pathlib.Path(args.from_report).expanduser().resolve()

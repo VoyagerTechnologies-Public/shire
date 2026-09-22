@@ -62,6 +62,8 @@ make stop
 
 Do not run the DRM and focused CLI environment at the same time for one spacecraft.
 They reuse explicit container names, host port 5801, the spacecraft network, and the Simulith IPC volume.
+A Monte Carlo campaign trial is the one deliberate exception to running multiple DRM-shaped stacks for the same mission and spacecraft at once, and it avoids this exact collision by construction rather than by the operator's own care.
+See "Monte Carlo campaign trials" below.
 
 ## Inspect the DRM
 
@@ -134,6 +136,26 @@ This permanently removes the project copies of both Simulith IPC state and YAMCS
 Export required timelines, procedures, displays, archives, and CFDP files before deleting the YAMCS volume.
 Capture container logs and test evidence before cleanup removes their source containers.
 Do not use volume deletion as an initial troubleshooting step when retained ground state matters.
+
+## Monte Carlo campaign trials
+
+`make campaign CAMPAIGN=<name>` runs many trials of one scenario concurrently, bounded by `MAX_PARALLEL`.
+Each trial suffixes every container, network, and volume name from the generated Compose file with its own instance token, for example `shire-fsw-sat-1-0007` instead of `shire-fsw-sat-1`.
+Each trial also publishes its own host ports, offset from the defaults (`8090`, `5801`) by a stride the campaign runner assigns.
+This is what lets concurrent trials for the same mission and spacecraft coexist without the collision the DRM and CLI environments would otherwise hit.
+
+Every trial's containers, networks, and volumes also carry a `shire.instance` Docker label.
+Find and remove a specific trial's resources directly:
+
+```bash
+docker ps -aq --filter label=shire.instance=<token> | xargs -r docker rm -f
+docker network ls -q --filter label=shire.instance=<token> | xargs -r docker network rm
+docker volume ls -q --filter label=shire.instance=<token> | xargs -r docker volume rm
+```
+
+Omit `=<token>` on any of the three filters above to match every instance-labeled resource regardless of token, the same sweep `cfg/shire-campaign.py` itself runs unconditionally at the start of every campaign, to clear a prior crashed run's orphans before it begins.
+A campaign run also performs this sweep, scoped to only its own trials, on `SIGINT`/`SIGTERM`.
+See [Monte Carlo campaigns](monte-carlo-campaigns.md) for the full campaign mechanism.
 
 ## Common build patterns
 

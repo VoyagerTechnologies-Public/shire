@@ -358,7 +358,7 @@
       "arguments": [],
       "advancement": {
         "acknowledgment": "Acknowledge_Sent",
-        "wait": 180000
+        "wait": 1000
       }
     },
     {
@@ -1313,7 +1313,7 @@
     },
     {
       "type": "text",
-      "text": "DEMO: Backdoor configuration command.\n* Enable the device\n* Confirm default config\n* Set demo simulator config via backdoor\n* Request fresh housekeeping\n* Confirm config value applied"
+      "text": "DEMO: Backdoor configuration command.\n* Enable the device\n* Reset config to a known baseline via backdoor (re-runnable without a DRM restart)\n* Confirm baseline config\n* Set demo simulator config via backdoor\n* Request fresh housekeeping\n* Confirm config value applied"
     },
     {
       "type": "command",
@@ -1339,6 +1339,25 @@
       "timeout": 30000
     },
     {
+      "type": "command",
+      "name": "/DEMO/BACKDOOR_DEMO_SET_CONFIG",
+      "comment": "Establish a known baseline via backdoor before the check below, rather than assuming a fresh power-on default -- this is what makes the stack re-runnable against an already-running DRM instead of only against a just-started one.",
+      "stream": "tc_backdoor",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "CONFIG_VALUE",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
       "type": "verify",
       "condition": [
         {
@@ -1348,7 +1367,7 @@
         }
       ],
       "timeout": 30000,
-      "comment": "Confirm default config before overriding via backdoor."
+      "comment": "Confirm the backdoor-set baseline before overriding it again below -- proves the backdoor changed the value, the same evidentiary purpose the old power-on-default check served, without depending on incidental freshness."
     },
     {
       "type": "command",
@@ -1392,7 +1411,7 @@
       "arguments": [],
       "advancement": {
         "acknowledgment": "Acknowledge_Sent",
-        "wait": 180000
+        "wait": 1000
       }
     },
     {

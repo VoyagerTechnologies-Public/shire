@@ -62,18 +62,22 @@ The stack also exercises three capabilities that sit outside the per-application
   An exact float `eq` check is avoidable rounding noise, so the stack uses a range instead, as described in [Fault injection](simulations.md#fault-injection).
   These commands route over the `tc_server_backdoor` stream to the Simulith Server itself, not to a component, so they keep working even before any spacecraft application has been enabled.
 * **Demo backdoor configuration.**
-  It enables the Demo component, confirms `/DEMO/DEVICE_CONFIG` is still at its power-on default of `0`, then uses `/DEMO/BACKDOOR_DEMO_SET_CONFIG` to set `CONFIG_VALUE` directly, and confirms the new value is reflected in telemetry.
-  Checking the default first is what proves the backdoor changed the value, rather than the value having already been at the target by coincidence.
+  It enables the Demo component, uses `/DEMO/BACKDOOR_DEMO_SET_CONFIG` to reset `/DEMO/DEVICE_CONFIG` to a known baseline of `0` and confirms it, then uses the same backdoor to set `CONFIG_VALUE` to its real target and confirms that value is reflected in telemetry.
+  Establishing the baseline explicitly, rather than assuming a fresh power-on default of `0`, is what makes this stack re-runnable against an already-running DRM instead of only against one just started: confirmed live, running `CheckoutTest.ycs` three times in a row against the same instance all pass.
+  Checking the baseline first is still what proves the backdoor changed the value, rather than the value having already been at the target by coincidence.
 * **CFDP file download.**
   It re-uploads `/d/checkout_adcs.ycs` with `/CCSDS/CFDP_UPLOAD_CHECKOUT` (the same file the stack uploads earlier, since that copy was deleted on its first downlink) and then downlinks it with `/CF/CF_COMMANDS/CF_TX_FILE`, confirming both the CF command counters and the resulting `CF_EOTPACKET` end-of-transaction telemetry.
-  `/CCSDS/CFDP_UPLOAD_CHECKOUT` is not a spacecraft telecommand: it routes over a dedicated `checkout_control` stream to a YAMCS-side service (`CheckoutCfdpUploadService`) that publishes its own `Acknowledge_Sent` only once the CFDP transfer completes, so its `advancement.wait` (180000ms, confirmed live to actually take a few seconds) has to be long enough to cover a real transfer, not just a quick command round trip.
+  `/CCSDS/CFDP_UPLOAD_CHECKOUT` is not a spacecraft telecommand: it routes over a dedicated `checkout_control` stream to a YAMCS-side service (`CheckoutCfdpUploadService`) that publishes its own `Acknowledge_Sent` only once the CFDP transfer completes.
+  Checked against the real upstream YAMCS 5.13.0 source (not vendored in this repository, since `yamcs/` only pulls prebuilt `yamcs-core`/`yamcs-web` Maven artifacts): the native web UI's acknowledgment wait itself has no ceiling at all, so it blocks for however long the real transfer takes, and only after the acknowledgment already arrives does it apply `advancement.wait` there as an unconditional extra pause, not a timeout on the acknowledgment.
+  The step's `advancement.wait` is kept small (1000ms, matching every other command step's convention in this stack) so a human running it manually in the web UI is not stuck waiting through that unrelated dead time on top of the real transfer.
+  `yamcs_commander.py --stack` reads that same field differently: there, `wait` is a genuine ceiling on how long it polls for the acknowledgment to appear, and it separately enforces its own 30 second floor (`MIN_ACK_POLL_MS`) underneath whatever the `.ycs` sets, so a value tuned for the web UI's dead time can never shrink the automated path's real safety margin around the transfer's own duration.
 
 The checkout stack changes spacecraft state.
 It resets command counters, enables ADCS, leaves ADCS in `SUNSAFE`, enables Demo, and leaves the Simulith Server running at 2x speed when it completes.
 It does not check every loaded application, exercise every component behavior, or implement the full [Commissioning](../../scenarios/commissioning.md) walkthrough.
 
 Open **Procedures / Stacks / CheckoutTest.ycs** in YAMCS and review the steps before running it.
-Use a newly started DRM so earlier commands do not affect the stack's absolute counter checks.
+Every counter check resets the counter it checks immediately beforehand, and every other state check establishes its own known baseline first, so the stack is safe to run repeatedly against an already-running DRM, not only a freshly started one, confirmed live across three consecutive runs.
 YAMCS uses `radio-out` as the preferred command interface and falls back to `debug-out` when the preferred interface is unavailable.
 The stack advances after YAMCS reports `Acknowledge_Sent` and then relies on its telemetry verification steps to establish the result.
 Confirmed directly from the checked in file's top-level `advancement` block, not assumed: run `yamcs/yamcs_commander.py --stack <path>` to execute this same acknowledgment/verify sequence headlessly, as a `verify_stacks` entry in a scenario or standalone (see [Scenarios and initial conditions](../how-to/scenarios.md)).

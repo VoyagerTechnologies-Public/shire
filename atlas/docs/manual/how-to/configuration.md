@@ -69,6 +69,7 @@ The orchestrator currently produces:
 * `build/<mission>/42_config/Inp_Sim.txt`: rendered 42 simulation input
 * `build/<mission>/<spacecraft>/shire_defs/`: copied cFS mission definitions, with the CPU1 startup script pruned for the selected spacecraft
 * `comp/<component>/shared/device_cfg.h`: rendered device header for each selected component that provides a template
+* `build/<mission>/scenario/<scenario>.snapshot.yaml`: the scenario name, the Initial Condition bin name, its fully resolved values, and the current git SHA, written on every `make cfg`
 
 The generated `build/` tree is intentionally ignored by Git.
 The rendered `device_cfg.h` files are also ignored.
@@ -91,7 +92,8 @@ gsw_dir: yamcs
 ```
 
 Valid DRM spacecraft in the current checkout are `flatsat`, `sat-1`, and `sat-2`.
-Valid DRM scenarios are `nominal` and `debug`.
+Valid DRM scenarios in the current checkout are `nominal`, `debug`, `eclipse-entry-adcs`, `eclipse-exit-adcs`, and `checkout`.
+See [Scenarios and initial conditions](scenarios.md) for what each one does.
 The current spacecraft component sets are:
 
 | Spacecraft | Components |
@@ -99,6 +101,20 @@ The current spacecraft component sets are:
 | `flatsat` | demo, EPS, radio |
 | `sat-1` | ADCS, demo, EPS, radio |
 | `sat-2` | ADCS, EPS, radio |
+
+`build/active.yaml` can also carry four additional fields a human should not
+hand-edit: `instance`, `port_offset`, `image_tag`, and
+`initial_conditions_file`.
+`cfg/shire-scenario.py` and `cfg/shire-campaign.py` set and clear these
+themselves to namespace a Monte Carlo campaign trial's containers, ports,
+image tag, and generated Initial Condition bin, clearing them again on
+normal completion or an interrupt.
+See [Monte Carlo campaigns](monte-carlo-campaigns.md) for what they do.
+A plain `make cfg`/`make build`/`make start` run never sets or needs them.
+If a prior campaign process was killed hard enough to skip its own
+cleanup (a `kill -9` or a host crash, not a plain `Ctrl-C`), they can be
+left behind, in which case clear them from `build/active.yaml` by hand
+before the next plain run.
 
 After any edit, regenerate and inspect:
 
@@ -142,6 +158,8 @@ confirm it completes cleanly or check that it reproduces run after run.
 `make start` reads `build/active.yaml` to derive the mission and starts `build/<mission>/shire-compose.yaml`.
 `make cli-start` uses `build/<mission>/cli-compose.yaml`.
 If either path is missing or stale, run `make cfg` again before diagnosing Docker.
+A Monte Carlo campaign trial's compose file lives at `build/<mission>/<instance>/shire-compose.yaml` instead, one numbered subdirectory per trial, so concurrent trials' compose files can coexist on disk.
+`make start`/`make cli-start` never read that path, since `instance` is always cleared outside a campaign trial.
 
 ## Verification checklist
 
@@ -152,7 +170,7 @@ Before a long build, verify:
 3. The selected spacecraft contains the intended component list.
 4. The generated CPU1 startup script contains only the intended component applications.
 5. Each rendered `device_cfg.h` contains the expected bus, handle, timeout, and debug values.
-6. The generated compose files reference the intended mission and spacecraft image tags.
+6. The generated compose files reference the intended mission and image tag, ordinarily the spacecraft name unless a Monte Carlo campaign trial set an explicit build-key tag.
 
 ***
 Last reviewed: 20260913

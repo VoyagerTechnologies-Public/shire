@@ -80,6 +80,21 @@ def load_scenario_cfg(mission: str, scenario_name: str) -> dict[str, object]:
     return scenario_cfg
 
 
+def list_scenario_names(mission: str) -> list[str]:
+    """Every scenario name registered for `mission` in its mission YAML
+    (e.g. cfg/drm/drm.yaml's `scenarios:` list) -- the same list
+    load_scenario_cfg() looks a name up against, so this is always exactly
+    what --scenario will accept."""
+    global_cfg = load_yaml(GLOBAL_CONFIG) or {}
+    mission_entry = next(
+        (m for m in global_cfg.get("build", {}).get("missions", [])
+         if m["name"] == mission), None)
+    if not mission_entry:
+        return []
+    mission_cfg = load_yaml(CFG_DIR / mission_entry["config_file"]) or {}
+    return [s["name"] for s in mission_cfg.get("scenarios", [])]
+
+
 INSTANCE_RE = re.compile(r"^[a-z0-9]{1,8}$")
 
 
@@ -297,8 +312,12 @@ def finish(result: dict[str, object], passed: bool, reason: str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", required=True,
-                        help="Name of a scenario in cfg/drm/scenarios/*.yaml (scenario_name field)")
+    parser.add_argument("--scenario",
+                        help="Name of a scenario in cfg/drm/scenarios/*.yaml (scenario_name field). "
+                             "Required unless --list-scenarios is given.")
+    parser.add_argument("--list-scenarios", action="store_true",
+                        help="Print every scenario name registered for --mission "
+                             "(default: build/active.yaml's current mission) and exit.")
     parser.add_argument("--mission", help="Override build/active.yaml's mission")
     parser.add_argument("--spacecraft", help="Override build/active.yaml's spacecraft")
     parser.add_argument("--report-dir",
@@ -321,6 +340,20 @@ def main() -> int:
                         help="Skip `make build`; run `make cfg-compose-only` instead. Assumes an "
                              "image matching --image-tag was already built (see cfg/shire-campaign.py).")
     args = parser.parse_args()
+
+    if args.list_scenarios:
+        mission = args.mission or str((load_yaml(ACTIVE_PATH) or {}).get("mission", "drm"))
+        names = list_scenario_names(mission)
+        if not names:
+            print(f"\t[scenario] no scenarios registered for mission '{mission}'", file=sys.stderr)
+            return 1
+        for name in names:
+            print("\t" + name)
+        return 0
+
+    if not args.scenario:
+        print("[scenario] ERROR: --scenario is required (or use --list-scenarios)", file=sys.stderr)
+        return 2
 
     if args.instance_id and not INSTANCE_RE.match(args.instance_id):
         print(f"[scenario] ERROR: --instance-id {args.instance_id!r} must match "

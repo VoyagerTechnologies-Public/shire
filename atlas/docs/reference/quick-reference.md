@@ -116,6 +116,12 @@ The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nom
 | `build/<mission>/<spacecraft>/fsw/` | cFS build and installation output. |
 | `build/<mission>/<spacecraft>/comp/<component>/` | Centralized simulator and CLI build output for selected components. |
 | `comp/<component>/shared/device_cfg.h` | Ignored device configuration rendered in the source tree for each selected component with a template. |
+| `build/<mission>/scenario/<scenario>.snapshot.yaml` | Scenario name, resolved Initial Condition bin, and git SHA, written on every `make cfg`. |
+| `build/<mission>/<instance>/shire-compose.yaml` | A Monte Carlo campaign trial's own DRM Compose file, one numbered subdirectory per trial. |
+| `build/scenario-runs/<scenario>-<UTC timestamp>/` | `make scenario`'s `result.json`, container logs, and IC snapshot copy. |
+| `build/monte-carlo-runs/<campaign>-<UTC timestamp>/` | `make campaign`'s per-trial artifacts, `campaign_report.json`, and `campaign_dataset.jsonl`. |
+| `cfg/drm/initial_conditions/<name>.yaml` | A reusable Initial Condition bin: orbit, epoch, attitude, and optional per-component state. |
+| `cfg/drm/campaigns/<name>.yaml` | A Monte Carlo campaign definition: swept parameters, distributions, and metrics to extract. |
 
 ## Performance reports
 

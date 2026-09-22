@@ -51,6 +51,10 @@ Once they are installed, you can:
   * CTRL+C
   * Inspect volumes and logs as desired
   * `make stop`
+* Automate
+  * Confirm one scenario completes cleanly, no GUI: `make scenario SCENARIO=<name>`
+  * Run many trials of a scenario against varied initial conditions and aggregate the results: `make campaign CAMPAIGN=<name>`
+  * See [Scenarios and initial conditions](atlas/docs/manual/how-to/scenarios.md) and [Monte Carlo campaigns](atlas/docs/manual/how-to/monte-carlo-campaigns.md)
 
 ## Documentation
 

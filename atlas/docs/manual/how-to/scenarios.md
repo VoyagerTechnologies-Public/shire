@@ -167,9 +167,11 @@ Deriving one is a good follow-up.
 
 ## Running a scenario
 
-Four scenarios ship today: `nominal` and `debug` (both use
-`nominal-baseline`, the default launch state), and `eclipse-entry-adcs` and
-`eclipse-exit-adcs` (both use the eclipse IC bins above).
+Five scenarios ship today: `nominal` and `debug` (both use
+`nominal-baseline`, the default launch state), `eclipse-entry-adcs` and
+`eclipse-exit-adcs` (both use the eclipse IC bins above), and `checkout`
+(also `nominal-baseline`, plus a `verify_stacks` entry covered later on
+this page).
 Use `<name>` below to try any of them.
 
 ### Manually, with the GUI and YAMCS
