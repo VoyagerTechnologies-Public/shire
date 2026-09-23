@@ -1,0 +1,60 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_ENABLE_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "__comment": "Let several device HK cycles (each carrying a GPS sample) land before certifying the clock: CFE_TIME_ToneSendGPS() accepts external data unconditionally while ClockSetState is NOT_SET (see cfe_time_tone.c), letting STCF settle before the tighter CFE_PLATFORM_TIME_MAX_DELTA acceptance window applies once the clock is marked valid below.",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gte",
+          "value": "5"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "__comment": "A time SERVER's ClockSetState can only become WAS_SET via this ground command (see cfe_time_tone.c's CFE_TIME_ToneUpdate: the WAS_SET assignment is compiled only under CFE_PLATFORM_TIME_CFG_CLIENT, which is false here) -- it is the real, intended operational step where ground ops certifies a newly-live external time source. ADCS feeding CFE_TIME_ExternalGPS is only half of issue #8 item 5's chain; this is the other half.",
+      "type": "command",
+      "name": "/CFE_TIME/CFE_TIME_COMMANDS/CFE_TIME_SET_STATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "CLOCKSTATE",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/CLOCKSTATEAPI",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

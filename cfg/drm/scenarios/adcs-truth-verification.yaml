@@ -1,0 +1,33 @@
+# Confirms the 42 truth packet is correct end-to-end (issue #8 item 1):
+# closes the gap atlas/docs/scenarios/adcs-truth-comparison.md left open
+# ("does not assert numeric agreement") by asserting real numeric agreement
+# between /ADCS ground telemetry and /SIM_42_TRUTH, via
+# AdcsTruthComparison.ycs's verify_stacks steps.
+#
+# Source-level alignment (same simulith_42_context_t snapshot feeding both
+# ADCS HK and SIM_42_TRUTH) is already covered by the unit-level contract
+# test comp/adcs/test-sim/test_adcs_truth_alignment.c -- this scenario is
+# the remaining, previously-missing end-to-end (wire + ground path) proof.
+#
+# Manual (GUI + YAMCS):  set scenario: adcs-truth-verification in
+#                        build/active.yaml, `make`, `make start`, then run
+#                        comp/adcs/gsw/procedures/AdcsTruthComparison.ycs by
+#                        hand -- note its final step uses an "approx"
+#                        condition the real YAMCS UI can't evaluate (see
+#                        yamcs_commander.py's APPROX_OPERATOR comment), so
+#                        that step only works run through `make scenario`.
+# Autonomous (no GUI):   make scenario SCENARIO=adcs-truth-verification
+scenario_name: "adcs-truth-verification"
+description: >
+  Enables ADCS on the nominal-baseline reference orbit, commands SUNSAFE,
+  waits for sun-pointing convergence, then asserts /ADCS/SUN_X,Y,Z
+  numerically agree with /SIM_42_TRUTH/SVB_1,2,3 within tolerance at the
+  same live moment -- the first automated, asserting confirmation of the
+  42 truth packet through the real wire and ground telemetry path.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+run_duration_s: 180
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsTruthComparison.ycs"
+    at_s: 0

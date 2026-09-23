@@ -271,6 +271,19 @@
         </xtce:CommandContainer>
       </xtce:MetaCommand>
 
+      <xtce:MetaCommand name="ADCS_CONFIG_CC">
+        <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="CCSDS_STREAMID" argumentValue="0x18D4"/>
+            <xtce:ArgumentAssignment argumentName="CCSDS_FC" argumentValue="4"/>
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="ADCS_ADCS_CONFIG_CC_CommandContainer">
+          <xtce:EntryList/>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
       <xtce:MetaCommand name="ADCS_DISABLE_CC">
         <xtce:BaseMetaCommand metaCommandRef="/CCSDS/CCSDS_TC">
           <xtce:ArgumentAssignmentList>

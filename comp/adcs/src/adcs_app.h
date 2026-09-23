@@ -11,6 +11,7 @@
 #include "adcs_msg.h"
 #include "adcs_msgids.h"
 #include "adcs_version.h"
+#include "adcs_tbl.h"
 #include "hwlib.h"
 
 /*
@@ -54,6 +55,18 @@ typedef struct
     ** Device protocol
     */
     uart_info_t AdcsUart; /* Hardware protocol definition */
+
+    /*
+    ** GPS time sync state (operational, not reported in housekeeping)
+    */
+    uint32 LastGpsSecondsSubmitted; /* Last DeviceHK.GpsSeconds pushed to CFE_TIME_ExternalGPS */
+    bool   GpsTimeSynced;           /* Whether a GPS time submission has occurred yet */
+
+    /*
+    ** Boot-loaded control-law gains table
+    */
+    CFE_TBL_Handle_t GainsTblHandle; /* cFE Table Services handle */
+    ADCS_GainsTbl_t *GainsTblPtr;    /* Address of the active table buffer */
 
 } ADCS_AppData_t;
 

@@ -1,7 +1,10 @@
 #include "adcs_app.h"
+#include "adcs_time.h"
 #include <string.h>
 
 ADCS_AppData_t ADCS_AppData;
+
+static void ADCS_PushGainsToDevice(void);
 
 /*
 ** Application entry point and main process loop
@@ -146,6 +149,15 @@ int32 ADCS_AppInit(void)
     /* Device telemetry uses the CSS telemetry MID for device frames */
     CFE_MSG_Init(CFE_MSG_PTR(ADCS_AppData.DevicePkt.TlmHeader), CFE_SB_ValueToMsgId(ADCS_CSS_TLM_MID),
                  ADCS_DEVICE_TLM_LNGTH);
+
+    /*
+    ** Register and load the boot-time control-law gains table
+    */
+    status = ADCS_TableInit();
+    if (status != CFE_SUCCESS)
+    {
+        return status;
+    }
 
     /*
     ** Reset all counters during application initialization
@@ -297,6 +309,27 @@ void ADCS_ProcessGroundCommand(void)
                 OS_printf("ADCS: ADCS_DISABLE_CC received \n");
 #endif
                 ADCS_Disable();
+            }
+            break;
+
+        /*
+        ** Config Command: re-push the currently loaded gains table to the
+        ** device (useful after a ground table load/activate cycle).
+        */
+        case ADCS_CONFIG_CC:
+            if (ADCS_VerifyCmdLength(ADCS_AppData.MsgPtr, sizeof(ADCS_NoArgs_cmd_t)) == OS_SUCCESS)
+            {
+                if (ADCS_AppData.HkTelemetryPkt.DeviceEnabled == ADCS_DEVICE_ENABLED)
+                {
+                    ADCS_AppData.HkTelemetryPkt.CommandCount++;
+                    ADCS_PushGainsToDevice();
+                }
+                else
+                {
+                    ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                    CFE_EVS_SendEvent(ADCS_CMD_DISABLED_ERR_EID, CFE_EVS_EventType_ERROR,
+                                      "ADCS: Config command failed, device not enabled");
+                }
             }
             break;
 
@@ -470,6 +503,7 @@ void ADCS_ReportHousekeeping(void)
         if (status == OS_SUCCESS)
         {
             ADCS_AppData.HkTelemetryPkt.DeviceCount++;
+            ADCS_ProcessGpsTime();
         }
         else
         {
@@ -548,6 +582,41 @@ void ADCS_ResetCounters(void)
 }
 
 /*
+** Push the currently active gains table down to the device. Only
+** meaningful while the UART is open (device enabled).
+*/
+static void ADCS_PushGainsToDevice(void)
+{
+    if (ADCS_AppData.GainsTblPtr == NULL)
+    {
+        CFE_EVS_SendEvent(ADCS_SEND_GAINS_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Cannot push gains to device, table address not available");
+        return;
+    }
+
+    ADCS_Device_GainsCmd_t cmd = {
+        .SunPointKp         = ADCS_AppData.GainsTblPtr->SunPointKp,
+        .SunPointKd         = ADCS_AppData.GainsTblPtr->SunPointKd,
+        .WheelMaxTorqueNm   = ADCS_AppData.GainsTblPtr->WheelMaxTorqueNm,
+        .MtbMaxDipoleAm2    = ADCS_AppData.GainsTblPtr->MtbMaxDipoleAm2,
+        .DetumbleGainBase   = ADCS_AppData.GainsTblPtr->DetumbleGainBase,
+        .DetumbleGainHigh   = ADCS_AppData.GainsTblPtr->DetumbleGainHigh,
+        .RotisserieRateRadS = ADCS_AppData.GainsTblPtr->RotisserieRateRadS,
+    };
+    int32 status = ADCS_SendGainsCmd(&ADCS_AppData.AdcsUart, &cmd);
+    if (status == OS_SUCCESS)
+    {
+        CFE_EVS_SendEvent(ADCS_SEND_GAINS_INF_EID, CFE_EVS_EventType_INFORMATION,
+                          "ADCS: Gains pushed to device successfully");
+    }
+    else
+    {
+        CFE_EVS_SendEvent(ADCS_SEND_GAINS_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Failed to push gains to device: %d", (int)status);
+    }
+}
+
+/*
 ** Enable component
 */
 void ADCS_Enable(void)
@@ -580,6 +649,9 @@ void ADCS_Enable(void)
             /* Send device event success to the console */
             CFE_EVS_SendEvent(ADCS_ENABLE_INF_EID, CFE_EVS_EventType_INFORMATION,
                               "ADCS: Device enabled successfully");
+
+            /* Push the currently loaded gains table now that the UART is open */
+            ADCS_PushGainsToDevice();
         }
         else
         {

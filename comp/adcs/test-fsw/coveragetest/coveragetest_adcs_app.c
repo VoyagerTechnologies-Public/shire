@@ -1,5 +1,6 @@
 #include "adcs_app_coveragetest_common.h"
 #include "ut_adcs_app.h"
+#include "adcs_time.h"
 
 typedef struct
 {
@@ -221,6 +222,61 @@ void Test_ADCS_AppInit(void)
 
     // UT_SetDeferredRetcode(UT_KEY(CFE_EVS_SendEvent), 1, CFE_SB_BAD_ARGUMENT);
     // UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_SB_BAD_ARGUMENT);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Register), 1, CFE_TBL_ERR_INVALID_SIZE);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_INVALID_SIZE);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Load), 1, CFE_TBL_ERR_NO_ACCESS);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_NO_ACCESS);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_ERR_LOAD_IN_PROGRESS);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_LOAD_IN_PROGRESS);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_ERR_UNREGISTERED);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_UNREGISTERED);
+}
+
+void Test_ADCS_ValidateGainsTbl(void)
+{
+    /*
+     * Test Case For:
+     * int32 ADCS_ValidateGainsTbl(void *TblData)
+     */
+    ADCS_GainsTbl_t tbl = {
+        .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.005f, .MtbMaxDipoleAm2 = 1.42f,
+        .DetumbleGainBase = 0.01f, .DetumbleGainHigh = 0.02f, .RotisserieRateRadS = 0.005f,
+    };
+
+    /* Nominal (default) table is valid */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&tbl), CFE_SUCCESS);
+
+    /* Each out-of-bounds field independently fails validation */
+    ADCS_GainsTbl_t bad;
+
+    bad = tbl; bad.SunPointKp = 0.0f;
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.SunPointKd = -1.0f;
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.WheelMaxTorqueNm = 1.0f; /* exceeds hardware ceiling */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.MtbMaxDipoleAm2 = 100.0f; /* exceeds hardware ceiling */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.DetumbleGainHigh = 0.0f; /* base must be <= high, high must be > 0 */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.RotisserieRateRadS = -0.001f; /* must be non-negative */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.RotisserieRateRadS = 1.0f; /* exceeds "mild" ceiling */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    /* Zero rotisserie rate (the default-off value) is explicitly allowed */
+    bad = tbl; bad.RotisserieRateRadS = 0.0f;
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_SUCCESS);
 }
 
 void Test_ADCS_ProcessTelemetryRequest(void)
@@ -516,6 +572,37 @@ void Test_ADCS_ProcessGroundCommand(void)
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET (%u)", (unsigned int)EventTest.MatchCount);
 
+    /* test CONFIG_CC pushes gains only when enabled */
+    static ADCS_GainsTbl_t TestGainsTbl = {
+        .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.005f, .MtbMaxDipoleAm2 = 1.42f,
+        .DetumbleGainBase = 0.01f, .DetumbleGainHigh = 0.02f, .RotisserieRateRadS = 0.005f,
+    };
+    ADCS_AppData.GainsTblPtr = &TestGainsTbl;
+
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_CONFIG_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendGainsCmd), 1, OS_SUCCESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SEND_GAINS_INF_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)) == 1, "ADCS_SendGainsCmd() called once while enabled");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SEND_GAINS_INF_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_CMD_DISABLED_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)) == 1,
+                  "ADCS_SendGainsCmd() not called again while disabled");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for CONFIG (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
     /* test an invalid CC */
     FcnCode = 99;
     Size    = sizeof(TestMsg.Noop);
@@ -673,6 +760,73 @@ void Test_ADCS_Disable(void)
 }
 
 /*
+ * Hook that populates the ADCS_RequestHK() output parameter with a
+ * test-controlled GpsSeconds value, mimicking the device HK read.
+ */
+static void UT_SetDeviceHkGpsSeconds_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    uint32                *GpsSecondsPtr = UserObj;
+    ADCS_Device_HK_tlm_t *data = UT_Hook_GetArgValueByName(Context, "data", ADCS_Device_HK_tlm_t *);
+
+    if (data != NULL)
+    {
+        memset(data, 0, sizeof(*data));
+        data->GpsSeconds = *GpsSecondsPtr;
+    }
+}
+
+static void UT_CaptureExternalGpsTime_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    CFE_TIME_SysTime_t *Capture = UserObj;
+    *Capture                    = UT_Hook_GetArgValueByName(Context, "NewTime", CFE_TIME_SysTime_t);
+}
+
+void Test_ADCS_ProcessGpsTime(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_ProcessGpsTime()
+     */
+    uint32             GpsSeconds;
+    CFE_TIME_SysTime_t CapturedTime;
+
+    UT_SetHandlerFunction(UT_KEY(ADCS_RequestHK), UT_SetDeviceHkGpsSeconds_Handler, &GpsSeconds);
+    UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+
+    /* No-op while device is disabled, even with GPS data available */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
+    GpsSeconds                                = 1000;
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() not called while device disabled");
+
+    /* First submission while enabled: pushes the correctly offset time */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 1,
+                  "CFE_TIME_ExternalGPS() called once on first sync");
+    UtAssert_True(CapturedTime.Seconds == GpsSeconds + ADCS_GPS_TO_MISSION_EPOCH_OFFSET_SEC,
+                  "CFE_TIME_ExternalGPS() Seconds correctly offset (%u == %u)",
+                  (unsigned int)CapturedTime.Seconds,
+                  (unsigned int)(GpsSeconds + ADCS_GPS_TO_MISSION_EPOCH_OFFSET_SEC));
+
+    /* Unchanged GpsSeconds: no redundant submission */
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 1,
+                  "CFE_TIME_ExternalGPS() not called again for unchanged GpsSeconds");
+
+    /* Advancing GpsSeconds: submits again */
+    GpsSeconds                                      = 1005;
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2,
+                  "CFE_TIME_ExternalGPS() called again once GpsSeconds advances");
+}
+
+/*
  * Setup function prior to every test
  */
 void Adcs_UT_Setup(void)
@@ -700,4 +854,6 @@ void UtTest_Setup(void)
     ADD_TEST(ADCS_ProcessTelemetryRequest);
     ADD_TEST(ADCS_Enable);
     ADD_TEST(ADCS_Disable);
+    ADD_TEST(ADCS_ProcessGpsTime);
+    ADD_TEST(ADCS_ValidateGainsTbl);
 }

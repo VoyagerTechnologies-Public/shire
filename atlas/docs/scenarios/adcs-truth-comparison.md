@@ -1,7 +1,14 @@
 # ADCS Truth Comparison
 
-> **Scenario status:** Draft simulated scenario built around `AdcsComponent.ycs` and current 42 truth telemetry.
-> The existing procedure displays truth values but does not assert numeric agreement between ADCS telemetry and 42.
+> **Scenario status:** The numeric-agreement gap this draft describes is now closed by an automated check:
+> `AdcsTruthComparison.ycs` (`comp/adcs/gsw/procedures/`), run via the `adcs-truth-verification` DRM scenario
+> (`make scenario SCENARIO=adcs-truth-verification`), asserts `/ADCS/SUN_X,Y,Z` agree with
+> `/SIM_42_TRUTH/SVB_1,2,3` within tolerance at a live, settled sample -- issue #8's "confirm the 42 truth
+> packet is correct." Source-level alignment (same `simulith_42_context_t` snapshot feeding both) was already
+> covered by the unit-level `comp/adcs/test-sim/test_adcs_truth_alignment.c` contract test. This document
+> remains useful as the manual/GUI procedure and as background on why the comparison is non-trivial (frame,
+> sign, timing); the rest of it (frame mapping, tolerance derivation, repeatability) is still open for anyone
+> extending the automated check's rigor.
 
 ## Objective
 
@@ -105,4 +112,4 @@ A complete procedure needs fresh data checks, time alignment, explicit frame con
 Add another ADCS mode only after its target, expected 42 behavior, and acceptance limits are documented.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20260923

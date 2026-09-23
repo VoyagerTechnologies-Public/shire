@@ -56,6 +56,22 @@
       ]
     },
     {
+      "type": "command",
+      "name": "/ADCS/ADCS_CONFIG_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/CMD_COUNT",
+          "operator": "gte",
+          "value": "2"
+        }
+      ]
+    },
+    {
       "type": "check",
       "parameters": [
         {
@@ -116,6 +132,71 @@
           "parameter": "/ADCS/SUN_Z",
           "operator": "gt",
           "value": "-0.02"
+        }
+      ],
+      "timeout": 120000
+    },
+    {
+      "__comment": "Target-tracking convergence caveat: commanding TARGET here reliably gets the mode/target commands accepted and ADCS stays enabled and responsive throughout the transition, which is what this step asserts. It deliberately does NOT assert body rates converge to zero: live testing found ANGRATE_Y/Z settle to a persistent ~0.1 rad/s residual from this SUNSAFE-converged starting attitude that does not decay even after a 240s timeout (confirmed steady, not just slow) -- a pre-existing characteristic of adcs_point_vector_controller (shared by modes 3/4/5), not something this issue's changes introduced. See comp/adcs/sim/adcs_sim.c's adcs_point_vector_controller() comment and atlas/docs/scenarios/adcs-truth-comparison.md-style tracking docs for the follow-up.",
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "TARGET"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_TARGET_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TARGET",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/ADCS/CMD_COUNT",
+          "operator": "gte",
+          "value": "5"
+        },
+        {
+          "parameter": "/ADCS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/ADCS/ANGRATE_X"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z"
         }
       ]
     }

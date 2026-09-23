@@ -1620,7 +1620,7 @@
 **  \par Limits
 **       Only applies if #CFE_PLATFORM_TIME_CFG_SERVER is set to true.
 */
-#define CFE_PLATFORM_TIME_CFG_SOURCE false
+#define CFE_PLATFORM_TIME_CFG_SOURCE true
 
 /**
 **  \cfetimecfg Choose the External Time Source for Server only
@@ -1638,7 +1638,7 @@
 **       -# Only applies if #CFE_PLATFORM_TIME_CFG_SERVER is set to true.
 */
 #define CFE_PLATFORM_TIME_CFG_SRC_MET  false
-#define CFE_PLATFORM_TIME_CFG_SRC_GPS  false
+#define CFE_PLATFORM_TIME_CFG_SRC_GPS  true
 #define CFE_PLATFORM_TIME_CFG_SRC_TIME false
 
 /**

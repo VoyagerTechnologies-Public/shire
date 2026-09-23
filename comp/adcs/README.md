@@ -25,7 +25,10 @@ The specific command format is as follows:
   * (2) set mode
     * 0, disabled
     * 1, de-tumble
-    * 2, sun point
+    * 2, sun point (holds body +X on the sun vector; also executes a mild
+      rotisserie roll about that boresight for thermal management, at the
+      rate set by the boot-loaded gains table's RotisserieRateRadS -- see
+      "set control-law gains" below. Suspended during eclipse.)
     * 3, nadir point
     * 4, target track
     * 5, inertial point mode
@@ -43,6 +46,11 @@ The specific command format is as follows:
   * ...
   * (20) override MTB
   * (21) override RW
+  * (22) set control-law gains: payload is 7 big-endian float32s (SunPointKp,
+    SunPointKd, WheelMaxTorqueNm, MtbMaxDipoleAm2, DetumbleGainBase,
+    DetumbleGainHigh, RotisserieRateRadS), pushed down from the cFE app's
+    boot-loaded gains table (comp/adcs/src/adcs_tbl.c) instead of the usual
+    uint16 payload
 * uint16, trailer, 0x5CDA
 
 Note that all frames are reference are the inertial frame
@@ -78,8 +86,11 @@ Two message IDs exist for commands and requests:
   * (1) Reset counters
   * (2) Enable
   * (3) Disable
-  * (4) Set mode
-  * (5) Set target
+  * (4) Config: re-push the currently loaded boot-time gains table
+    (comp/adcs/src/adcs_tbl.c) to the device. No-op error if the device
+    isn't enabled yet.
+  * (5) Set mode
+  * (6) Set target
 * 0x18D5 - Requests
   * (0) Request housekeeping
   * (1) Request CSS data

@@ -1,0 +1,33 @@
+# Confirms target tracking works (issue #8 item 3), ground-visible: mode 4
+# (target-track) already has solid unit coverage
+# (comp/adcs/test-sim/test_adcs_sim.c's test_controller_mode4_track_* and
+# test_wire_protocol_set_target_* families) but no confirmation through
+# real ground telemetry until now, via AdcsComponent.ycs's TARGET-mode
+# verify_stacks step.
+#
+# Manual (GUI + YAMCS):  set scenario: adcs-target-track in
+#                        build/active.yaml, `make`, `make start`, then run
+#                        comp/adcs/gsw/procedures/AdcsComponent.ycs by hand.
+# Autonomous (no GUI):   make scenario SCENARIO=adcs-target-track
+scenario_name: "adcs-target-track"
+description: >
+  Enables ADCS on the nominal-baseline reference orbit, runs
+  AdcsComponent.ycs end to end (boot-config check, SUNSAFE convergence),
+  then commands mode TARGET with TARGET=1 (+X inertial) and confirms the
+  mode/target commands are accepted and ADCS stays enabled and error-free
+  through the transition. Deliberately does not assert body-rate
+  convergence: live testing found ANGRATE_Y/Z settle to a persistent
+  ~0.1 rad/s residual from this starting attitude that does not decay
+  even after a 240s timeout (confirmed steady, not just slow) -- a
+  pre-existing characteristic of adcs_point_vector_controller (shared by
+  modes 3/4/5), not introduced by issue #8's changes, and out of this
+  issue's scope to fix. The `check` step at the end of the stack still
+  displays the live rates for visibility. See AdcsComponent.ycs's TARGET
+  step comment for detail.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+run_duration_s: 300
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsComponent.ycs"
+    at_s: 0

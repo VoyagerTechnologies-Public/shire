@@ -71,25 +71,26 @@ static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_conte
     // Adaptive gain based on rate magnitude - higher rates need more aggressive detumbling
     double detumble_gain;
     if (rate_magnitude > ADCS_HIGH_RATE_THRESHOLD) {
-        detumble_gain = ADCS_DETUMBLE_GAIN_HIGH;
+        detumble_gain = state->gains.detumble_gain_high;
     } else {
         // Linear interpolation between base and high gain
         double gain_ratio = rate_magnitude / ADCS_HIGH_RATE_THRESHOLD;
-        detumble_gain = ADCS_DETUMBLE_GAIN_BASE + gain_ratio * (ADCS_DETUMBLE_GAIN_HIGH - ADCS_DETUMBLE_GAIN_BASE);
+        detumble_gain = state->gains.detumble_gain_base +
+            gain_ratio * (state->gains.detumble_gain_high - state->gains.detumble_gain_base);
     }
-    
+
     // Compute w x B
     double w_cross_b[3];
     cross_product(w, b, w_cross_b);
-    
+
     // Scale by adaptive detumble gain and negate
     double dipole_cmd[3];
     for (int i = 0; i < 3; i++) {
         dipole_cmd[i] = -detumble_gain * w_cross_b[i];
-        
+
         // Limit to MTB saturation
-        if (dipole_cmd[i] > ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = ADCS_MTB_MAX_DIPOLE;
-        else if (dipole_cmd[i] < -ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = -ADCS_MTB_MAX_DIPOLE;
+        if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;
+        else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
     }
     
     int status = simulith_42_send_mtb_command(0, dipole_cmd, 0x07);
@@ -132,6 +133,19 @@ static void rotate_inertial_to_body_safe(const double q[4], const double vin[3],
 }
 
 // Align body +X axis (1,0,0) with the provided vector expressed in body frame
+//
+// KNOWN LIMITATION (found via issue #8's adcs-target-track scenario, not
+// introduced by it): commanding mode 4 (target-track) to a fixed inertial
+// target from a SUNSAFE-converged starting attitude leaves a persistent
+// ~0.1 rad/s residual angular rate on two axes that does not decay even
+// after 240s of simulated time (confirmed steady, not just slow to
+// settle). A fixed inertial target should require zero steady-state body
+// rate, so this looks like a real stability characteristic of this shared
+// controller (also used by modes 3/nadir and 5/inertial), not a slow-
+// convergence timing issue. Root-causing/fixing it is out of scope for
+// issue #8 (ADCS Confirmations); see AdcsComponent.ycs's TARGET-mode step
+// comment and cfg/drm/scenarios/adcs-target-track.yaml for how the
+// scenario accounts for this.
 static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42,
                                         const double vec_body[3], double dt, const char* tag)
 {
@@ -167,32 +181,32 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
     double control_torque[3];
     double max_rate = 0.1;
     for (int i = 0; i < 3; i++) {
-        double u1 = ADCS_SUN_POINT_KP / ADCS_SUN_POINT_KD * attitude_error[i];
+        double u1 = state->gains.sun_point_kp / state->gains.sun_point_kd * attitude_error[i];
         if (u1 > max_rate) u1 = max_rate;
         else if (u1 < -max_rate) u1 = -max_rate;
         double rate_error = context_42->wn[i] - 0.0;
-        control_torque[i] = -ADCS_SUN_POINT_KD * (u1 + rate_error);
+        control_torque[i] = -state->gains.sun_point_kd * (u1 + rate_error);
         control_torque[i] = -control_torque[i];
-        if (control_torque[i] > ADCS_WHEEL_MAX_TORQUE) control_torque[i] = ADCS_WHEEL_MAX_TORQUE;
-        else if (control_torque[i] < -ADCS_WHEEL_MAX_TORQUE) control_torque[i] = -ADCS_WHEEL_MAX_TORQUE;
+        if (control_torque[i] > state->gains.wheel_max_torque) control_torque[i] = state->gains.wheel_max_torque;
+        else if (control_torque[i] < -state->gains.wheel_max_torque) control_torque[i] = -state->gains.wheel_max_torque;
     }
 
     // Simple MTB assist logic (reduced influence compared to wheels)
     bool wheels_saturated = false;
-    for (int i = 0; i < 3; i++) if (fabs(control_torque[i]) >= ADCS_WHEEL_MAX_TORQUE * 0.95) wheels_saturated = true;
+    for (int i = 0; i < 3; i++) if (fabs(control_torque[i]) >= state->gains.wheel_max_torque * 0.95) wheels_saturated = true;
 
     if (wheels_saturated || rate_magnitude > 0.1) {
         double w[3] = {context_42->wn[0], context_42->wn[1], context_42->wn[2]};
         double b[3] = {context_42->mag_field_body[0], context_42->mag_field_body[1], context_42->mag_field_body[2]};
-        double mtb_gain = ADCS_DETUMBLE_GAIN_BASE * 0.5;
+        double mtb_gain = state->gains.detumble_gain_base * 0.5;
         if (wheels_saturated) mtb_gain *= 1.5;
         if (rate_magnitude > 0.2) mtb_gain *= 1.2;
         double w_cross_b[3]; cross_product(w, b, w_cross_b);
         double dipole_cmd[3];
         for (int i = 0; i < 3; i++) {
             dipole_cmd[i] = -mtb_gain * w_cross_b[i];
-            if (dipole_cmd[i] > ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = ADCS_MTB_MAX_DIPOLE;
-            else if (dipole_cmd[i] < -ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = -ADCS_MTB_MAX_DIPOLE;
+            if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;
+            else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
         }
         if (simulith_42_send_mtb_command(0, dipole_cmd, 0x07) != 0)
             return COMPONENT_ERROR;
@@ -208,7 +222,7 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
 
     #ifdef ADCS_CFG_DEBUG
     printf("ADCS %s: Wheel torques=[%.6f,%.6f,%.6f] (max=%.6f)\n",
-           tag ? tag : "POINT", control_torque[0], control_torque[1], control_torque[2], ADCS_WHEEL_MAX_TORQUE);
+           tag ? tag : "POINT", control_torque[0], control_torque[1], control_torque[2], state->gains.wheel_max_torque);
     // Debug output: print normalized error axis and the actual angle in degrees.
     // Note: when targeting +X (1,0,0) the x-component of the cross-product will be zero by construction.
     double axis_norm[3] = {0.0, 0.0, 0.0};
@@ -301,35 +315,46 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
     
     double control_torque[3];
     double max_rate = 0.1; // Max slew rate limit (rad/s)
-    
+
+    /* Mild rotisserie (issue #8): command a slow roll about the sun-pointing
+     * boresight (body +X, axis 0) for thermal management, while still
+     * damping rate to zero on the other two axes. Safe by construction:
+     * attitude_error[0] (the roll/X-axis pointing error) is always zero here
+     * (cross(sun_body, (1,0,0))[0] = 0 in the normal case above, and the
+     * aligned-case branch sets it to zero explicitly), so axis 0's torque
+     * is a pure rate command, fully decoupled from the Y/Z pointing control
+     * that keeps the sun in view. rotisserie_rate_rad_s = 0.0 (the default)
+     * reproduces the original static point-and-hold exactly. */
+    double rate_target[3] = { state->gains.rotisserie_rate_rad_s, 0.0, 0.0 };
+
     for (int i = 0; i < 3; i++) {
         // Rate-limited attitude command
-        double u1 = ADCS_SUN_POINT_KP / ADCS_SUN_POINT_KD * attitude_error[i];
+        double u1 = state->gains.sun_point_kp / state->gains.sun_point_kd * attitude_error[i];
         if (u1 > max_rate) u1 = max_rate;
         else if (u1 < -max_rate) u1 = -max_rate;
-        
+
         // Rate error (actual rate - commanded rate)
-        double rate_error = context_42->wn[i] - 0.0; // commanding zero rates for now
-        
+        double rate_error = context_42->wn[i] - rate_target[i];
+
         // PD control law: T = -Kr * (u1 + rate_error)
-        control_torque[i] = -ADCS_SUN_POINT_KD * (u1 + rate_error);
-        
+        control_torque[i] = -state->gains.sun_point_kd * (u1 + rate_error);
+
         // Apply final sign flip
         control_torque[i] = -control_torque[i];
-        
+
         // Limit torque to wheel capability
-        if (control_torque[i] > ADCS_WHEEL_MAX_TORQUE) {
-            control_torque[i] = ADCS_WHEEL_MAX_TORQUE;
-        } else if (control_torque[i] < -ADCS_WHEEL_MAX_TORQUE) {
-            control_torque[i] = -ADCS_WHEEL_MAX_TORQUE;
+        if (control_torque[i] > state->gains.wheel_max_torque) {
+            control_torque[i] = state->gains.wheel_max_torque;
+        } else if (control_torque[i] < -state->gains.wheel_max_torque) {
+            control_torque[i] = -state->gains.wheel_max_torque;
         }
     }
-    
+
     // Check if wheels are saturating or need momentum management
     bool wheels_saturated = false;
     double total_wheel_torque = 0.0;
     for (int i = 0; i < 3; i++) {
-        if (fabs(control_torque[i]) >= ADCS_WHEEL_MAX_TORQUE * 0.95) { // 95% of max
+        if (fabs(control_torque[i]) >= state->gains.wheel_max_torque * 0.95) { // 95% of max
             wheels_saturated = true;
         }
         total_wheel_torque += fabs(control_torque[i]);
@@ -347,7 +372,7 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
         double b[3] = {context_42->mag_field_body[0], context_42->mag_field_body[1], context_42->mag_field_body[2]};
         
         // Reduced MTB gains to avoid overpowering stronger wheels
-        double mtb_gain = ADCS_DETUMBLE_GAIN_BASE * 0.5; // Reduced base gain
+        double mtb_gain = state->gains.detumble_gain_base * 0.5; // Reduced base gain
         if (wheels_saturated) {
             mtb_gain *= 1.5; // Less aggressive when wheels saturated (was 2.0)
         }
@@ -363,15 +388,15 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
         double dipole_cmd[3];
         for (int i = 0; i < 3; i++) {
             dipole_cmd[i] = -mtb_gain * w_cross_b[i];
-            
+
             // Limit to MTB saturation
-            if (dipole_cmd[i] > ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = ADCS_MTB_MAX_DIPOLE;
-            else if (dipole_cmd[i] < -ADCS_MTB_MAX_DIPOLE) dipole_cmd[i] = -ADCS_MTB_MAX_DIPOLE;
+            if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;
+            else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
         }
-        
+
         if (simulith_42_send_mtb_command(0, dipole_cmd, 0x07) != 0)
             return COMPONENT_ERROR;
-        
+
         #ifdef ADCS_CFG_DEBUG
         printf("ADCS MTB: gain=%.4f, dipole=[%.4f,%.4f,%.4f]\n",
                mtb_gain, dipole_cmd[0], dipole_cmd[1], dipole_cmd[2]);
@@ -392,7 +417,7 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
     
     #ifdef ADCS_CFG_DEBUG           
     printf("ADCS NOS3-STYLE: Wheel torques=[%.6f,%.6f,%.6f] (max=%.6f)\n",
-           control_torque[0], control_torque[1], control_torque[2], ADCS_WHEEL_MAX_TORQUE);
+           control_torque[0], control_torque[1], control_torque[2], state->gains.wheel_max_torque);
     printf("ADCS HYBRID: Error=[%.6f,%.6f,%.6f] (mag=%.6f, %.1f deg)\n",
            attitude_error[0], attitude_error[1], attitude_error[2], error_magnitude, angle_error * 57.2958);
     printf("ADCS HYBRID: Rates=[%.6f,%.6f,%.6f] (mag=%.6f rad/s)\n", 
@@ -649,29 +674,39 @@ static adcs_command_result_t handle_command(adcs_sim_state_t* state,
 {
     if (!state || !data)
         return ADCS_COMMAND_ERROR;
-    if (length != ADCS_DEVICE_CMD_SIZE)
+    if (length != ADCS_DEVICE_CMD_SIZE && length != ADCS_DEVICE_GAINS_CMD_SIZE)
     {
-        printf("ADCS SIM: Invalid command parameters: state=%p, data=%p, length=%zu\n", 
+        printf("ADCS SIM: Invalid command parameters: state=%p, data=%p, length=%zu\n",
                (void*)state, (const void*)data, length);
         return ADCS_COMMAND_REJECTED;
     }
-    
+
     uint16_t header  = ((uint16_t) data[0] << 8) | data[1];
     uint16_t cmd_id  = ((uint16_t) data[2] << 8) | data[3];
-    uint16_t payload = ((uint16_t) data[4] << 8) | data[5];
-    uint16_t trailer = ((uint16_t) data[6] << 8) | data[7];
+    uint16_t payload = (length == ADCS_DEVICE_CMD_SIZE) ?
+        (((uint16_t) data[4] << 8) | data[5]) : 0;
+    uint16_t trailer = ((uint16_t) data[length - 2] << 8) | data[length - 1];
 
     // Validate header
-    if (header != ADCS_DEVICE_HDR) 
+    if (header != ADCS_DEVICE_HDR)
     {
         printf("ADCS SIM: Invalid command header (0x%04X)\n", header);
         return ADCS_COMMAND_REJECTED;
     }
 
     // Validate trailer
-    if (trailer != ADCS_DEVICE_TRAILER) 
+    if (trailer != ADCS_DEVICE_TRAILER)
     {
         printf("ADCS SIM: Invalid command trailer (0x%04X)\n", trailer);
+        return ADCS_COMMAND_REJECTED;
+    }
+
+    // A frame's length must match what its command ID expects, or the
+    // trailer offset above (length-dependent) would have been parsed from
+    // the wrong place.
+    if ((cmd_id == ADCS_DEVICE_SET_GAINS_CMD) != (length == ADCS_DEVICE_GAINS_CMD_SIZE))
+    {
+        printf("ADCS SIM: Command ID %d does not match frame length %zu\n", cmd_id, length);
         return ADCS_COMMAND_REJECTED;
     }
 
@@ -745,6 +780,38 @@ static adcs_command_result_t handle_command(adcs_sim_state_t* state,
                 #endif
             }
             break;
+
+        case ADCS_DEVICE_SET_GAINS_CMD:
+        {
+            #ifdef ADCS_CFG_DEBUG
+            printf("ADCS SIM: Processing SET_GAINS command\n");
+            #endif
+            const uint8_t *p = &data[4];
+            double *fields[7] = {
+                &state->gains.sun_point_kp,       &state->gains.sun_point_kd,
+                &state->gains.wheel_max_torque,   &state->gains.mtb_max_dipole,
+                &state->gains.detumble_gain_base, &state->gains.detumble_gain_high,
+                &state->gains.rotisserie_rate_rad_s,
+            };
+            for (int i = 0; i < 7; i++)
+            {
+                uint32_t u = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                             ((uint32_t)p[2] << 8) | p[3];
+                float f;
+                memcpy(&f, &u, sizeof(f));
+                *fields[i] = (double)f;
+                p += 4;
+            }
+            #ifdef ADCS_CFG_DEBUG
+            printf("ADCS SIM: Gains updated: Kp=%.4f Kd=%.4f WheelMax=%.4f MtbMax=%.4f "
+                   "DetBase=%.4f DetHigh=%.4f Rotisserie=%.5f\n",
+                   state->gains.sun_point_kp, state->gains.sun_point_kd,
+                   state->gains.wheel_max_torque, state->gains.mtb_max_dipole,
+                   state->gains.detumble_gain_base, state->gains.detumble_gain_high,
+                   state->gains.rotisserie_rate_rad_s);
+            #endif
+            break;
+        }
 
         case ADCS_DEVICE_SET_TARGET_CMD:
             #ifdef ADCS_CFG_DEBUG
@@ -927,6 +994,17 @@ int adcs_sim_init(adcs_sim_state_t* state)
     }
     state->current_mode = 0;          // Start in disabled mode
     state->controller_active = 0;     // Controller inactive initially
+
+    // Seed runtime gains from the compiled-in defaults/hardware ceilings.
+    // Behavior is unchanged from before ADCS_DEVICE_SET_GAINS_CMD existed
+    // until a boot-loaded gains table is actually pushed down.
+    state->gains.sun_point_kp         = ADCS_SUN_POINT_KP;
+    state->gains.sun_point_kd         = ADCS_SUN_POINT_KD;
+    state->gains.wheel_max_torque     = ADCS_WHEEL_MAX_TORQUE;
+    state->gains.mtb_max_dipole       = ADCS_MTB_MAX_DIPOLE;
+    state->gains.detumble_gain_base   = ADCS_DETUMBLE_GAIN_BASE;
+    state->gains.detumble_gain_high   = ADCS_DETUMBLE_GAIN_HIGH;
+    state->gains.rotisserie_rate_rad_s = 0.0;
 
     printf("ADCS SIM: Initialized successfully as %s\n", state->uart_port.name);
     return ADCS_SIM_SUCCESS;

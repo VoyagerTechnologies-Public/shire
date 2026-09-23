@@ -47,9 +47,11 @@ include_directories(${PROJECT_SOURCE_DIR}/../../${FSW_DIR}/osal/ut_assert/inc)
 # be broken down into smaller units (in which case one should use
 # a unique suffix other than "ALL" for each unit).  For example,
 # OSAL implements a separate coverage test per source unit.
-add_cfe_coverage_test(adcs ALL 
+add_cfe_coverage_test(adcs ALL
     "coveragetest/coveragetest_adcs_app.c"
     "../src/adcs_app.c"
+    "../src/adcs_time.c"
+    "../src/adcs_tbl.c"
 )
 
 add_cfe_coverage_test(adcs DEVICE 

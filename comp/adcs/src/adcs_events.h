@@ -38,4 +38,14 @@
 #define ADCS_REQ_DATA_ERR_EID        42
 #define ADCS_REQ_DATA_STATUS_ERR_EID 43
 
+/* Table and time synchronization event IDs */
+#define ADCS_GPS_TIME_SYNC_INF_EID 50
+#define ADCS_TBL_REGISTER_ERR_EID  51
+#define ADCS_TBL_LOAD_ERR_EID      52
+#define ADCS_TBL_MANAGE_ERR_EID    53
+#define ADCS_TBL_GETADDR_ERR_EID   54
+#define ADCS_TBL_VALIDATE_ERR_EID  55
+#define ADCS_SEND_GAINS_INF_EID    56
+#define ADCS_SEND_GAINS_ERR_EID    57
+
 #endif /* _ADCS_EVENTS_H_ */

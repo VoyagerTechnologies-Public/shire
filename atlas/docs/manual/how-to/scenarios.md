@@ -257,8 +257,22 @@ A verification failure is worded distinctly from a clean-completion
 failure, `"clean completion, but stack verification failed..."` versus
 `"missing terminal marker(s)..."`, so the two are never ambiguous.
 
-`checkout` is the only scenario using `verify_stacks` today, running
-`CheckoutTest.ycs`.
+A `verify` step's `condition` entries normally compare a parameter against
+a static literal `value`. `yamcs_commander.py` also supports a headless-
+commander-only `"operator": "approx"` condition (`reference_parameter` +
+`tolerance` instead of `value`) for asserting numeric agreement between two
+*live* parameters, e.g. confirming ADCS telemetry matches `SIM_42_TRUTH`
+within tolerance (`comp/adcs/gsw/procedures/AdcsTruthComparison.ycs`). This
+is not part of the official YAMCS stack schema, so a `.ycs` using it still
+opens fine in the YAMCS web UI, but a human running it there would see that
+condition simply never resolve -- reserve "approx" for stacks driven
+exclusively through `verify_stacks`, never ones also meant for manual GUI
+use. See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
+
+`checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
+`adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,
+`adcs-target-track`) use `verify_stacks` today, the latter running
+`comp/adcs/gsw/procedures/*.ycs` stacks.
 It is a developer tool.
 No CI job runs `make scenario` at all yet (see the note above), so this
 isn't gating anything by extension either.
