@@ -1,0 +1,10 @@
+{
+  "$schema": "https://yamcs.org/schema/parameter-table.schema.json",
+  "scroll": false,
+  "bufferSize": 10,
+  "parameters": [
+    "/SIM_42_TRUTH/SVB_1",
+    "/SIM_42_TRUTH/SVB_2",
+    "/SIM_42_TRUTH/SVB_3"
+  ]
+}

@@ -10,34 +10,17 @@ import json
 import math
 import os
 import pathlib
-import platform
 import re
-import shutil
 import statistics
 import subprocess
 import threading
 import time
 from collections.abc import Callable
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+import yaml
 
-
-def container_names(mission: str, spacecraft: str) -> dict[str, str]:
-    return {
-        "server": f"shire-server-{mission}",
-        "director": f"shire-director-{spacecraft}",
-        "fsw": f"shire-fsw-{spacecraft}",
-        "42": f"shire-42-{spacecraft}",
-        "gsw": f"shire-gsw-{mission}",
-        "cryptolib": f"shire-cryptolib-{spacecraft}",
-    }
-
-
-def run(command: list[str], *, env: dict[str, str] | None = None,
-        check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=ROOT, env=env, check=check,
-                          text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT)
+from shire_provenance import ROOT, run, git_metadata, host_metadata
+from shire_runner_lib import container_names, parse_marker
 
 
 def active_value(key: str) -> str:
@@ -45,68 +28,6 @@ def active_value(key: str) -> str:
         if line.startswith(f"{key}:"):
             return line.split(":", 1)[1].strip()
     raise RuntimeError(f"missing {key} in build/active.yaml")
-
-
-def untracked_file_hashes(repository: pathlib.Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for value in run(["git", "-C", str(repository), "ls-files", "--others",
-                      "--exclude-standard"], check=False).stdout.splitlines():
-        path = repository / value
-        if path.is_file():
-            result[value] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return result
-
-
-def git_metadata() -> dict[str, object]:
-    root_sha = run(["git", "rev-parse", "HEAD"]).stdout.strip()
-    submodules: dict[str, dict[str, object]] = {}
-    for line in run(["git", "submodule", "status", "--recursive"]).stdout.splitlines():
-        fields = line.strip().split()
-        if len(fields) >= 2:
-            path = fields[1]
-            status = run(["git", "-C", path, "status", "--porcelain"], check=False)
-            diff = run(["git", "-C", path, "diff", "--binary", "HEAD"], check=False)
-            submodules[path] = {
-                "sha": fields[0].lstrip("-+"),
-                "dirty": bool(status.stdout.strip()),
-                "tracked_diff_sha256": hashlib.sha256(
-                    diff.stdout.encode("utf-8")).hexdigest(),
-                "untracked_files": untracked_file_hashes(ROOT / path),
-            }
-    root_status = run(["git", "status", "--porcelain", "--ignore-submodules=all"])
-    root_diff = run(["git", "diff", "--binary", "HEAD"], check=False).stdout
-    return {"root": root_sha, "dirty": bool(root_status.stdout.strip()),
-            "tracked_diff_sha256": hashlib.sha256(
-                root_diff.encode("utf-8")).hexdigest(),
-            "untracked_files": untracked_file_hashes(ROOT),
-            "submodules": submodules}
-
-
-def host_metadata() -> dict[str, object]:
-    docker = run(["docker", "version", "--format", "{{.Server.Version}}"], check=False)
-    paranoid_path = pathlib.Path("/proc/sys/kernel/perf_event_paranoid")
-    try:
-        perf_paranoid = int(paranoid_path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        perf_paranoid = None
-    return {
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "logical_cpus": os.cpu_count(),
-        "docker_server": docker.stdout.strip(),
-        "profiling_tools": {tool: shutil.which(tool)
-                            for tool in ("perf", "strace", "pidstat")},
-        "perf_event_paranoid": perf_paranoid,
-    }
-
-
-def parse_marker(log: str, marker: str) -> dict[str, object]:
-    for line in reversed(log.splitlines()):
-        if marker in line:
-            start = line.find("{", line.find(marker))
-            if start >= 0:
-                return json.loads(line[start:])
-    raise RuntimeError(f"process exited without {marker}")
 
 
 def parse_stats(output: str, containers: tuple[str, ...]) -> list[dict[str, str]]:
@@ -382,6 +303,16 @@ def classify_command_deliveries(fsw: dict[str, object]) -> None:
         item for item in deliveries if int(item.get("mid", -1)) != ground_mid]
     fsw["wall_clock_command_deliveries"] = [
         item for item in deliveries if int(item.get("mid", -1)) == ground_mid]
+
+
+def initial_conditions_snapshot(mission: str, scenario_name: str) -> dict[str, object] | None:
+    """Read the scenario+IC snapshot shire-orchestrator.py wrote for the
+    currently-configured build, so a determinism (or any other) report
+    stays traceable to the exact starting state a run used."""
+    path = ROOT / "build" / mission / "scenario" / f"{scenario_name}.snapshot.yaml"
+    if not path.exists():
+        return None
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def resolved_scenario(artifact_dir: pathlib.Path, spacecraft: str) -> pathlib.Path:
@@ -715,7 +646,11 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
             failures.append(f"trial {trial['speed']} graphics-output accounting mismatch")
     if enforce_performance and not report["fidelity"]["passed"]:
         failures.append("1x/25x exact-count fidelity failed")
-    if enforce_performance and not report["repeatability"]["passed"]:
+    # Repeatability is a correctness check, not a performance threshold --
+    # unlike the speed/queue-activity checks above, it must not be skipped
+    # in smoke/determinism modes (enforce_performance=False), or a genuine
+    # non-determinism would print FAIL but still exit 0.
+    if not report["repeatability"]["passed"]:
         failures.append("cross-trial terminal/count repeatability failed")
     if enforce_performance and baseline and max_speeds:
         if baseline.get("schema_version") != report.get("schema_version"):
@@ -785,10 +720,16 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
               f"minimum {min(max_speeds):.3f}x across "
               f"{len(max_speeds)} {trial_word}")
 
+    ic_snapshot = report.get("initial_conditions")
+    if ic_snapshot:
+        assert isinstance(ic_snapshot, dict)
+        print(f"Scenario / IC: {ic_snapshot.get('scenario_name')} / "
+              f"{ic_snapshot.get('initial_conditions')}")
+
     fidelity_result = report.get("fidelity", {})
     assert isinstance(fidelity_result, dict)
     if fidelity_result.get("not_run"):
-        print("1x/25x fidelity: NOT RUN (smoke mode)")
+        print(f"1x/25x fidelity: NOT RUN ({mode} mode)")
     else:
         print(f"1x/25x fidelity: {'PASS' if fidelity_result.get('passed') else 'FAIL'}")
 
@@ -880,7 +821,8 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("smoke", "perf", "compare"), default="smoke")
+    parser.add_argument("--mode", choices=("smoke", "perf", "compare", "determinism"),
+                        default="smoke")
     parser.add_argument("--baseline")
     parser.add_argument(
         "--artifact-dir",
@@ -909,8 +851,17 @@ def main() -> int:
         parser.error("--duration must be a positive finite number")
     if not math.isfinite(args.warmup) or args.warmup < 0.0 or args.warmup >= duration:
         parser.error("--warmup must be non-negative and shorter than --duration")
-    plan = [("max", 1)] if args.mode == "smoke" else [
-        ("1", 1), ("25", 1), ("max", 1), ("max", 2), ("max", 3)]
+    if args.mode == "smoke":
+        plan = [("max", 1)]
+    elif args.mode == "determinism":
+        # Two identically-configured trials (same speed, same scenario, same
+        # build/active.yaml IC selection) — reuses the existing repeatability
+        # comparison in full, including fidelity()'s exact terminal.state
+        # (qn/wn/pos_n/vel_n/dyn_time) check, to confirm a scenario's
+        # Initial Condition bin produces the same run every time.
+        plan = [("max", 1), ("max", 2)]
+    else:
+        plan = [("1", 1), ("25", 1), ("max", 1), ("max", 2), ("max", 3)]
 
     report: dict[str, object] = {
         "schema_version": 4,
@@ -941,6 +892,8 @@ def main() -> int:
     }
     scenario = resolved_scenario(artifact_dir, spacecraft)
     report["scenario"] = json.loads(scenario.read_text(encoding="utf-8"))
+    report["initial_conditions"] = initial_conditions_snapshot(
+        mission, active_value("scenario"))
     for speed, number in plan:
         print(f"running synchronized {speed}x trial {number}", flush=True)
         report["trials"].append(
@@ -967,7 +920,8 @@ def main() -> int:
     baseline = json.loads(pathlib.Path(args.baseline).read_text(encoding="utf-8")) \
         if args.baseline else None
     report["failures"] = evaluate(
-        report, baseline, enforce_performance=args.mode != "smoke")
+        report, baseline,
+        enforce_performance=args.mode not in ("smoke", "determinism"))
     report_path = artifact_dir / "report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print_summary(report, report_path, args.mode, baseline)

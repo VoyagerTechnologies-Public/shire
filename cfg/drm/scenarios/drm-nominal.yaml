@@ -1,3 +1,18 @@
+# The default DRM scenario: nominal operations, no debug overrides, launch
+# state unchanged from before scenarios could vary it. See
+# atlas/docs/manual/how-to/scenarios.md for the full scenario/IC bin schema.
 scenario_name: "nominal"
+description: >
+  Nominal mission operations on the DRM reference orbit, starting from the
+  default launch state (nominal-baseline).
+initial_conditions: "nominal-baseline"
 overrides:
   debug: false
+run_duration_s: 900
+# Only affects the autonomous `make scenario` path (shire-scenario.py sets
+# this as an env var before `docker compose up`) -- `make start`'s manual
+# GUI path is untouched, still defaulting to real-time (1x) for watching.
+# Safe to run flat-out here: this scenario has no verify_stacks, so
+# nothing needs a real-wall-clock window to finish in before the
+# simulated clock reaches run_duration_s and telemetry freezes.
+simulith_speed: "max"

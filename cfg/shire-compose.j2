@@ -1,14 +1,22 @@
 # lab-compose.j2
 # Jinja2 template for shire-compose.yaml with spacecraft-specific images
+#
+# instance/port_offset/image_tag support Monte Carlo Campaigns
+# running many trials' stacks concurrently on one host: each is optional
+# and defaults away to reproduce a plain `make scenario` run's compose
+# file byte-for-byte when unset.
+{% set inst = ('-' + instance | string) if instance else '' %}
+{% set voff = (port_offset | default(0) | int) %}
+{% set tag = image_tag | default(spacecraft) | default('0.0.0') %}
 services:
   shire-42:
-    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-42-{{ spacecraft | default('default') }}
+    image: shire-42-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-42-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     attach: false
     ports:
-      - "5801:80"  # VNC web interface for 42 graphics visualization
+      - "{{ 5801 + voff }}:80"  # VNC web interface for 42 graphics visualization
     cpus: "2.0"
     mem_limit: 2g
     environment:
@@ -16,19 +24,23 @@ services:
       - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
       - FORTYTWO_GRAPHICS_HZ=${FORTYTWO_GRAPHICS_HZ:-1}
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     shm_size: '2gb'
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-gsw:
-    image: shire-gsw-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-gsw-{{ mission | default('default') }}
+    image: shire-gsw-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-gsw-{{ mission | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     attach: false
     ports:
-      - "8090:8090"
+      - "{{ 8090 + voff }}:8090"
     volumes:
-      - gsw-data_{{ mission | default('default') }}:/app/yamcs-data
+      - gsw-data_{{ mission | default('default') }}{{ inst }}:/app/yamcs-data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8090"]
       interval: 30s
@@ -37,12 +49,16 @@ services:
       start_period: 60s
     cpus: "2.0"
     mem_limit: 1g
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-server:
-    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-server-{{ mission | default('default') }}
+    image: shire-server-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-server-{{ mission | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     environment:
@@ -56,16 +72,20 @@ services:
     cpus: "4.0"
     mem_limit: 2g
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     tmpfs:
       - /dev/shm:noexec,nosuid,size=1g
     privileged: false
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-director:
-    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-director-{{ spacecraft | default('default') }}
+    image: shire-director-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-director-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     depends_on:
@@ -82,16 +102,20 @@ services:
     cpus: "4.0"
     mem_limit: 512m
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
       - ${SIMULITH_SCENARIO_FILE:-/dev/null}:/run/shire-scenario.json:ro
     tmpfs:
       - /dev/shm:noexec,nosuid,size=100m
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-cryptolib:
-    image: shire-cryptolib-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-cryptolib-{{ spacecraft | default('default') }}
+    image: shire-cryptolib-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-cryptolib-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     depends_on:
@@ -99,15 +123,19 @@ services:
     cpus: "1.0"
     mem_limit: 512m
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     tmpfs:
       - /dev/shm:noexec,nosuid,size=100m
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-fsw:
-    image: shire-fsw-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-fsw-{{ spacecraft | default('default') }}
+    image: shire-fsw-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-fsw-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     depends_on:
@@ -126,17 +154,33 @@ services:
     cpus: "4.0"
     mem_limit: 2g
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     tmpfs:
       - /dev/shm:noexec,nosuid,size=1g
     privileged: false
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
 networks:
-  shire-net-{{ spacecraft | default('default') }}:
+  shire-net-{{ spacecraft | default('default') }}{{ inst }}:
     driver: bridge
+{%- if instance %}
+    labels:
+      shire.instance: "{{ instance }}"
+{%- endif %}
 
 volumes:
-  simulith_ipc_{{ spacecraft | default('default') }}:
+  simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:
     driver: local
-  gsw-data_{{ mission | default('default') }}:
+{%- if instance %}
+    labels:
+      shire.instance: "{{ instance }}"
+{%- endif %}
+  gsw-data_{{ mission | default('default') }}{{ inst }}:
     driver: local
+{%- if instance %}
+    labels:
+      shire.instance: "{{ instance }}"
+{%- endif %}

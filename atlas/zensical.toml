@@ -29,7 +29,9 @@ nav = [
       { "Configuration" = "manual/how-to/configuration.md" },
       { "Development Board" = "manual/how-to/development-board.md" },
       { "Docker" = "manual/how-to/docker.md" },
+      { "Monte Carlo Campaigns" = "manual/how-to/monte-carlo-campaigns.md" },
       { "Performance" = "manual/how-to/performance.md" },
+      { "Scenarios and Initial Conditions" = "manual/how-to/scenarios.md" },
     ] },
   ] },
   { "Reference" = [

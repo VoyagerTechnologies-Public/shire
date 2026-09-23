@@ -1,3 +1,15 @@
+# The DRM debug scenario: same starting state as nominal, but with
+# debug: true applied to every selected component. See
+# atlas/docs/manual/how-to/scenarios.md for the full scenario/IC bin schema.
 scenario_name: "debug"
+description: >
+  Nominal mission operations on the DRM reference orbit, starting from the
+  default launch state (nominal-baseline), with debug logging enabled on
+  every selected component.
+initial_conditions: "nominal-baseline"
 overrides:
   debug: true
+run_duration_s: 900
+# Only affects `make scenario` (not `make start`); safe here since there's
+# no verify_stacks to race. See drm-nominal.yaml for the full rationale.
+simulith_speed: "max"

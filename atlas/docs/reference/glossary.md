@@ -40,9 +40,12 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | GSW | Ground software, which in SHIRE primarily means the included YAMCS instance and component ground artifacts. |
 | HWLIB | Hardware interface library in the SHIRE PSP that provides UART, I2C, SPI, GPIO, and other interfaces. |
 | ICD | Interface Control Document used to define the component bus, protocol, timing, state, and error contract before implementation. |
+| Initial Condition (IC) bin | Reusable starting orbit, epoch, attitude, and optional per-component state referenced by a DRM scenario's `initial_conditions` field. |
+| Instance | A Monte Carlo campaign trial's short token, used to suffix its containers, networks, volumes, and ports so concurrent trials never collide. |
 | IPC | Interprocess communication used for simulated device and 42 connections through endpoints in the shared `/tmp` volume. |
 | LC | cFS Limit Checker application used to evaluate watchpoints and trigger configured actions. |
 | MDB | YAMCS mission database assembled from the checked in XTCE command and telemetry definitions. |
+| Monte Carlo Campaign | Many trials of one DRM scenario run against varied Initial Condition bins and aggregated by `cfg/shire-campaign.py`. |
 | NOOP | No Operation command used to confirm command acceptance and counters without requesting mission behavior. |
 | OSAL | Operating System Abstraction Layer used by cFS. |
 | Procedure stack | YAMCS `.ycs` artifact that contains ordered commands, checks, and operator instructions. |
@@ -54,7 +57,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | RTOS | Real Time Operating System that may sit below OSAL on a flight target. |
 | SB | cFE Software Bus, which routes messages among flight applications and cFE services. |
 | SC | cFS Stored Command application. |
-| Scenario | Atlas exercise that applies SHIRE capabilities to an operational or development objective and states its current evidence level. |
+| Scenario | Atlas exercise or set of initial conditions to be used for system level demonstrations and tests. |
 | SCH | cFS Scheduler application that releases configured messages according to its schedule table. |
 | Server | Simulith process that owns simulation time and advances only after every required PREPARE, EXECUTE, and COMMIT completion. |
 | SHIRE | Software & Hardware Integration Runtime Environment. |

@@ -27,6 +27,7 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make perf-smoke` | Build and run one short synchronized diagnostic trial. |
 | `make perf` | Build and run the active 1x and 25x fidelity pair plus three unbounded trials. |
 | `make perf-compare BASELINE=<report.json>` | Repeat the performance matrix and compare it with an accepted performance report. |
+| `make campaign CAMPAIGN=<name> MAX_PARALLEL=<n>` | Run a Monte Carlo campaign's trials and aggregate the results. |
 | `make docs-check` | Validate the Atlas content and run a strict production build. |
 | `make docs-serve` | Start the local Atlas preview server. |
 | `make debug` | Open an interactive shell in the SHIRE build image with the repository mounted. |
@@ -86,8 +87,12 @@ The UDP endpoints remain inside the Compose bridge because the templates do not 
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The current DRM scenarios are `nominal` and `debug`.
-They apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
+The current DRM scenarios are `nominal`, `debug`, `eclipse-entry-adcs`, `eclipse-exit-adcs`, and `checkout`.
+`nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
+`eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
+Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.
+`checkout` runs YAMCS's CheckoutTest.ycs stack headlessly via `verify_stacks` instead of a human clicking through it.
+See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the IC bin and verify_stacks mechanisms.
 The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nominal`, and CLI component `demo`.
 
 ## cFS targets
@@ -111,6 +116,12 @@ The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nom
 | `build/<mission>/<spacecraft>/fsw/` | cFS build and installation output. |
 | `build/<mission>/<spacecraft>/comp/<component>/` | Centralized simulator and CLI build output for selected components. |
 | `comp/<component>/shared/device_cfg.h` | Ignored device configuration rendered in the source tree for each selected component with a template. |
+| `build/<mission>/scenario/<scenario>.snapshot.yaml` | Scenario name, resolved Initial Condition bin, and git SHA, written on every `make cfg`. |
+| `build/<mission>/<instance>/shire-compose.yaml` | A Monte Carlo campaign trial's own DRM Compose file, one numbered subdirectory per trial. |
+| `build/scenario-runs/<scenario>-<UTC timestamp>/` | `make scenario`'s `result.json`, container logs, and IC snapshot copy. |
+| `build/monte-carlo-runs/<campaign>-<UTC timestamp>/` | `make campaign`'s per-trial artifacts, `campaign_report.json`, and `campaign_dataset.jsonl`. |
+| `cfg/drm/initial_conditions/<name>.yaml` | A reusable Initial Condition bin: orbit, epoch, attitude, and optional per-component state. |
+| `cfg/drm/campaigns/<name>.yaml` | A Monte Carlo campaign definition: swept parameters, distributions, and metrics to extract. |
 
 ## Performance reports
 
@@ -156,10 +167,11 @@ Use a reviewed report as `BASELINE` rather than copying only its median speed.
 | How are Compose files generated? | `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
 | Which applications compile and start? | `cfg/shire_defs/targets.cmake` and the generated CPU startup script |
 | Which ground links exist? | `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`, `comp/cryptolib/support/standalone/standalone.h`, `comp/radio/support/device_config.yaml`, `simulith/include/simulith_director.h`, and `simulith/src/simulith_director.c` |
-| Which procedures exist? | `yamcs/src/main/yamcs/procedures/` and `comp/<name>/gsw/procedures/` |
+| Which procedures exist? | `cfg/<mission>/gsw/procedures/` (DRM-level) and `comp/<name>/gsw/procedures/` (component-level), both staged into the `yamcs/` submodule at build time |
 | Which developer commands are supported? | The root `Makefile` and subsystem Makefiles |
 | Which performance workload is injected? | `cfg/perf-scenario.json` |
 | How is a performance report produced and evaluated? | `cfg/shire-perf.py` |
+| How is a Monte Carlo campaign defined and run? | `cfg/drm/campaigns/<name>.yaml` and `cfg/shire-campaign.py` |
 
 Treat this page as a convenience index.
 When it disagrees with a generated file or source listed above, inspect the current checkout and report the documentation mismatch.

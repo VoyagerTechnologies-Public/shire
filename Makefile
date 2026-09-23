@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim complexity cfg cfg-cli cli cli-start container debug docs-check docs-serve fsw gsw help mold perf perf-compare perf-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -35,11 +35,25 @@ endif
 build: cfg
 	python3 cfg/shire-build.py build
 
+build-complexity:
+	./cfg/complexity-report.sh build/coverage-complexity.txt
+
+campaign:
+	@if [ -z "$(CAMPAIGN)" ]; then \
+		echo "CAMPAIGN=<name> is required. Available campaigns:"; \
+		python3 cfg/shire-campaign.py --list-campaigns; \
+		exit 2; \
+	fi
+	python3 cfg/shire-campaign.py --campaign "$(CAMPAIGN)" $(if $(MAX_PARALLEL),--max-parallel "$(MAX_PARALLEL)",)
+
 cfg: container
 	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py
 
 cfg-cli: container
 	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
+
+cfg-compose-only: container
+	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --compose-only
 
 clean:
 	$(MAKE) stop
@@ -55,18 +69,12 @@ clean:
 		echo "Docker image $(BUILD_IMAGE) does not exist. Skipping clean subcommands."; \
 	fi
 
+clean-42:
+	python3 cfg/shire-build.py clean-42
+
 clean-cache:
 	docker builder prune -f
 	docker volume rm -f gsw-data simulith_ipc || true
-
-complexity: container
-	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) make build-complexity
-
-build-complexity:
-	./cfg/complexity-report.sh build/coverage-complexity.txt
-
-clean-42:
-	python3 cfg/shire-build.py clean-42
 
 clean-cli:
 	python3 cfg/shire-build.py clean-cli
@@ -85,6 +93,9 @@ cli: cfg-cli
 
 cli-start: cfg
 	docker compose -f $(BUILDDIR_MISSION)/cli-compose.yaml up
+
+complexity: container
+	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) make build-complexity
 
 container: .container.stamp
 
@@ -108,27 +119,19 @@ docs-check:
 
 docs-serve:
 	cd atlas && python3 -m zensical serve
-	
+
 fsw: cfg
 	python3 cfg/shire-build.py fsw
 
 gsw: cfg
 	python3 cfg/shire-build.py gsw
 
-mold:
-	@if [ "$(COMP)" = "" ]; then \
-		echo "Error: COMP parameter is required"; \
-		echo "Usage: make mold COMP=<name>"; \
-		echo "Example: make mold COMP=my_sensor"; \
-		exit 1; \
-	fi
-	python3 $(CFG_DIR)/shire-comp-mold.py "$(COMP)"
-
 help:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
 	@echo "  42            - Build 42 simulator container"
 	@echo "  build         - Build the full runtime environment"
+	@echo "  campaign      - Run CAMPAIGN=<name> Monte Carlo trials and aggregate results (optional MAX_PARALLEL=N)"
 	@echo "  cfg           - Run orchestrator to configure environment"
 	@echo "  cfg-cli       - Run orchestrator with debug=true for CLI builds"
 	@echo "  cli           - Build CLI components"
@@ -149,9 +152,11 @@ help:
 	@echo "  gsw           - Build GSW (includes Docker image)"
 	@echo "  list          - List enabled components from configuration"
 	@echo "  mold          - Create new component from demo template (Usage: make mold COMP=<name>)"
-	@echo "  perf-smoke    - Build and run one short synchronized diagnostic trial"
 	@echo "  perf          - Run 1x/25x fidelity and three unbounded candidate trials"
 	@echo "  perf-compare  - Run perf and compare with BASELINE=<report.json>"
+	@echo "  perf-smoke    - Build and run one short synchronized diagnostic trial"
+	@echo "  scenario      - Run SCENARIO=<name> headlessly and confirm a clean pass (no GUI)"
+	@echo "  scenario-smoke - Run the active scenario + IC twice and confirm exact repeat"
 	@echo "  sim           - Build Simulith and component simulators (includes Docker images)"
 	@echo "  start         - Start lab compose"
 	@echo "  stop          - Stop lab and CLI compose, clean up Docker images"
@@ -163,8 +168,14 @@ help:
 list: cfg
 	python3 cfg/shire-build.py list
 
-perf-smoke: build
-	python3 cfg/shire-perf.py --mode smoke
+mold:
+	@if [ "$(COMP)" = "" ]; then \
+		echo "Error: COMP parameter is required"; \
+		echo "Usage: make mold COMP=<name>"; \
+		echo "Example: make mold COMP=my_sensor"; \
+		exit 1; \
+	fi
+	python3 $(CFG_DIR)/shire-comp-mold.py "$(COMP)"
 
 perf: build
 	python3 cfg/shire-perf.py --mode perf
@@ -172,6 +183,20 @@ perf: build
 perf-compare: build
 	@if [ -z "$(BASELINE)" ]; then echo "BASELINE=<report.json> is required"; exit 2; fi
 	python3 cfg/shire-perf.py --mode compare --baseline "$(BASELINE)"
+
+perf-smoke: build
+	python3 cfg/shire-perf.py --mode smoke
+
+scenario:
+	@if [ -z "$(SCENARIO)" ]; then \
+		echo "SCENARIO=<name> is required. Available scenarios:"; \
+		python3 cfg/shire-scenario.py --list-scenarios; \
+		exit 2; \
+	fi
+	python3 cfg/shire-scenario.py --scenario "$(SCENARIO)"
+
+scenario-smoke: build
+	python3 cfg/shire-perf.py --mode determinism
 
 sim: cfg
 	python3 cfg/shire-build.py sim

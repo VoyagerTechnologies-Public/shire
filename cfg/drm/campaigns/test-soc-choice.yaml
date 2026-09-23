@@ -1,0 +1,19 @@
+# Test/example campaign: a small discrete component_overrides sweep
+# against the fast "nominal" scenario, using a `choice` distribution over
+# only 2 values across 4 trials -- this is expected to collapse to 2
+# unique build keys, exercising the build-key deduplication path (see
+# test-orbit-sweep.yaml for the "no dedup" continuous-parameter path).
+name: "test-soc-choice"
+description: >
+  Discrete EPS initial state-of-charge sweep against the fast "nominal"
+  scenario. Exists to exercise build-key deduplication in the Monte Carlo
+  campaign pipeline, not to model a specific mission question.
+scenario: "nominal"
+base_initial_conditions: "nominal-baseline"
+trial_count: 4
+seed: 20260921
+max_parallel: 2
+
+parameters:
+  - path: "component_overrides.eps.battery_initial_soc"
+    distribution: {type: "choice", values: [60.0, 90.0]}

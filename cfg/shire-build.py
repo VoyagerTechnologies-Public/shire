@@ -176,7 +176,10 @@ def build_42(config, builddirs):
     
     mission = config["mission"]
     spacecraft = config["spacecraft"]
-    image_name = f"shire-42-{mission}:{spacecraft}"
+    # image_tag defaults to the bare spacecraft tag; a Monte Carlo campaign
+    # trial sets it to a content-addressed build-key tag
+    # instead, so campaign and manual dev-loop builds never collide.
+    image_name = f"shire-42-{mission}:{config.get('image_tag', spacecraft)}"
     
     # Use SHIRE's custom Dockerfile for better control over build and configuration
     cfg_dir = os.path.join(ROOT_DIR, "cfg")
@@ -241,8 +244,9 @@ def build_simulith_director_and_server(config, builddirs):
         "BUILDDIR_COMP": builddirs["comp"],
         "SPACECRAFT": spacecraft,
         "MISSION": mission,
+        "IMAGE_TAG": config.get("image_tag", spacecraft),
     }
-    
+
     simulith_dir = os.path.join(ROOT_DIR, "simulith")
     
     # Copy component sims to build directory
@@ -324,7 +328,7 @@ def build_fsw(config):
     
     # Build runtime Docker image
     print(f"[build] Building FSW runtime image...")
-    runtime_image = f"shire-fsw-{mission}:{spacecraft}"
+    runtime_image = f"shire-fsw-{mission}:{config.get('image_tag', spacecraft)}"
     cmd = [
         "docker", "build",
         "-t", runtime_image,
@@ -356,6 +360,7 @@ def build_gsw(config):
     env_vars = {
         "SPACECRAFT": spacecraft,
         "MISSION": mission,
+        "IMAGE_TAG": config.get("image_tag", spacecraft),
     }
     # Check if cryptolib Makefile exists and has shire target
     if os.path.exists(os.path.join(cryptolib_dir, "Makefile")):
@@ -369,6 +374,7 @@ def build_gsw(config):
     env_vars = {
         "SPACECRAFT": spacecraft,
         "MISSION": mission,
+        "IMAGE_TAG": config.get("image_tag", spacecraft),
     }
     gsw_dir = os.path.join(ROOT_DIR, GSW_DIR)
 
