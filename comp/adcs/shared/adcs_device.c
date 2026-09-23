@@ -204,6 +204,80 @@ int32_t ADCS_SendGainsCmd(uart_info_t *device, const ADCS_Device_GainsCmd_t *gai
 }
 
 /*
+** Push an arbitrary inertial target direction to the device (see
+** ADCS_Device_TargetVectorCmd_t). Mirrors ADCS_SendGainsCmd()'s pattern.
+*/
+int32_t ADCS_SendTargetVectorCmd(uart_info_t *device, const ADCS_Device_TargetVectorCmd_t *target)
+{
+    int32_t status = OS_SUCCESS;
+    int32_t bytes  = 0;
+    uint8_t write_data[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE];
+    uint8_t read_data[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE];
+    const float values[3] = { target->X, target->Y, target->Z };
+
+    /* Header + command ID */
+    write_data[0] = ADCS_DEVICE_HDR_0;
+    write_data[1] = ADCS_DEVICE_HDR_1;
+    write_data[2] = (uint8_t)(ADCS_DEVICE_SET_TARGET_VECTOR_CMD >> 8);
+    write_data[3] = (uint8_t)(ADCS_DEVICE_SET_TARGET_VECTOR_CMD & 0xFF);
+
+    /* Payload: 3 big-endian floats */
+    uint8_t *ptr = &write_data[4];
+    for (int i = 0; i < 3; i++)
+    {
+        uint32_t u;
+        memcpy(&u, &values[i], sizeof(u));
+        ptr[0] = (uint8_t)((u >> 24) & 0xFF);
+        ptr[1] = (uint8_t)((u >> 16) & 0xFF);
+        ptr[2] = (uint8_t)((u >> 8) & 0xFF);
+        ptr[3] = (uint8_t)(u & 0xFF);
+        ptr += 4;
+    }
+
+    /* Trailer */
+    ptr[0] = ADCS_DEVICE_TRAILER_0;
+    ptr[1] = ADCS_DEVICE_TRAILER_1;
+
+    status = uart_flush(device);
+    if (status == UART_SUCCESS)
+    {
+        bytes = uart_write_port(device, write_data, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        if (bytes == (int32_t)ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE)
+        {
+            status = ADCS_ReadData(device, read_data, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+            if (status == OS_SUCCESS)
+            {
+                /* Confirm echoed response */
+                bytes = 0;
+                while ((bytes < (int32_t)ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE) && (status == OS_SUCCESS))
+                {
+                    if (read_data[bytes] != write_data[bytes])
+                    {
+                        status = OS_ERROR;
+                    }
+                    bytes++;
+                }
+            }
+            else
+            {
+                OS_printf("ADCS_SendTargetVectorCmd - ADCS_ReadData returned %d \n", status);
+            }
+        }
+        else
+        {
+            OS_printf("ADCS_SendTargetVectorCmd - uart_write_port returned %d, expected %zu \n", bytes,
+                      (size_t)ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+            status = OS_ERROR;
+        }
+    }
+    else
+    {
+        OS_printf("ADCS_SendTargetVectorCmd - uart_flush returned error %d \n", status);
+    }
+    return status;
+}
+
+/*
 ** Request housekeeping command
 */
 int32_t ADCS_RequestHK(uart_info_t *device, ADCS_Device_HK_tlm_t *data)

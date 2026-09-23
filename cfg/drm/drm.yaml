@@ -38,3 +38,5 @@ scenarios:
     config_file: "drm/scenarios/adcs-truth-verification.yaml"
   - name: "adcs-target-track"
     config_file: "drm/scenarios/adcs-target-track.yaml"
+  - name: "adcs-modes-sweep"
+    config_file: "drm/scenarios/adcs-modes-sweep.yaml"

@@ -36,9 +36,16 @@ void ADCS_ProcessGpsTime(void)
     /* NewLeaps is inert while CFE_MISSION_TIME_CFG_DEFAULT_UTC is false. */
     CFE_TIME_ExternalGPS(NewTime, 0);
 
+    /* Report only the first submission as an event -- this runs once per
+    ** advancing GPS second for as long as the device stays enabled, and an
+    ** EVS event on every one of those would flood the event log with
+    ** routine, expected traffic instead of a meaningful state change. */
+    if (!ADCS_AppData.GpsTimeSynced)
+    {
+        CFE_EVS_SendEvent(ADCS_GPS_TIME_SYNC_INF_EID, CFE_EVS_EventType_INFORMATION,
+                          "ADCS: GPS time sync submitted to cFE TIME (GpsSeconds=%u)", (unsigned int)GpsSeconds);
+    }
+
     ADCS_AppData.LastGpsSecondsSubmitted = GpsSeconds;
     ADCS_AppData.GpsTimeSynced           = true;
-
-    CFE_EVS_SendEvent(ADCS_GPS_TIME_SYNC_INF_EID, CFE_EVS_EventType_INFORMATION,
-                      "ADCS: GPS time sync submitted to cFE TIME (GpsSeconds=%u)", (unsigned int)GpsSeconds);
 }

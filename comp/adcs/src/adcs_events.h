@@ -25,6 +25,8 @@
 #define ADCS_SET_MODE_ERR_EID    21
 #define ADCS_SET_TARGET_INF_EID  22
 #define ADCS_SET_TARGET_ERR_EID  23
+#define ADCS_SET_TARGET_VECTOR_INF_EID 24
+#define ADCS_SET_TARGET_VECTOR_ERR_EID 25
 
 /* Hardware protocol event IDs */
 #define ADCS_UART_INIT_ERR_EID  30

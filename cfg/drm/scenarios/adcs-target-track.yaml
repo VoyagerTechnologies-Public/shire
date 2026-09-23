@@ -13,21 +13,21 @@ scenario_name: "adcs-target-track"
 description: >
   Enables ADCS on the nominal-baseline reference orbit, runs
   AdcsComponent.ycs end to end (boot-config check, SUNSAFE convergence),
-  then commands mode TARGET with TARGET=1 (+X inertial) and confirms the
-  mode/target commands are accepted and ADCS stays enabled and error-free
-  through the transition. Deliberately does not assert body-rate
-  convergence: live testing found ANGRATE_Y/Z settle to a persistent
-  ~0.1 rad/s residual from this starting attitude that does not decay
-  even after a 240s timeout (confirmed steady, not just slow) -- a
-  pre-existing characteristic of adcs_point_vector_controller (shared by
-  modes 3/4/5), not introduced by issue #8's changes, and out of this
-  issue's scope to fix. The `check` step at the end of the stack still
-  displays the live rates for visibility. See AdcsComponent.ycs's TARGET
-  step comment for detail.
+  then commands mode TARGET with TARGET=1 (+X inertial) and verifies body
+  rates converge to near zero -- ground-visible proof the target-tracking
+  controller reaches and holds a steady pointing state. Live testing
+  originally found a persistent ~0.1 rad/s residual on two axes that never
+  decayed; root cause was a quaternion scalar-order bug in
+  rotate_inertial_to_body_safe() (adcs_sim.c) -- 42's qn is scalar-last
+  [x,y,z,w], but the rotation math assumed scalar-first [w,x,y,z], corrupting
+  the pointing-error computation for modes 3/4/5 (nadir/target/inertial;
+  sun-pointing never touches qn, which is why it was unaffected). With the
+  fix, this scenario converges within one poll (~0.02s) of the mode
+  transition.
 initial_conditions: "nominal-baseline"
 overrides:
   debug: false
-run_duration_s: 300
+run_duration_s: 180
 verify_stacks:
   - stack: "comp/adcs/gsw/procedures/AdcsComponent.ycs"
     at_s: 0

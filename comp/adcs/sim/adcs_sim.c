@@ -103,7 +103,15 @@ static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_conte
 
 // Robust inertial->body rotation that tests both quaternion conventions and
 // picks the one that gives the largest alignment with the +X body axis.
-static void rotate_inertial_to_body_safe(const double q[4], const double vin[3], double vout[3]) {
+//
+// q_native (context_42->qn) is 42's own quaternion, which is scalar-LAST:
+// [qx, qy, qz, qw] -- verified against 42/Kit/Source/mathkit.c's QxV(), whose
+// rotation-matrix diagonal terms match qq[3][3] (index 3) to w^2. quat_mul()
+// below is a standard Hamilton product in scalar-FIRST order: [qw, qx, qy,
+// qz]. Reorder once here so the rest of this function operates on a
+// correctly-interpreted quaternion.
+static void rotate_inertial_to_body_safe(const double q_native[4], const double vin[3], double vout[3]) {
+    const double q[4] = { q_native[3], q_native[0], q_native[1], q_native[2] };
     double v1[3], v2[3];
     // v1 = q_conj * vin * q
     {
@@ -133,19 +141,6 @@ static void rotate_inertial_to_body_safe(const double q[4], const double vin[3],
 }
 
 // Align body +X axis (1,0,0) with the provided vector expressed in body frame
-//
-// KNOWN LIMITATION (found via issue #8's adcs-target-track scenario, not
-// introduced by it): commanding mode 4 (target-track) to a fixed inertial
-// target from a SUNSAFE-converged starting attitude leaves a persistent
-// ~0.1 rad/s residual angular rate on two axes that does not decay even
-// after 240s of simulated time (confirmed steady, not just slow to
-// settle). A fixed inertial target should require zero steady-state body
-// rate, so this looks like a real stability characteristic of this shared
-// controller (also used by modes 3/nadir and 5/inertial), not a slow-
-// convergence timing issue. Root-causing/fixing it is out of scope for
-// issue #8 (ADCS Confirmations); see AdcsComponent.ycs's TARGET-mode step
-// comment and cfg/drm/scenarios/adcs-target-track.yaml for how the
-// scenario accounts for this.
 static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42,
                                         const double vec_body[3], double dt, const char* tag)
 {
@@ -674,7 +669,8 @@ static adcs_command_result_t handle_command(adcs_sim_state_t* state,
 {
     if (!state || !data)
         return ADCS_COMMAND_ERROR;
-    if (length != ADCS_DEVICE_CMD_SIZE && length != ADCS_DEVICE_GAINS_CMD_SIZE)
+    if (length != ADCS_DEVICE_CMD_SIZE && length != ADCS_DEVICE_GAINS_CMD_SIZE &&
+        length != ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE)
     {
         printf("ADCS SIM: Invalid command parameters: state=%p, data=%p, length=%zu\n",
                (void*)state, (const void*)data, length);
@@ -704,7 +700,12 @@ static adcs_command_result_t handle_command(adcs_sim_state_t* state,
     // A frame's length must match what its command ID expects, or the
     // trailer offset above (length-dependent) would have been parsed from
     // the wrong place.
-    if ((cmd_id == ADCS_DEVICE_SET_GAINS_CMD) != (length == ADCS_DEVICE_GAINS_CMD_SIZE))
+    size_t expected_length = ADCS_DEVICE_CMD_SIZE;
+    if (cmd_id == ADCS_DEVICE_SET_GAINS_CMD)
+        expected_length = ADCS_DEVICE_GAINS_CMD_SIZE;
+    else if (cmd_id == ADCS_DEVICE_SET_TARGET_VECTOR_CMD)
+        expected_length = ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE;
+    if (length != expected_length)
     {
         printf("ADCS SIM: Command ID %d does not match frame length %zu\n", cmd_id, length);
         return ADCS_COMMAND_REJECTED;
@@ -829,6 +830,38 @@ static adcs_command_result_t handle_command(adcs_sim_state_t* state,
                 /* leave as-is for manual setting via CLI */
             }
             break;
+
+        case ADCS_DEVICE_SET_TARGET_VECTOR_CMD:
+        {
+            #ifdef ADCS_CFG_DEBUG
+            printf("ADCS SIM: Processing SET_TARGET_VECTOR command\n");
+            #endif
+            const uint8_t *p = &data[4];
+            double v[3];
+            for (int i = 0; i < 3; i++)
+            {
+                uint32_t u = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                             ((uint32_t)p[2] << 8) | p[3];
+                float f;
+                memcpy(&f, &u, sizeof(f));
+                v[i] = (double)f;
+                p += 4;
+            }
+            double vmag = vector_magnitude(v);
+            if (vmag < 1e-6) {
+                printf("ADCS SIM: Rejecting zero-magnitude target vector\n");
+            } else {
+                for (int i = 0; i < 3; i++) state->inertial_target[i] = v[i] / vmag;
+                /* 0xFFFF marks "custom inertial vector" in HK, distinct
+                 * from the canned selector IDs (1/2/3) above. */
+                state->hk.Target = 0xFFFF;
+            }
+            #ifdef ADCS_CFG_DEBUG
+            printf("ADCS SIM: Target vector set to [%.6f,%.6f,%.6f]\n",
+                   state->inertial_target[0], state->inertial_target[1], state->inertial_target[2]);
+            #endif
+            break;
+        }
 
         default:
             printf("ADCS SIM: Unknown command ID: %d\n", cmd_id);

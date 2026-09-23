@@ -397,6 +397,7 @@ void Test_ADCS_ProcessGroundCommand(void)
         ADCS_NoArgs_cmd_t Enable;
         ADCS_NoArgs_cmd_t Disable;
         ADCS_SetMode_cmd_t Config;
+        ADCS_SetTargetVector_cmd_t TargetVector;
     } TestMsg;
     UT_CheckEvent_t EventTest;
 
@@ -571,6 +572,40 @@ void Test_ADCS_ProcessGroundCommand(void)
     UT_CheckEvent_Setup(&EventTest, ADCS_CMD_DISABLED_ERR_EID, NULL);
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test dispatch of SET_TARGET_VECTOR (device enabled -> forward to device) */
+    FcnCode = ADCS_SET_TARGET_VECTOR_CC;
+    Size    = sizeof(ADCS_SetTargetVector_cmd_t);
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    /* simulate successful device command */
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendTargetVectorCmd), 1, OS_SUCCESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SET_TARGET_VECTOR_INF_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SET_TARGET_VECTOR_INF_EID generated (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* simulate device command failure */
+    ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendTargetVectorCmd), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SET_TARGET_VECTOR_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SET_TARGET_VECTOR_ERR_EID generated (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test SET_TARGET_VECTOR when device disabled */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
+    ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_CMD_DISABLED_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET_VECTOR (%u)", (unsigned int)EventTest.MatchCount);
 
     /* test CONFIG_CC pushes gains only when enabled */
     static ADCS_GainsTbl_t TestGainsTbl = {
@@ -789,9 +824,20 @@ void Test_ADCS_ProcessGpsTime(void)
      */
     uint32             GpsSeconds;
     CFE_TIME_SysTime_t CapturedTime;
+    UT_CheckEvent_t    EventTest;
+
+    /* ADCS_AppData is a persistent global that Adcs_UT_Setup()'s
+     * UT_ResetState(0) does not clear -- other tests (e.g.
+     * ADCS_ReportHousekeeping, which calls ADCS_ProcessGpsTime() as of
+     * this change) may have already driven GpsTimeSynced to true as a
+     * side effect. Reset the fields this test owns so "first sync"
+     * below is actually first, regardless of test run order. */
+    ADCS_AppData.GpsTimeSynced           = false;
+    ADCS_AppData.LastGpsSecondsSubmitted = 0;
 
     UT_SetHandlerFunction(UT_KEY(ADCS_RequestHK), UT_SetDeviceHkGpsSeconds_Handler, &GpsSeconds);
     UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+    UT_CheckEvent_Setup(&EventTest, ADCS_GPS_TIME_SYNC_INF_EID, NULL);
 
     /* No-op while device is disabled, even with GPS data available */
     ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
@@ -824,6 +870,12 @@ void Test_ADCS_ProcessGpsTime(void)
     ADCS_ProcessGpsTime();
     UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2,
                   "CFE_TIME_ExternalGPS() called again once GpsSeconds advances");
+
+    /* The EVS event is only ever generated once, on the first sync -- not
+     * on every subsequent advancing-second submission, which would flood
+     * the event log with routine, expected traffic. */
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_GPS_TIME_SYNC_INF_EID generated exactly once (%u)",
+                  (unsigned int)EventTest.MatchCount);
 }
 
 /*

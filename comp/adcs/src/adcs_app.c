@@ -405,6 +405,44 @@ void ADCS_ProcessGroundCommand(void)
             }
             break;
 
+        case ADCS_SET_TARGET_VECTOR_CC:
+            if (ADCS_VerifyCmdLength(ADCS_AppData.MsgPtr, sizeof(ADCS_SetTargetVector_cmd_t)) == OS_SUCCESS)
+            {
+                /* Check that device is enabled */
+                if (ADCS_AppData.HkTelemetryPkt.DeviceEnabled == ADCS_DEVICE_ENABLED)
+                {
+                    ADCS_SetTargetVector_cmd_t vcmd_buf;
+                    memcpy(&vcmd_buf, ADCS_AppData.MsgPtr, sizeof(vcmd_buf));
+                    ADCS_Device_TargetVectorCmd_t target = {
+                        .X = vcmd_buf.X, .Y = vcmd_buf.Y, .Z = vcmd_buf.Z,
+                    };
+                    int32 status = ADCS_SendTargetVectorCmd(&ADCS_AppData.AdcsUart, &target);
+                    if (status == OS_SUCCESS)
+                    {
+                        ADCS_AppData.HkTelemetryPkt.CommandCount++;
+                        CFE_EVS_SendEvent(ADCS_SET_TARGET_VECTOR_INF_EID, CFE_EVS_EventType_INFORMATION,
+                                        "ADCS: Set target vector command forwarded to device (%.4f,%.4f,%.4f)",
+                                        (double)target.X, (double)target.Y, (double)target.Z);
+                    }
+                    else
+                    {
+                        ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                        CFE_EVS_SendEvent(ADCS_SET_TARGET_VECTOR_ERR_EID, CFE_EVS_EventType_ERROR,
+                                        "ADCS: Set target vector device command failed: %d", status);
+                    }
+                }
+                else
+                {
+                    /* Increment command error count */
+                    ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+
+                    /* Send command event failure to the console */
+                    CFE_EVS_SendEvent(ADCS_CMD_DISABLED_ERR_EID, CFE_EVS_EventType_ERROR,
+                                      "ADCS: Set target vector command failed, device not enabled");
+                }
+            }
+            break;
+
         /*
         ** Invalid Command Codes
         */

@@ -142,6 +142,30 @@ static void encode_gains_command(uint8_t *buf, const ADCS_Device_GainsCmd_t *gai
     ptr[1] = ADCS_DEVICE_TRAILER_1;
 }
 
+/* buf must be at least ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE bytes. Mirrors
+ * ADCS_SendTargetVectorCmd()'s wire format. */
+static void encode_target_vector_command(uint8_t *buf, const ADCS_Device_TargetVectorCmd_t *target)
+{
+    const float values[3] = { target->X, target->Y, target->Z };
+    buf[0] = ADCS_DEVICE_HDR_0;
+    buf[1] = ADCS_DEVICE_HDR_1;
+    buf[2] = (uint8_t)((ADCS_DEVICE_SET_TARGET_VECTOR_CMD >> 8) & 0xFF);
+    buf[3] = (uint8_t)(ADCS_DEVICE_SET_TARGET_VECTOR_CMD & 0xFF);
+    uint8_t *ptr = &buf[4];
+    for (int i = 0; i < 3; i++)
+    {
+        uint32_t u;
+        memcpy(&u, &values[i], sizeof(u));
+        ptr[0] = (uint8_t)((u >> 24) & 0xFF);
+        ptr[1] = (uint8_t)((u >> 16) & 0xFF);
+        ptr[2] = (uint8_t)((u >> 8) & 0xFF);
+        ptr[3] = (uint8_t)(u & 0xFF);
+        ptr += 4;
+    }
+    ptr[0] = ADCS_DEVICE_TRAILER_0;
+    ptr[1] = ADCS_DEVICE_TRAILER_1;
+}
+
 /* Read up to cap bytes from port, polling for at most ~50 ms. */
 static size_t drain_all(transport_port_t *port, uint8_t *out, size_t cap)
 {
@@ -746,6 +770,120 @@ static void test_wire_protocol_set_gains_updates_controller_state(void)
     TEST_ASSERT_TRUE(fabs(as->gains.rotisserie_rate_rad_s - 0.011) < 1e-6);
 
     simulith_transport_close(&client);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_wire_protocol_set_target_vector_normalizes_and_updates_target(void)
+{
+    /* A non-unit input vector must be normalized on receipt, matching the
+     * invariant that state->inertial_target is always a unit vector (the
+     * same invariant the canned +X/-X selectors in SET_TARGET_CMD keep). */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_client_port(&client, "test_client"));
+    usleep(2000);
+
+    const ADCS_Device_TargetVectorCmd_t target = { .X = 0.0f, .Y = 2.0f, .Z = 0.0f };
+    uint8_t cmd[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE];
+    encode_target_vector_command(cmd, &target);
+    simulith_transport_send(&client, cmd, sizeof(cmd));
+    usleep(2000);
+
+    simulith_42_context_t ctx = zero_ctx();
+    g_iface->on_tick(state, 100000000ULL, &ctx);
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    TEST_ASSERT_TRUE(fabs(as->inertial_target[0] - 0.0) < 1e-6);
+    TEST_ASSERT_TRUE(fabs(as->inertial_target[1] - 1.0) < 1e-6); /* normalized from 2.0 */
+    TEST_ASSERT_TRUE(fabs(as->inertial_target[2] - 0.0) < 1e-6);
+    TEST_ASSERT_EQUAL_UINT16(0xFFFF, as->hk.Target); /* "custom vector" sentinel */
+
+    simulith_transport_close(&client);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_wire_protocol_set_target_vector_rejects_zero_magnitude(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_client_port(&client, "test_client"));
+    usleep(2000);
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    as->inertial_target[0] = 1.0; as->inertial_target[1] = 0.0; as->inertial_target[2] = 0.0;
+
+    const ADCS_Device_TargetVectorCmd_t target = { .X = 0.0f, .Y = 0.0f, .Z = 0.0f };
+    uint8_t cmd[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE];
+    encode_target_vector_command(cmd, &target);
+    simulith_transport_send(&client, cmd, sizeof(cmd));
+    usleep(2000);
+
+    simulith_42_context_t ctx = zero_ctx();
+    g_iface->on_tick(state, 100000000ULL, &ctx);
+
+    /* Rejected: the previous target is left untouched. */
+    TEST_ASSERT_TRUE(fabs(as->inertial_target[0] - 1.0) < 1e-6);
+    TEST_ASSERT_TRUE(fabs(as->inertial_target[1] - 0.0) < 1e-6);
+    TEST_ASSERT_TRUE(fabs(as->inertial_target[2] - 0.0) < 1e-6);
+
+    simulith_transport_close(&client);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_convergence_mode4_track_arbitrary_vector_target(void)
+{
+    /* Command an arbitrary (non +X/-X) inertial target via
+     * SET_TARGET_VECTOR and confirm mode 4 actually points at it: with
+     * identity attitude and target=(0,0,1), tgt_body=(0,0,1),
+     * attitude_error = (0,0,1) x (1,0,0) = (0,1,0) -> wheel torque[1] > 0
+     * (same convergence-direction check style as the existing +X/-X
+     * target-track tests). */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_client_port(&client, "test_client"));
+    usleep(2000);
+
+    const ADCS_Device_TargetVectorCmd_t target = { .X = 0.0f, .Y = 0.0f, .Z = 1.0f };
+    uint8_t cmd[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE];
+    encode_target_vector_command(cmd, &target);
+    simulith_transport_send(&client, cmd, sizeof(cmd));
+    usleep(2000);
+
+    simulith_42_context_t ctx0 = zero_ctx();
+    g_iface->on_tick(state, 100000000ULL, &ctx0);
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 4, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid = 1;
+    ctx.qn[3] = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_wheel = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_WHEEL_TORQUE) cmd_wheel = tmp;
+
+    simulith_transport_close(&client);
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_WHEEL_TORQUE, cmd_wheel.type);
+    TEST_ASSERT_TRUE(cmd_wheel.cmd.wheel.torque[1] > 0.0);
+
     g_state_under_test = NULL;
     g_iface->destroy(state);
 }
@@ -1436,7 +1574,7 @@ static void test_controller_mode3_nadir_dot1_branch(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid  = 1;
-    ctx.qn[0]  = 1.0f; /* identity quaternion */
+    ctx.qn[3]  = 1.0f; /* identity quaternion, scalar-last: [x,y,z,w] */
     /* pos_n = (-1,0,0) → nadir_inertial = (1,0,0): aligned with +X → zero error */
     ctx.pos_n[0] = -1.0; ctx.pos_n[1] = 0.0; ctx.pos_n[2] = 0.0;
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
@@ -1449,7 +1587,8 @@ static void test_controller_mode3_nadir_dot1_branch(void)
 
 static void test_controller_mode3_nadir_dot2_branch(void)
 {
-    /* 90° rotation around Y: q=(cos45°, 0, sin45°, 0).
+    /* 90° rotation around Y: q=(cos45°, 0, sin45°, 0) in scalar-first (w,x,y,z)
+     * math terms, stored scalar-last [x,y,z,w] per 42's real qn convention.
      * With nadir_inertial=(0,0,1): v1[0]=-1, v2[0]=+1 → dot1 < dot2 →
      * else branch (v2 chosen) in rotate_inertial_to_body_safe. */
     component_state_t *state = NULL;
@@ -1461,8 +1600,8 @@ static void test_controller_mode3_nadir_dot2_branch(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid  = 1;
-    ctx.qn[0]  = 0.7071068f; ctx.qn[1] = 0.0f;
-    ctx.qn[2]  = 0.7071068f; ctx.qn[3] = 0.0f;
+    ctx.qn[0]  = 0.0f; ctx.qn[1] = 0.7071068f;
+    ctx.qn[2]  = 0.0f; ctx.qn[3] = 0.7071068f;
     /* pos_n = (0,0,-1) → nadir_inertial = (0,0,1) */
     ctx.pos_n[0] = 0.0; ctx.pos_n[1] = 0.0; ctx.pos_n[2] = -1.0;
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
@@ -1485,7 +1624,7 @@ static void test_controller_mode3_nadir_high_rate_mtb_assist(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid  = 1;
-    ctx.qn[0]  = 1.0f;
+    ctx.qn[3]  = 1.0f; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[0] = 0.0; ctx.pos_n[1] = 0.0; ctx.pos_n[2] = -1.0;
     ctx.wn[0]  = 0.5; /* > 0.1 → MTB assist */
     ctx.wn[1]  = 0.0; ctx.wn[2] = 0.0;
@@ -1509,7 +1648,7 @@ static void test_controller_mode3_point_vector_zero_magnitude(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid = 1;
-    ctx.qn[0] = 1.0f;
+    ctx.qn[3] = 1.0f; /* identity quaternion, scalar-last: [x,y,z,w] */
     /* pos_n all zeros → nadir = (0,0,0) */
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -1528,7 +1667,7 @@ static void test_controller_mode4_target_track(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 1.0f;
+    ctx.qn[3]    = 1.0f; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2] = -1.0;
     ctx.wn[0]    = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     ctx.mag_field_body[2] = 1.0;
@@ -1549,7 +1688,7 @@ static void test_controller_mode5_inertial_pointing(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 1.0f;
+    ctx.qn[3]    = 1.0f; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2] = -1.0;
     ctx.wn[0]    = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     ctx.mag_field_body[2] = 1.0;
@@ -1689,7 +1828,7 @@ static void test_controller_mode3_nadir_negative_clamp_branches(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 1.0;
+    ctx.qn[3]    = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[1] = -1.0; /* nadir_inertial = (0,1,0) */
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -1722,7 +1861,7 @@ static void test_controller_mode3_point_vector_high_rate_without_saturation(void
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 1.0;
+    ctx.qn[3]    = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[1] = -1.0; /* nadir_inertial = (0,1,0) */
     ctx.wn[2]    = 0.11; /* > 0.1, but nearly cancels the clamped u1[2] */
     ctx.mag_field_body[2] = 1.0;
@@ -1744,7 +1883,7 @@ static void test_controller_mode3_point_vector_mtb_saturates_positive(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid             = 1;
-    ctx.qn[0]             = 1.0;
+    ctx.qn[3]             = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2]          = -1.0;
     ctx.wn[0]             = 1000.0;
     ctx.mag_field_body[2] = 1000.0;
@@ -1774,7 +1913,7 @@ static void test_controller_mode3_point_vector_mtb_saturates_negative(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid             = 1;
-    ctx.qn[0]             = 1.0;
+    ctx.qn[3]             = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2]          = -1.0;
     ctx.wn[0]             = -1000.0;
     ctx.mag_field_body[2] = 1000.0;
@@ -2065,7 +2204,7 @@ static void test_convergence_mode3_nadir_wheel_torque_reduces_error(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 1.0;   /* identity quaternion (scalar=1, vector=0) */
+    ctx.qn[3]    = 1.0;   /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2] = -1.0;  /* nadir_inertial = [0,0,1] */
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
@@ -2112,8 +2251,8 @@ static void test_convergence_mode4_track_wheel_torque_reduces_error(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 0.7071068; ctx.qn[1] = 0.0;
-    ctx.qn[2]    = 0.7071068; ctx.qn[3] = 0.0; /* 90° around Y axis */
+    ctx.qn[0]    = 0.0; ctx.qn[1] = 0.7071068;
+    ctx.qn[2]    = 0.0; ctx.qn[3] = 0.7071068; /* 90° around Y axis, scalar-last: [x,y,z,w] */
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     ctx.pos_n[2] = -1.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
@@ -2173,8 +2312,8 @@ static void test_convergence_mode4_track_wheel_torque_capped_by_table_gain(void)
      * which produces torque[1] > 0.0 against the default 0.005 Nm ceiling. */
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 0.7071068; ctx.qn[1] = 0.0;
-    ctx.qn[2]    = 0.7071068; ctx.qn[3] = 0.0; /* 90° around Y axis */
+    ctx.qn[0]    = 0.0; ctx.qn[1] = 0.7071068;
+    ctx.qn[2]    = 0.0; ctx.qn[3] = 0.7071068; /* 90° around Y axis, scalar-last: [x,y,z,w] */
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     ctx.pos_n[2] = -1.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
@@ -2221,8 +2360,8 @@ static void test_convergence_mode5_inertial_wheel_torque_reduces_error(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid    = 1;
-    ctx.qn[0]    = 0.7071068; ctx.qn[1] = 0.0;
-    ctx.qn[2]    = 0.7071068; ctx.qn[3] = 0.0;
+    ctx.qn[0]    = 0.0; ctx.qn[1] = 0.7071068;
+    ctx.qn[2]    = 0.0; ctx.qn[3] = 0.7071068; /* 90° around Y axis, scalar-last: [x,y,z,w] */
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     ctx.pos_n[2] = -1.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
@@ -2304,6 +2443,8 @@ int main(void)
     RUN_TEST(test_wire_protocol_set_target_negative_x);
     RUN_TEST(test_wire_protocol_set_target_3_keeps_current);
     RUN_TEST(test_wire_protocol_set_gains_updates_controller_state);
+    RUN_TEST(test_wire_protocol_set_target_vector_normalizes_and_updates_target);
+    RUN_TEST(test_wire_protocol_set_target_vector_rejects_zero_magnitude);
     RUN_TEST(test_wire_protocol_unknown_cmd_echoed_only);
     RUN_TEST(test_wire_protocol_short_packet_rejected);
     RUN_TEST(test_wire_protocol_bad_header_rejected);
@@ -2362,6 +2503,7 @@ int main(void)
     RUN_TEST(test_convergence_mode3_nadir_wheel_torque_reduces_error);
     RUN_TEST(test_convergence_mode4_track_wheel_torque_reduces_error);
     RUN_TEST(test_convergence_mode4_track_wheel_torque_capped_by_table_gain);
+    RUN_TEST(test_convergence_mode4_track_arbitrary_vector_target);
     RUN_TEST(test_convergence_mode5_inertial_wheel_torque_reduces_error);
 
     int result = UNITY_END();

@@ -18,83 +18,7 @@
       ]
     },
     {
-      "type": "command",
-      "name": "/ADCS/ADCS_RST_COUNTERS_CC",
-      "extraOptions": [],
-      "arguments": []
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_REQ_HK",
-      "extraOptions": [],
-      "arguments": []
-    },
-    {
-      "type": "verify",
-      "condition": [
-        {
-          "parameter": "/ADCS/CMD_COUNT",
-          "operator": "eq",
-          "value": "0"
-        }
-      ]
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_NOOP_CC",
-      "extraOptions": [],
-      "arguments": []
-    },
-    {
-      "type": "verify",
-      "condition": [
-        {
-          "parameter": "/ADCS/CMD_COUNT",
-          "operator": "gte",
-          "value": "1"
-        }
-      ]
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_CONFIG_CC",
-      "extraOptions": [],
-      "arguments": []
-    },
-    {
-      "type": "verify",
-      "condition": [
-        {
-          "parameter": "/ADCS/CMD_COUNT",
-          "operator": "gte",
-          "value": "2"
-        }
-      ]
-    },
-    {
-      "type": "check",
-      "parameters": [
-        {
-          "parameter": "/ADCS/SUN_X"
-        },
-        {
-          "parameter": "/ADCS/SUN_Y"
-        },
-        {
-          "parameter": "/ADCS/SUN_Z"
-        },
-        {
-          "parameter": "/SIM_42_TRUTH/SVB_1"
-        },
-        {
-          "parameter": "/SIM_42_TRUTH/SVB_2"
-        },
-        {
-          "parameter": "/SIM_42_TRUTH/SVB_3"
-        }
-      ]
-    },
-    {
+      "__comment": "Sun point (mode 2, SUNSAFE).",
       "type": "command",
       "name": "/ADCS/ADCS_SET_MODE_CC",
       "extraOptions": [],
@@ -137,6 +61,74 @@
       "timeout": 120000
     },
     {
+      "__comment": "Nadir point (mode 3): no dedicated ground-visible check existed for this mode before -- only unit tests. Shares adcs_point_vector_controller() with target-track, so the same qn scalar-order fix applies here too.",
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "NADIR"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/ANGRATE_X",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_X",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "gt",
+          "value": "-0.02"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "__comment": "Target an arbitrary inertial direction via the new SET_TARGET_VECTOR_CC (issue follow-up), standing in for 'the Moon' pending real ephemeris wiring (42 tracks World[LUNA] internally, but it is not yet piped through simulith's IPC protocol to ADCS -- see conversation notes). The device normalizes this on receipt; sending an un-normalized (1,1,1) here also exercises that.",
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_TARGET_VECTOR_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TARGET_X",
+          "value": "1.0"
+        },
+        {
+          "name": "TARGET_Y",
+          "value": "1.0"
+        },
+        {
+          "name": "TARGET_Z",
+          "value": "1.0"
+        }
+      ]
+    },
+    {
       "type": "command",
       "name": "/ADCS/ADCS_SET_MODE_CC",
       "extraOptions": [],
@@ -146,44 +138,6 @@
           "value": "TARGET"
         }
       ]
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_SET_TARGET_CC",
-      "extraOptions": [],
-      "arguments": [
-        {
-          "name": "TARGET",
-          "value": "1"
-        }
-      ]
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_REQ_HK",
-      "extraOptions": [],
-      "arguments": []
-    },
-    {
-      "type": "verify",
-      "condition": [
-        {
-          "parameter": "/ADCS/DEVICE_ENABLED",
-          "operator": "eq",
-          "value": "1"
-        },
-        {
-          "parameter": "/ADCS/CMD_COUNT",
-          "operator": "gte",
-          "value": "5"
-        },
-        {
-          "parameter": "/ADCS/CMD_ERR_COUNT",
-          "operator": "eq",
-          "value": "0"
-        }
-      ],
-      "timeout": 30000
     },
     {
       "type": "verify",

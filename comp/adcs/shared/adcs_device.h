@@ -32,6 +32,7 @@
 #define ADCS_DEVICE_OVERRIDE_MTB_CMD 0x14 /* Override MTB (20) */
 #define ADCS_DEVICE_OVERRIDE_RW_CMD  0x15 /* Override RW (21) */
 #define ADCS_DEVICE_SET_GAINS_CMD    0x16 /* Set control-law gains (22) */
+#define ADCS_DEVICE_SET_TARGET_VECTOR_CMD 0x17 /* Set inertial target vector (23) */
 
 #define ADCS_DEVICE_TRAILER_0 0x5C
 #define ADCS_DEVICE_TRAILER_1 0xDA
@@ -60,6 +61,23 @@ typedef struct
 } __attribute__((packed)) ADCS_Device_GainsCmd_t;
 #define ADCS_DEVICE_GAINS_PAYLOAD_LEN sizeof(ADCS_Device_GainsCmd_t)
 #define ADCS_DEVICE_GAINS_CMD_SIZE    (ADCS_DEVICE_HDR_TRL_LEN + 2 + ADCS_DEVICE_GAINS_PAYLOAD_LEN)
+
+/* Arbitrary inertial target direction, pushed down over UART via
+ * ADCS_DEVICE_SET_TARGET_VECTOR_CMD. Need not be pre-normalized by the
+ * sender -- the device normalizes on receipt (see adcs_sim.c), matching
+ * the existing invariant that state->inertial_target is always a unit
+ * vector. Wire format matches ADCS_Device_GainsCmd_t: big-endian floats,
+ * same frame shape, larger payload than the generic uint16 one.
+ */
+typedef struct
+{
+    float X;
+    float Y;
+    float Z;
+
+} __attribute__((packed)) ADCS_Device_TargetVectorCmd_t;
+#define ADCS_DEVICE_TARGET_VECTOR_PAYLOAD_LEN sizeof(ADCS_Device_TargetVectorCmd_t)
+#define ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE    (ADCS_DEVICE_HDR_TRL_LEN + 2 + ADCS_DEVICE_TARGET_VECTOR_PAYLOAD_LEN)
 
 /* ADCS device housekeeping telemetry definition (in-memory representation)
  * Wire format (big-endian) is defined in the README and implemented by
@@ -106,6 +124,7 @@ int32_t ADCS_CommandDevice(uart_info_t *device, uint16_t cmd, uint16_t payload);
 int32_t ADCS_RequestHK(uart_info_t *device, ADCS_Device_HK_tlm_t *data);
 int32_t ADCS_RequestData(uart_info_t *device, ADCS_Device_Data_tlm_t *data, uint16_t data_cmd);
 int32_t ADCS_SendGainsCmd(uart_info_t *device, const ADCS_Device_GainsCmd_t *gains);
+int32_t ADCS_SendTargetVectorCmd(uart_info_t *device, const ADCS_Device_TargetVectorCmd_t *target);
 #endif
 void ADCS_PrintHK(const ADCS_Device_HK_tlm_t *hk);
 

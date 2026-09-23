@@ -51,6 +51,9 @@ The specific command format is as follows:
     DetumbleGainHigh, RotisserieRateRadS), pushed down from the cFE app's
     boot-loaded gains table (comp/adcs/src/adcs_tbl.c) instead of the usual
     uint16 payload
+  * (23) set target vector: payload is 3 big-endian float32s (X, Y, Z), an
+    arbitrary inertial direction for modes 4/5 to point at. Normalized on
+    receipt; rejected (previous target kept) if the magnitude is ~0
 * uint16, trailer, 0x5CDA
 
 Note that all frames are reference are the inertial frame
@@ -90,7 +93,11 @@ Two message IDs exist for commands and requests:
     (comp/adcs/src/adcs_tbl.c) to the device. No-op error if the device
     isn't enabled yet.
   * (5) Set mode
-  * (6) Set target
+  * (6) Set target: canned +X/-X inertial selector (see wire command (3) below)
+  * (7) Set target vector: an arbitrary inertial direction (float X,Y,Z),
+    for modes 4 (target-track) and 5 (inertial-point). Normalized on
+    receipt; a zero-magnitude vector is rejected and the previous target
+    is left unchanged.
 * 0x18D5 - Requests
   * (0) Request housekeeping
   * (1) Request CSS data
