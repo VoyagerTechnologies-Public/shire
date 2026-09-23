@@ -1,6 +1,6 @@
 # Monte Carlo campaigns
 
-A Monte Carlo campaign (issue #23) runs many trials of one fixed scenario, each against its own
+A Monte Carlo campaign runs many trials of one fixed scenario, each against its own
 perturbed Initial Condition (IC) bin, and aggregates the results.
 It builds on the scenario/IC-bin split described in
 [Scenarios and initial conditions](scenarios.md), reusing `cfg/shire-scenario.py`'s tested

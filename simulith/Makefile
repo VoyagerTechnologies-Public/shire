@@ -10,9 +10,6 @@ export RUNTIME_DIRECTOR_NAME ?= shire-director-$(MISSION)
 export RUNTIME_SERVER_NAME ?= shire-server-$(MISSION)
 export SPACECRAFT ?= 0.0.0
 export MISSION ?= default
-# Defaults to SPACECRAFT; a Monte Carlo campaign trial (issue #23) passes
-# its own content-addressed build-key tag instead, so campaign and manual
-# dev-loop builds never collide on the same tag.
 export IMAGE_TAG ?= $(SPACECRAFT)
 
 # Determine number of parallel jobs to avoid maxing out low-power systems (Raspberry Pi etc.).

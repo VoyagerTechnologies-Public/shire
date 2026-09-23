@@ -14,7 +14,7 @@ tears everything down, and exits 0 (pass) / 1 (fail). This is the path
 `make start` remains the manual path for a developer who wants the 42 GUI +
 YAMCS open to investigate.
 
-Pass/fail is "clean completion only" (see issue #21 decision): this script
+Pass/fail is "clean completion only". This script
 does not assert anything about telemetry values, only that every
 participant reached its terminal marker without crashing or timing out.
 """
@@ -108,7 +108,7 @@ def update_active(mission: str | None, spacecraft: str | None, scenario: str, *,
         active["mission"] = mission
     if spacecraft:
         active["spacecraft"] = spacecraft
-    # Monte Carlo campaign (issue #23) instance-scoping fields. These must
+    # Monte Carlo campaign instance-scoping fields. These must
     # always be set explicitly -- including clearing -- rather than only
     # added when given: active.yaml persists between invocations, so a
     # plain `make scenario` call with none of these flags must not inherit
@@ -324,7 +324,7 @@ def main() -> int:
                         help="Where to write result.json + logs (default: "
                              "build/scenario-runs/<scenario>-<UTC timestamp>/)")
     parser.add_argument("--instance-id",
-                        help="Monte Carlo campaign (issue #23) trial token, e.g. a zero-padded "
+                        help="Monte Carlo campaign trial token, e.g. a zero-padded "
                              "trial index. Namespaces this run's container/network/volume names "
                              "so it can run concurrently with other instances. Must match "
                              "^[a-z0-9]{1,8}$ (also used as a DNS hostname on the bridge network).")

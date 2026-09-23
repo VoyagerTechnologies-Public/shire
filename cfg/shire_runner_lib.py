@@ -47,7 +47,7 @@ def run_streaming(cmd: list[str], *, cwd: object = None, env: dict[str, str] | N
     to return for writing to a log file afterward -- so a long-running
     child (a full `make build`, or a `.ycs` stack with a 100+-second CFDP
     step) shows visible progress instead of going silent until it exits.
-    Shared by shire-scenario.py and shire-campaign.py (issue #23).
+    Shared by shire-scenario.py and shire-campaign.py.
 
     Reads the child's output on a background thread so `timeout` is
     enforced even if the child produces no output at all (a plain

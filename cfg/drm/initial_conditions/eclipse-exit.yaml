@@ -1,9 +1,9 @@
 # Initial Condition (IC) bin: spacecraft at eclipse exit on the DRM
-# reference orbit, for ADCS eclipse-transition investigation (issue #8) and
+# reference orbit, for ADCS eclipse-transition investigation and
 # as a worked example of authoring an event-based IC bin.
 #
-# HOW THIS WAS DERIVED (no live resolver computes this -- see issue #21
-# decision, and see cfg/drm/initial_conditions/eclipse-entry.yaml for the
+# HOW THIS WAS DERIVED (no live resolver computes this, and see 
+# cfg/drm/initial_conditions/eclipse-entry.yaml for the
 # full step-by-step): ran nominal-baseline for 4600s
 # (SIMULITH_SPEED=10 SIMULITH_DURATION=4600
 # docker compose -f build/drm/shire-compose.yaml up -d, mission=drm,

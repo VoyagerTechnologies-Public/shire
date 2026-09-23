@@ -38,7 +38,7 @@ def main():
     parser.add_argument("--compose-only", action="store_true",
                         help="Only (re-)render cli-compose.yaml/shire-compose.yaml; skip device_cfg.h, "
                              "42_config, the scenario snapshot, and the FSW startup script edit. Used by "
-                             "Monte Carlo campaign trials (issue #23) that already built their image and "
+                             "Monte Carlo campaign trials that already built their image and "
                              "only need a per-instance compose file rendered.")
     args = parser.parse_args()
 
@@ -92,7 +92,7 @@ def main():
     fsw_dir = active.get("fsw_dir", DEFAULT_FSW_DIR)
     gsw_dir = active.get("gsw_dir", DEFAULT_GSW_DIR)
 
-    # Monte Carlo campaign (issue #23) instance-scoping fields. All optional
+    # Monte Carlo campaign instance-scoping fields. All optional
     # and unset for a plain `make scenario`/`make start` run, in which case
     # every use below defaults away to today's behavior exactly.
     instance = active.get("instance")

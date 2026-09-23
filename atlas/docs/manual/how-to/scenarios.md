@@ -65,7 +65,7 @@ in-run command playlist).
 An IC bin is "what state the run starts from" (orbit, epoch, attitude,
 per-component state like EPS charge or a fault flag).
 Keeping them separate, reusable, and independently swappable is deliberate.
-It is the axis a future Monte Carlo campaign (issue #23) needs: running one
+It is the axis a future Monte Carlo campaign needs: running one
 scenario across many varied IC bins, or one IC bin across many scenario
 variants, without either side changing when the other does.
 
@@ -125,8 +125,7 @@ That snapshot is the record of exactly what a given run started from.
 
 There is no live solver that computes an event-based starting point (eclipse
 entry/exit, ground-pass acquisition/loss) for you.
-Issue #21 deliberately left that out.
-Determine it yourself:
+You will need to determine it yourself by doing the following:
 
 1. Copy `cfg/drm/initial_conditions/nominal-baseline.yaml` to a new name.
 2. Run the reference orbit for at least one period (`make start`, or
@@ -205,7 +204,6 @@ Run it on demand until that validation happens.
 
 On its own, pass/fail here is clean completion only, with no
 telemetry-value assertions.
-That was an explicit scope decision for issue #21.
 A scenario can layer real telemetry-value checks on top via
 `verify_stacks` (next section).
 Without it, clean completion is all this script confirms.
@@ -344,7 +342,7 @@ runs match.
 That answers "does this IC reproduce run after run," which is a different
 question from "did this run complete cleanly" above.
 
-## Monte Carlo campaigns (issue #23)
+## Monte Carlo Campaigns
 
 The IC-bin/scenario split above is the axis a Monte Carlo campaign needs:
 one fixed scenario, run across many varied (or generated and perturbed) IC

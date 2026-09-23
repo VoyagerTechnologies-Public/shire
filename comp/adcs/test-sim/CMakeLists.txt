@@ -74,7 +74,7 @@ add_test(NAME AdcsSimFailureTests COMMAND test_adcs_sim_failures)
 
 # Contract test: confirms ADCS HK telemetry and the 42-truth wire packet
 # (simulith_serialize_42_telemetry, simulith/src/simulith_director.c) stay
-# aligned for the fields they share (issue #8 item 1). Compiles
+# aligned for the fields they share. Compiles
 # simulith_director.c directly rather than depending on whichever
 # simulith_director_core/prebuilt-libsimulith.so branch the parent build
 # took, so this target links the same regardless of that choice.

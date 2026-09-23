@@ -177,7 +177,7 @@ def build_42(config, builddirs):
     mission = config["mission"]
     spacecraft = config["spacecraft"]
     # image_tag defaults to the bare spacecraft tag; a Monte Carlo campaign
-    # trial (issue #23) sets it to a content-addressed build-key tag
+    # trial sets it to a content-addressed build-key tag
     # instead, so campaign and manual dev-loop builds never collide.
     image_name = f"shire-42-{mission}:{config.get('image_tag', spacecraft)}"
     

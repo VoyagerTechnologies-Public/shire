@@ -8,7 +8,7 @@
  * director_commit_tick(); comp/adcs/sim/adcs_sim.c:
  * adcs_sim_component_on_tick()).
  *
- * See issue #8 item 1 and atlas/docs/scenarios/adcs-truth-comparison.md,
+ * See atlas/docs/scenarios/adcs-truth-comparison.md,
  * which left "is ADCS telemetry numerically consistent with 42 truth"
  * unresolved. This test answers that for the shared fields at the source;
  * it does not (and cannot, at this unit level) confirm wire/ground-side
@@ -35,7 +35,7 @@
 
 /* Named tolerances (never bare literals in the assertions below) so a
  * future Monte Carlo scorer can re-parameterize these per trial instead of
- * hardcoding a new copy (see issue #23 extensibility notes in the plan). */
+ * hardcoding a new copy. */
 #define UNIT_VECTOR_ABS_TOL 1e-5f
 #define RATE_ABS_TOL_RAD_S  1e-6f
 #define POSITION_ABS_TOL_M  1.0f
