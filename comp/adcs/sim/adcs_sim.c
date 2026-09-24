@@ -40,6 +40,9 @@ static double vector_magnitude(const double v[3]) {
     return sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
+/* Both current call sites already reject magnitudes below 1e-6 before
+ * calling this, so the mag <= 1e-9 (divide-by-zero) branch below can't
+ * trigger today; kept as a safety net for any future caller. */
 static void normalize_vector(double v[3]) {
     double mag = vector_magnitude(v);
     if (mag > 1e-9) {
@@ -57,12 +60,11 @@ static void quat_mul(const double a[4], const double b[4], double out[4]) {
 }
 
 
-// ADCS B-dot Detumbling Controller
+// ADCS B-dot Detumbling Controller. Only ever called (directly, or via
+// adcs_hybrid_sun_pointing_controller's eclipse branch) from
+// adcs_controller_update(), which already gates on a valid context_42
+// before dispatching -- no redundant guard needed here.
 static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42) {
-    if (!context_42 || !context_42->valid) {
-        return COMPONENT_SUCCESS;
-    }
-    
     // B-dot detumble: M = -k * (w x B) to remove angular momentum
     double w[3] = {context_42->wn[0], context_42->wn[1], context_42->wn[2]};
     double b[3] = {context_42->mag_field_body[0], context_42->mag_field_body[1], context_42->mag_field_body[2]};
@@ -144,8 +146,9 @@ static void rotate_inertial_to_body_safe(const double q_native[4], const double 
 static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42,
                                         const double vec_body[3], double dt, const char* tag)
 {
+    // Only ever called from adcs_controller_update(), which already gates
+    // on a valid context_42 before dispatching -- no redundant guard needed.
     (void)dt;
-    if (!context_42 || !context_42->valid) return COMPONENT_SUCCESS;
 
     // Target axis is +X
     double target_body[3] = {1.0, 0.0, 0.0};
@@ -154,7 +157,8 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
     double v[3] = { vec_body[0], vec_body[1], vec_body[2] };
     double vmag = vector_magnitude(v);
     if (vmag < 1e-6) {
-        printf("ADCS %s: Invalid input vector magnitude %.6f\n", tag ? tag : "POINT", vmag);
+        /* tag is always a string literal at every call site (never NULL). */
+        printf("ADCS %s: Invalid input vector magnitude %.6f\n", tag, vmag);
         return COMPONENT_SUCCESS;
     }
     normalize_vector(v);
@@ -233,13 +237,11 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
 }
 
 // ADCS Hybrid Sun Pointing Controller with Momentum Management
+// Only ever called from adcs_controller_update(), which already gates on a
+// valid context_42 before dispatching -- no redundant guard needed here.
 static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42, double dt) {
     (void)dt;
-    if (!context_42 || !context_42->valid) {
-        printf("ADCS HYBRID: No valid 42 context\n");
-        return COMPONENT_SUCCESS;
-    }
-    
+
     if (context_42->eclipse) {
         #ifdef ADCS_CFG_DEBUG
         printf("ADCS HYBRID: In eclipse - maintaining current attitude\n");
@@ -264,8 +266,8 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
     // Normalize sun vector and check magnitude
     double sun_mag = vector_magnitude(sun_body);
     if (sun_mag < 1e-6) {
-        printf("ADCS HYBRID: Invalid sun vector magnitude %.6f, context_42->valid=%d, svb=[%.6f,%.6f,%.6f]\n", 
-                   sun_mag, context_42 ? context_42->valid : -1,
+        printf("ADCS HYBRID: Invalid sun vector magnitude %.6f, context_42->valid=%d, svb=[%.6f,%.6f,%.6f]\n",
+                   sun_mag, context_42->valid,
                    sun_body[0], sun_body[1], sun_body[2]);
         return COMPONENT_SUCCESS;
     }
@@ -293,6 +295,11 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
         printf("ADCS ERROR CALC: Anti-aligned case, dot=%.6f\n", sun_dot_target);
         #endif
         double err_b[3] = {target_body[1], target_body[2], target_body[0]};
+        /* Degenerate-axis guard: picks a different helper axis if err_b's
+         * components all coincide (which would make temp_target below a
+         * zero vector). With target_body hardcoded to +X above, err_b is
+         * always (0,0,1) and this can never trigger today; kept as a
+         * documented safeguard in case target_body is ever generalized. */
         if (fabs(err_b[0] - err_b[1]) < EPS && fabs(err_b[0] - err_b[2]) < EPS) {
             err_b[0] = -err_b[0];
         }
@@ -524,9 +531,11 @@ static int adcs_controller_update(adcs_sim_state_t* state,
     return COMPONENT_SUCCESS;
 }
 
+// Only ever called from handle_command() with the same state it received,
+// which its own caller (adcs_sim_component_service()) already validated
+// non-null -- no redundant guard needed here.
 static int send_housekeeping(adcs_sim_state_t* state)
 {
-    if (!state) return SIMULITH_TRANSPORT_ERROR;
     uint8_t response[ADCS_DEVICE_HK_SIZE];
     uint8_t *ptr = response;
 
@@ -644,9 +653,11 @@ static int send_housekeeping(adcs_sim_state_t* state)
         SIMULITH_TRANSPORT_SUCCESS : SIMULITH_TRANSPORT_ERROR;
 }
 
+// Only ever called from handle_command() with the same state it received,
+// which its own caller (adcs_sim_component_service()) already validated
+// non-null -- no redundant guard needed here.
 static int send_adcs_data(adcs_sim_state_t* state)
 {
-    if (!state) return SIMULITH_TRANSPORT_ERROR;
     uint8_t response[10];
     response[0] = ADCS_DEVICE_HDR_0;
     response[1] = ADCS_DEVICE_HDR_1;
@@ -663,12 +674,13 @@ static int send_adcs_data(adcs_sim_state_t* state)
         SIMULITH_TRANSPORT_SUCCESS : SIMULITH_TRANSPORT_ERROR;
 }
 
+// Only ever called from adcs_sim_component_service() with the same state
+// it received (already validated non-null) and a fixed-size local buffer
+// (never null) -- no redundant guard needed here.
 static adcs_command_result_t handle_command(adcs_sim_state_t* state,
                                             const uint8_t* data,
                                             size_t length)
 {
-    if (!state || !data)
-        return ADCS_COMMAND_ERROR;
     if (length != ADCS_DEVICE_CMD_SIZE && length != ADCS_DEVICE_GAINS_CMD_SIZE &&
         length != ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE)
     {

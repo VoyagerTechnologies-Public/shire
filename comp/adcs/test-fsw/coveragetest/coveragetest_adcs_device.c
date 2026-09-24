@@ -32,6 +32,23 @@ static void UartSeqReadHandler(void *UserObj, UT_EntryKey_t FuncKey, const UT_St
     UT_Stub_CopyToReturnValue(FuncKey, &bytes_read, sizeof(bytes_read));
 }
 
+/* Handler for a single uart_read_port() call: copies UserObj's bytes into
+ * the "data" arg and reports numBytes read. Plain UT_SetDataBuffer() does
+ * NOT do this on its own for GenStub-based stubs (no default handler is
+ * registered, so nothing ever calls UT_Stub_CopyToLocal to populate the
+ * output pointer) -- a handler like this is required whenever a test needs
+ * uart_read_port() to actually deliver specific bytes, not just a byte
+ * count. */
+static void UartSingleReadHandler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    const uint8_t *src = (const uint8_t *)UserObj;
+    uint8_t *dst = UT_Hook_GetArgValueByName(Context, "data", uint8_t *);
+    uint32_t n = UT_Hook_GetArgValueByName(Context, "numBytes", uint32_t);
+    if (dst && src) memcpy(dst, src, n);
+    int32_t bytes_read = (int32_t)n;
+    UT_Stub_CopyToReturnValue(FuncKey, &bytes_read, sizeof(bytes_read));
+}
+
 /* Handler that emulates ADCS_ReadData: copy a supplied buffer into the read_data arg and return success */
 static void ADCS_ReadData_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
 {
@@ -797,6 +814,247 @@ void Test_ADCS_CommandDevice_ReadPartialEcho(void)
     ADCS_CommandDevice(&device, cmd_code, payload);
 }
 
+/* Build the exact wire bytes ADCS_SendGainsCmd writes, to construct a matching echo. */
+static void EncodeGainsCmdFrame(const ADCS_Device_GainsCmd_t *gains, uint8_t *out)
+{
+    out[0] = ADCS_DEVICE_HDR_0;
+    out[1] = ADCS_DEVICE_HDR_1;
+    out[2] = (uint8_t)(ADCS_DEVICE_SET_GAINS_CMD >> 8);
+    out[3] = (uint8_t)(ADCS_DEVICE_SET_GAINS_CMD & 0xFF);
+    const float values[7] = {
+        gains->SunPointKp,      gains->SunPointKd,       gains->WheelMaxTorqueNm,
+        gains->MtbMaxDipoleAm2, gains->DetumbleGainBase, gains->DetumbleGainHigh,
+        gains->RotisserieRateRadS,
+    };
+    uint8_t *ptr = &out[4];
+    for (int i = 0; i < 7; i++)
+    {
+        uint32_t u;
+        memcpy(&u, &values[i], sizeof(u));
+        ptr[0] = (uint8_t)((u >> 24) & 0xFF);
+        ptr[1] = (uint8_t)((u >> 16) & 0xFF);
+        ptr[2] = (uint8_t)((u >> 8) & 0xFF);
+        ptr[3] = (uint8_t)(u & 0xFF);
+        ptr += 4;
+    }
+    ptr[0] = ADCS_DEVICE_TRAILER_0;
+    ptr[1] = ADCS_DEVICE_TRAILER_1;
+}
+
+void Test_ADCS_SendGainsCmd(void)
+{
+    uart_info_t device;
+    ADCS_Device_GainsCmd_t gains = {
+        .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.02f,
+        .MtbMaxDipoleAm2 = 0.3f, .DetumbleGainBase = 1.0f, .DetumbleGainHigh = 2.0f,
+        .RotisserieRateRadS = 0.005f,
+    };
+    uint8_t expected[ADCS_DEVICE_GAINS_CMD_SIZE];
+    EncodeGainsCmdFrame(&gains, expected);
+
+    /* uart_flush failure */
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_ERROR);
+    ADCS_SendGainsCmd(&device, &gains);
+
+    /* uart_write_port short write */
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, 4);
+    ADCS_SendGainsCmd(&device, &gains);
+
+    /* ADCS_ReadData failure: bytes_available reports full size but
+     * uart_read_port returns fewer bytes than requested */
+    {
+        UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+        UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, ADCS_DEVICE_GAINS_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, ADCS_DEVICE_GAINS_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, ADCS_DEVICE_GAINS_CMD_SIZE - 1);
+        ADCS_SendGainsCmd(&device, &gains);
+    }
+
+    /* Mismatched echo */
+    {
+        uint8_t bad_echo[ADCS_DEVICE_GAINS_CMD_SIZE] = {0};
+        UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+        UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, ADCS_DEVICE_GAINS_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, ADCS_DEVICE_GAINS_CMD_SIZE);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSingleReadHandler, bad_echo);
+        int32_t rc = ADCS_SendGainsCmd(&device, &gains);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
+        UtAssert_True(rc != OS_SUCCESS, "ADCS_SendGainsCmd detects mismatched echo");
+    }
+
+    /* Full success: echo matches exactly what was written */
+    {
+        UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+        UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, ADCS_DEVICE_GAINS_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, ADCS_DEVICE_GAINS_CMD_SIZE);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSingleReadHandler, expected);
+        int32_t rc = ADCS_SendGainsCmd(&device, &gains);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
+        UtAssert_True(rc == OS_SUCCESS, "ADCS_SendGainsCmd succeeds on matching echo");
+    }
+}
+
+/* Build the exact wire bytes ADCS_SendTargetVectorCmd writes, to construct a matching echo. */
+static void EncodeTargetVectorCmdFrame(const ADCS_Device_TargetVectorCmd_t *target, uint8_t *out)
+{
+    out[0] = ADCS_DEVICE_HDR_0;
+    out[1] = ADCS_DEVICE_HDR_1;
+    out[2] = (uint8_t)(ADCS_DEVICE_SET_TARGET_VECTOR_CMD >> 8);
+    out[3] = (uint8_t)(ADCS_DEVICE_SET_TARGET_VECTOR_CMD & 0xFF);
+    const float values[3] = { target->X, target->Y, target->Z };
+    uint8_t *ptr = &out[4];
+    for (int i = 0; i < 3; i++)
+    {
+        uint32_t u;
+        memcpy(&u, &values[i], sizeof(u));
+        ptr[0] = (uint8_t)((u >> 24) & 0xFF);
+        ptr[1] = (uint8_t)((u >> 16) & 0xFF);
+        ptr[2] = (uint8_t)((u >> 8) & 0xFF);
+        ptr[3] = (uint8_t)(u & 0xFF);
+        ptr += 4;
+    }
+    ptr[0] = ADCS_DEVICE_TRAILER_0;
+    ptr[1] = ADCS_DEVICE_TRAILER_1;
+}
+
+void Test_ADCS_SendTargetVectorCmd(void)
+{
+    uart_info_t device;
+    ADCS_Device_TargetVectorCmd_t target = { .X = 0.577f, .Y = 0.577f, .Z = 0.577f };
+    uint8_t expected[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE];
+    EncodeTargetVectorCmdFrame(&target, expected);
+
+    /* uart_flush failure */
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_ERROR);
+    ADCS_SendTargetVectorCmd(&device, &target);
+
+    /* uart_write_port short write */
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, 4);
+    ADCS_SendTargetVectorCmd(&device, &target);
+
+    /* ADCS_ReadData failure: short read */
+    {
+        UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+        UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE - 1);
+        ADCS_SendTargetVectorCmd(&device, &target);
+    }
+
+    /* Mismatched echo */
+    {
+        uint8_t bad_echo[ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE] = {0};
+        UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+        UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSingleReadHandler, bad_echo);
+        int32_t rc = ADCS_SendTargetVectorCmd(&device, &target);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
+        UtAssert_True(rc != OS_SUCCESS, "ADCS_SendTargetVectorCmd detects mismatched echo");
+    }
+
+    /* Full success */
+    {
+        UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+        UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, ADCS_DEVICE_TARGET_VECTOR_CMD_SIZE);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), UartSingleReadHandler, expected);
+        int32_t rc = ADCS_SendTargetVectorCmd(&device, &target);
+        UT_SetHandlerFunction(UT_KEY(uart_read_port), NULL, NULL);
+        UtAssert_True(rc == OS_SUCCESS, "ADCS_SendTargetVectorCmd succeeds on matching echo");
+    }
+}
+
+void Test_ADCS_ParseHK_NullPointers(void)
+{
+    ADCS_Device_HK_tlm_t data;
+    uint8_t buf[ADCS_DEVICE_HK_SIZE] = {0};
+
+    UtAssert_True(ADCS_ParseHK(NULL, &data) == OS_ERROR, "ADCS_ParseHK rejects NULL read_data");
+    UtAssert_True(ADCS_ParseHK(buf, NULL) == OS_ERROR, "ADCS_ParseHK rejects NULL data");
+}
+
+void Test_ADCS_ParseHK_PartialMismatches(void)
+{
+    ADCS_Device_HK_tlm_t data;
+    uint8_t buf[ADCS_DEVICE_HK_SIZE];
+
+    /* Header byte 0 wrong, byte 1 correct */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0x00; buf[1] = ADCS_DEVICE_HDR_1;
+    buf[ADCS_DEVICE_HK_SIZE - 2] = ADCS_DEVICE_TRAILER_0;
+    buf[ADCS_DEVICE_HK_SIZE - 1] = ADCS_DEVICE_TRAILER_1;
+    UtAssert_True(ADCS_ParseHK(buf, &data) == OS_ERROR, "ADCS_ParseHK rejects bad header byte 0");
+
+    /* Header byte 0 correct, byte 1 wrong */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = ADCS_DEVICE_HDR_0; buf[1] = 0x00;
+    buf[ADCS_DEVICE_HK_SIZE - 2] = ADCS_DEVICE_TRAILER_0;
+    buf[ADCS_DEVICE_HK_SIZE - 1] = ADCS_DEVICE_TRAILER_1;
+    UtAssert_True(ADCS_ParseHK(buf, &data) == OS_ERROR, "ADCS_ParseHK rejects bad header byte 1");
+
+    /* Header correct, trailer byte 0 wrong, byte 1 correct */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = ADCS_DEVICE_HDR_0; buf[1] = ADCS_DEVICE_HDR_1;
+    buf[ADCS_DEVICE_HK_SIZE - 2] = 0x00;
+    buf[ADCS_DEVICE_HK_SIZE - 1] = ADCS_DEVICE_TRAILER_1;
+    UtAssert_True(ADCS_ParseHK(buf, &data) == OS_ERROR, "ADCS_ParseHK rejects bad trailer byte 0");
+
+    /* Header correct, trailer byte 0 correct, byte 1 wrong */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = ADCS_DEVICE_HDR_0; buf[1] = ADCS_DEVICE_HDR_1;
+    buf[ADCS_DEVICE_HK_SIZE - 2] = ADCS_DEVICE_TRAILER_0;
+    buf[ADCS_DEVICE_HK_SIZE - 1] = 0x00;
+    UtAssert_True(ADCS_ParseHK(buf, &data) == OS_ERROR, "ADCS_ParseHK rejects bad trailer byte 1");
+}
+
+void Test_ADCS_HandleRequestHK_NullPointers(void)
+{
+    ADCS_Device_HK_tlm_t data;
+    uint8_t buf[ADCS_DEVICE_HK_SIZE] = {0};
+
+    UtAssert_True(ADCS_HandleRequestHK(NULL, &data) == OS_ERROR, "ADCS_HandleRequestHK rejects NULL read_data");
+    UtAssert_True(ADCS_HandleRequestHK(buf, NULL) == OS_ERROR, "ADCS_HandleRequestHK rejects NULL data");
+}
+
+void Test_ADCS_HandleRequestData_NullPointers(void)
+{
+    ADCS_Device_Data_tlm_t data;
+    uint8_t buf[ADCS_DEVICE_DATA_SIZE] = {0};
+
+    UtAssert_True(ADCS_HandleRequestData(NULL, &data) == OS_ERROR, "ADCS_HandleRequestData rejects NULL read_data");
+    UtAssert_True(ADCS_HandleRequestData(buf, NULL) == OS_ERROR, "ADCS_HandleRequestData rejects NULL data");
+}
+
+void Test_ADCS_HandleRequestData_PartialMismatches(void)
+{
+    ADCS_Device_Data_tlm_t data;
+    uint8_t buf[ADCS_DEVICE_DATA_SIZE];
+
+    /* Header byte 1 wrong (byte 0 correct) */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = ADCS_DEVICE_HDR_0; buf[1] = 0x00;
+    buf[ADCS_DEVICE_DATA_SIZE - 2] = ADCS_DEVICE_TRAILER_0;
+    buf[ADCS_DEVICE_DATA_SIZE - 1] = ADCS_DEVICE_TRAILER_1;
+    UtAssert_True(ADCS_HandleRequestData(buf, &data) == OS_ERROR, "ADCS_HandleRequestData rejects bad header byte 1");
+
+    /* Header correct, trailer byte 0 wrong (byte 1 correct) */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = ADCS_DEVICE_HDR_0; buf[1] = ADCS_DEVICE_HDR_1;
+    buf[ADCS_DEVICE_DATA_SIZE - 2] = 0x00;
+    buf[ADCS_DEVICE_DATA_SIZE - 1] = ADCS_DEVICE_TRAILER_1;
+    UtAssert_True(ADCS_HandleRequestData(buf, &data) == OS_ERROR, "ADCS_HandleRequestData rejects bad trailer byte 0");
+
+    /* Header and trailer byte 0 correct, trailer byte 1 wrong */
+    memset(buf, 0, sizeof(buf));
+    buf[0] = ADCS_DEVICE_HDR_0; buf[1] = ADCS_DEVICE_HDR_1;
+    buf[ADCS_DEVICE_DATA_SIZE - 2] = ADCS_DEVICE_TRAILER_0;
+    buf[ADCS_DEVICE_DATA_SIZE - 1] = 0x00;
+    UtAssert_True(ADCS_HandleRequestData(buf, &data) == OS_ERROR, "ADCS_HandleRequestData rejects bad trailer byte 1");
+}
+
 /*
  * Setup function prior to every test
  */
@@ -840,4 +1098,11 @@ void UtTest_Setup(void)
     ADD_TEST(ADCS_RequestData_HandleFail);
     ADD_TEST(ADCS_RequestHK_SuccessPath);
     ADD_TEST(ADCS_RequestData_SuccessPath);
+    ADD_TEST(ADCS_SendGainsCmd);
+    ADD_TEST(ADCS_SendTargetVectorCmd);
+    ADD_TEST(ADCS_ParseHK_NullPointers);
+    ADD_TEST(ADCS_ParseHK_PartialMismatches);
+    ADD_TEST(ADCS_HandleRequestHK_NullPointers);
+    ADD_TEST(ADCS_HandleRequestData_NullPointers);
+    ADD_TEST(ADCS_HandleRequestData_PartialMismatches);
 }

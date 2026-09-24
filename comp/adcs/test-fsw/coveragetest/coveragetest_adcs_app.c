@@ -234,6 +234,11 @@ void Test_ADCS_AppInit(void)
 
     UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_ERR_UNREGISTERED);
     UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_UNREGISTERED);
+
+    /* CFE_TBL_INFO_UPDATED is not CFE_SUCCESS but is still a non-error
+     * outcome (a fresh table load) -- must not be treated as a failure. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_SUCCESS);
 }
 
 void Test_ADCS_ValidateGainsTbl(void)
@@ -262,10 +267,22 @@ void Test_ADCS_ValidateGainsTbl(void)
     bad = tbl; bad.WheelMaxTorqueNm = 1.0f; /* exceeds hardware ceiling */
     UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
 
+    bad = tbl; bad.WheelMaxTorqueNm = 0.0f; /* at-or-below-zero side of the same check */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
     bad = tbl; bad.MtbMaxDipoleAm2 = 100.0f; /* exceeds hardware ceiling */
     UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
 
+    bad = tbl; bad.MtbMaxDipoleAm2 = -1.0f; /* at-or-below-zero side of the same check */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.DetumbleGainBase = 0.0f; /* base must be > 0 */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
     bad = tbl; bad.DetumbleGainHigh = 0.0f; /* base must be <= high, high must be > 0 */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.DetumbleGainBase = 0.05f; bad.DetumbleGainHigh = 0.02f; /* both positive, high < base */
     UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
 
     bad = tbl; bad.RotisserieRateRadS = -0.001f; /* must be non-negative */
@@ -538,6 +555,23 @@ void Test_ADCS_ProcessGroundCommand(void)
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_MODE (%u)", (unsigned int)EventTest.MatchCount);
 
+    /* test failure of command length for SET_MODE. ADCS_VerifyCmdLength()
+     * re-fetches MsgId/FcnCode itself to build the error event, so each is
+     * buffered twice: once for ADCS_ProcessGroundCommand()'s own dispatch
+     * fetch, once for that internal re-fetch (see the ENABLE/DISABLE
+     * wrong-length blocks above for the same pattern). */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_SET_MODE_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for SET_MODE (%u)", (unsigned int)EventTest.MatchCount);
+
     /* test dispatch of SET_TARGET (device enabled -> forward to device) */
     FcnCode = ADCS_SET_TARGET_CC;
     Size    = sizeof(ADCS_SetTarget_cmd_t);
@@ -573,6 +607,20 @@ void Test_ADCS_ProcessGroundCommand(void)
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET (%u)", (unsigned int)EventTest.MatchCount);
 
+    /* test failure of command length for SET_TARGET (see SET_MODE's
+     * wrong-length block above for why MsgId/FcnCode are buffered twice) */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_SET_TARGET_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for SET_TARGET (%u)", (unsigned int)EventTest.MatchCount);
+
     /* test dispatch of SET_TARGET_VECTOR (device enabled -> forward to device) */
     FcnCode = ADCS_SET_TARGET_VECTOR_CC;
     Size    = sizeof(ADCS_SetTargetVector_cmd_t);
@@ -607,6 +655,20 @@ void Test_ADCS_ProcessGroundCommand(void)
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET_VECTOR (%u)", (unsigned int)EventTest.MatchCount);
 
+    /* test failure of command length for SET_TARGET_VECTOR (see SET_MODE's
+     * wrong-length block above for why MsgId/FcnCode are buffered twice) */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_SET_TARGET_VECTOR_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for SET_TARGET_VECTOR (%u)", (unsigned int)EventTest.MatchCount);
+
     /* test CONFIG_CC pushes gains only when enabled */
     static ADCS_GainsTbl_t TestGainsTbl = {
         .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.005f, .MtbMaxDipoleAm2 = 1.42f,
@@ -636,6 +698,33 @@ void Test_ADCS_ProcessGroundCommand(void)
     UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)) == 1,
                   "ADCS_SendGainsCmd() not called again while disabled");
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for CONFIG (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    /* test failure of command length for CONFIG (see SET_MODE's
+     * wrong-length block above for why MsgId/FcnCode are buffered twice) */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_CONFIG_CC;
+    Size    = sizeof(TestMsg.Config);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for CONFIG (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test CONFIG_CC reports failure when the device push itself fails */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_CONFIG_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendGainsCmd), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SEND_GAINS_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SEND_GAINS_ERR_EID generated when device push fails (%u)",
                   (unsigned int)EventTest.MatchCount);
 
     /* test an invalid CC */

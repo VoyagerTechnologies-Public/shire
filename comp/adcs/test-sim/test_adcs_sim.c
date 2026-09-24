@@ -1080,6 +1080,43 @@ static void test_wire_protocol_bad_trailer_rejected(void)
     g_iface->destroy(state);
 }
 
+static void test_wire_protocol_length_cmdid_mismatch_rejected(void)
+{
+    /* A frame whose length matches one of the three accepted sizes, but
+     * whose cmd_id expects a different one (SET_GAINS_CMD needs
+     * ADCS_DEVICE_GAINS_CMD_SIZE, not the 8-byte generic frame here). */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS,
+                          open_client_port(&client, "test_client"));
+    usleep(2000);
+
+    uint8_t cmd[ADCS_DEVICE_CMD_SIZE] = {
+        ADCS_DEVICE_HDR_0, ADCS_DEVICE_HDR_1,
+        (uint8_t)(ADCS_DEVICE_SET_GAINS_CMD >> 8), (uint8_t)(ADCS_DEVICE_SET_GAINS_CMD & 0xFF),
+        0x00, 0x00,
+        ADCS_DEVICE_TRAILER_0, ADCS_DEVICE_TRAILER_1
+    };
+    simulith_transport_send(&client, cmd, sizeof(cmd));
+    usleep(2000);
+
+    simulith_42_context_t ctx = zero_ctx();
+    g_iface->on_tick(state, 100000000ULL, &ctx);
+
+    uint8_t rx[16];
+    TEST_ASSERT_EQUAL_size_t(0, drain_all(&client, rx, sizeof(rx)));
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    TEST_ASSERT_EQUAL_UINT16(0, as->hk.DeviceCounter);
+
+    simulith_transport_close(&client);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
 /* -------------------------------------------------------------------------
  * Controller paths
  *
@@ -2449,6 +2486,7 @@ int main(void)
     RUN_TEST(test_wire_protocol_short_packet_rejected);
     RUN_TEST(test_wire_protocol_bad_header_rejected);
     RUN_TEST(test_wire_protocol_bad_trailer_rejected);
+    RUN_TEST(test_wire_protocol_length_cmdid_mismatch_rejected);
 
     /* Controller */
     RUN_TEST(test_controller_inactive_does_not_run);

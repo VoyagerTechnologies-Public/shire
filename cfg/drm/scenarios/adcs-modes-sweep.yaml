@@ -1,12 +1,15 @@
 # Confirms all of ADCS's pointing modes work, ground-visible, end to end:
-# enable -> sun point (SUNSAFE) -> nadir point (NADIR) -> track an arbitrary
-# inertial vector target (a placeholder for "the Moon" -- see the stack's
-# comment on that step), via AdcsModesSweep.ycs's verify_stacks steps.
+# enable -> sun point (SUNSAFE) -> nadir point (NADIR) -> track a zenith
+# (anti-nadir) inertial vector target (a placeholder for "the Moon" -- see
+# the stack's comment on that step), via AdcsModesSweep.ycs's verify_stacks
+# steps.
 #
 # NADIR previously had no live scenario coverage at all (only unit tests).
 # Arbitrary-vector targeting is new: SET_TARGET_VECTOR_CC lets ground (or a
 # scenario) point modes 4/5 at any direction, not just the canned +X/-X
-# inertial selectors SET_TARGET_CC offers.
+# inertial selectors SET_TARGET_CC offers. The zenith direction is chosen
+# deliberately (rather than an arbitrary vector) so this step forces a real
+# slew away from the preceding NADIR pointing.
 #
 # Manual (GUI + YAMCS):  set scenario: adcs-modes-sweep in
 #                        build/active.yaml, `make`, `make start`, then run
@@ -17,10 +20,12 @@ description: >
   Enables ADCS on the nominal-baseline reference orbit, then sweeps through
   sun point (SUNSAFE, verifying Sun-vector convergence), nadir point
   (NADIR, verifying body rates settle near zero -- its first live scenario
-  coverage), and target-track pointed at an arbitrary inertial vector via
-  the new SET_TARGET_VECTOR_CC command (a placeholder direction standing in
-  for "the Moon" until real lunar ephemeris is piped from 42 through
-  simulith's IPC protocol into ADCS telemetry). Each mode transition is
+  coverage), and target-track pointed at zenith (anti-nadir) via the new
+  SET_TARGET_VECTOR_CC command (a placeholder direction standing in for
+  "the Moon" until real lunar ephemeris is piped from 42 through
+  simulith's IPC protocol into ADCS telemetry, chosen as anti-nadir so the
+  transition exercises a real slew rather than a near-no-op). Each mode
+  transition is
   verified via real ground telemetry, not just unit-level control-law
   correctness.
 initial_conditions: "nominal-baseline"

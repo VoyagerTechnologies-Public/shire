@@ -128,7 +128,7 @@ static int receive_binary_state(simulith_42_context_t *context)
 
     memset(context, 0, sizeof(*context));
     context->sim_time = state.sim_time;
-    context->dyn_time = state.sim_time;
+    context->dyn_time = state.utc_civil_time;
     memcpy(context->qn, state.qn, sizeof(state.qn));
     memcpy(context->wn, state.wn, sizeof(state.wn));
     memcpy(context->pos_n, state.pos_n, sizeof(state.pos_n));
@@ -217,6 +217,41 @@ static int connect_to_42(void)
     return -1;
 }
 
+static int is_gregorian_leap_year(long year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+/*
+ * Convert a UTC calendar time (year, day-of-year, time-of-day) from 42's
+ * "TIME YYYY-DDD-HH:MM:SS.SSSSSSSSS" IPC line into seconds since the J2000
+ * epoch (2000-01-01T12:00:00 UTC). This mirrors 42's own CivilTime
+ * convention (see 42/Kit/Source/timekit.c's DateToTime) and is what
+ * simulith_42_context_t's dyn_time field documents itself as. Anchoring to
+ * the real calendar epoch configured in Inp_Sim.txt -- rather than just
+ * time-of-day, which wraps every 86400s and carries no date at all -- is
+ * required for any consumer that needs absolute time, e.g. ADCS's GPS time
+ * sync into cFE TIME.
+ */
+static double civil_calendar_to_seconds_since_j2000(long year, long day_of_year,
+                                                     int hour, int minute, double second)
+{
+    long days = 0;
+    if (year >= 2000) {
+        for (long y = 2000; y < year; y++) {
+            days += is_gregorian_leap_year(y) ? 366 : 365;
+        }
+    } else {
+        for (long y = year; y < 2000; y++) {
+            days -= is_gregorian_leap_year(y) ? 366 : 365;
+        }
+    }
+    days += (day_of_year - 1);
+    /* J2000 is 2000-01-01T12:00:00 UTC (noon), a half day after the
+       2000-01-01T00:00:00 reference the day count above is relative to. */
+    return ((double)days - 0.5) * 86400.0 + hour * 3600.0 + minute * 60.0 + second;
+}
+
 /*
  * Parse spacecraft state from 42's IPC text format
  */
@@ -241,12 +276,14 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
         
         // Parse known fields (based on 42's TxRxIPC.c output format)
         if (strncmp(line, "TIME ", 5) == 0) {
-            // TIME format: YYYY-DDD-HH:MM:SS.SSSSSSSSS
-            // Extract total SimTime by converting HH:MM:SS to seconds
+            // TIME format: YYYY-DDD-HH:MM:SS.SSSSSSSSS (UTC calendar time)
+            long year, day_of_year;
             int hours, minutes;
             double seconds;
-            sscanf(line + 5, "%*d-%*d-%d:%d:%lf", &hours, &minutes, &seconds);
+            sscanf(line + 5, "%ld-%ld-%d:%d:%lf", &year, &day_of_year, &hours, &minutes, &seconds);
             context->sim_time = hours * 3600.0 + minutes * 60.0 + seconds;
+            context->dyn_time = civil_calendar_to_seconds_since_j2000(year, day_of_year,
+                                                                      hours, minutes, seconds);
         }
         // 42 uses array format: "SC[0].qn = [q0 q1 q2 q3]"
         else if (strncmp(line, "SC[0].qn = [", 12) == 0) {
@@ -279,8 +316,6 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
         }
     }
     
-    // Set dyn_time to sim_time (they're the same in 42)
-    context->dyn_time = context->sim_time;
     context->valid = 1;
     context->spacecraft_id = 0;
     context->exists = 1;

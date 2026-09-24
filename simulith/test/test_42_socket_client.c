@@ -102,6 +102,7 @@ static void *fake_binary_42_server(void *arg)
     state.header.type = SHIRE_IPC_STATE;
     state.header.payload_size = (uint32_t)(sizeof(state) - sizeof(state.header));
     state.sim_time = 12.5;
+    state.utc_civil_time = 748177200.0;
     state.qn[0] = 1.0;
     state.pos_n[2] = 6.0;
     state.sun_vector_body[2] = 1.0;
@@ -271,6 +272,14 @@ static void test_parse_state_fields_and_eclipse(void)
     TEST_ASSERT_EQUAL_INT(0, simulith_42_parse_state_for_test(
         "TIME 2026-001-02:03:04.25\nSC[0].svb = [0 0 0]\n", &context));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 7384.25f, (float)context.sim_time);
+    /* dyn_time is the full calendar-anchored time (year + day-of-year +
+       time-of-day), not just the time-of-day sim_time holds -- see
+       civil_calendar_to_seconds_since_j2000(). Expected value computed
+       independently: seconds from 2000-01-01T12:00:00Z to
+       2026-01-01T02:03:04.25Z. Compared in double precision (not the
+       usual float-cast pattern) since dyn_time is large enough here that
+       a float32 round-trip alone would swamp a tight tolerance. */
+    TEST_ASSERT_TRUE(fabs(context.dyn_time - 820504984.25) < 0.01);
     TEST_ASSERT_EQUAL_INT(1, context.valid);
     TEST_ASSERT_EQUAL_INT(1, context.eclipse);
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_parse_state_for_test(NULL, &context));
@@ -326,6 +335,9 @@ static void test_unix_connection_state_and_commands(void)
     simulith_42_context_t context;
     TEST_ASSERT_EQUAL_INT(0, simulith_42_request_state(&context));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 3723.5f, (float)context.sim_time);
+    /* Server's "TIME 2026-001-01:02:03.500" line; expected value is
+       seconds from 2000-01-01T12:00:00Z to 2026-01-01T01:02:03.500Z. */
+    TEST_ASSERT_TRUE(fabs(context.dyn_time - 820501323.5) < 0.01);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 6.0f, (float)context.pos_n[2]);
     TEST_ASSERT_EQUAL_INT(0, context.eclipse);
 
@@ -427,6 +439,11 @@ static void test_binary_state_and_command_frames(void)
     simulith_42_context_t context;
     TEST_ASSERT_EQUAL_INT(0, simulith_42_request_state(&context));
     TEST_ASSERT_FLOAT_WITHIN(0.000001f, 12.5f, (float)context.sim_time);
+    /* dyn_time must come from the wire's utc_civil_time field (42's
+       absolute CivilTime), not sim_time (elapsed run time) -- these are
+       deliberately set to very different values above to catch a
+       regression back to the old dyn_time == sim_time conflation. */
+    TEST_ASSERT_TRUE(fabs(context.dyn_time - 748177200.0) < 0.01);
     TEST_ASSERT_FLOAT_WITHIN(0.000001f, 6.0f, (float)context.pos_n[2]);
     TEST_ASSERT_TRUE(fabs(context.mass - 42.25) < 1.0e-12);
     TEST_ASSERT_TRUE(fabs(context.cm[1] - 0.125) < 1.0e-12);

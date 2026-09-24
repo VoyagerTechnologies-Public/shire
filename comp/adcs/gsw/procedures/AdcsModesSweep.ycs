@@ -109,22 +109,22 @@
       "timeout": 30000
     },
     {
-      "__comment": "Target an arbitrary inertial direction via the new SET_TARGET_VECTOR_CC (issue follow-up), standing in for 'the Moon' pending real ephemeris wiring (42 tracks World[LUNA] internally, but it is not yet piped through simulith's IPC protocol to ADCS -- see conversation notes). The device normalizes this on receipt; sending an un-normalized (1,1,1) here also exercises that.",
+      "__comment": "Target zenith (anti-nadir) via the new SET_TARGET_VECTOR_CC (issue follow-up), standing in for 'the Moon' pending real ephemeris wiring (42 tracks World[LUNA] internally, but it is not yet piped through simulith's IPC protocol to ADCS -- see conversation notes). Deliberately the negation of the nadir direction (nadir_inertial[i] = -pos_n[i] in adcs_sim.c) at nominal-baseline's initial orbital position, rather than an arbitrary vector, so this step forces a real ~180-degree slew away from the just-verified NADIR pointing instead of a coincidental near-no-op. Also un-normalized (scaled x2 from the unit direction) to keep exercising the device's on-receipt normalization.",
       "type": "command",
       "name": "/ADCS/ADCS_SET_TARGET_VECTOR_CC",
       "extraOptions": [],
       "arguments": [
         {
           "name": "TARGET_X",
-          "value": "1.0"
+          "value": "-1.8794"
         },
         {
           "name": "TARGET_Y",
-          "value": "1.0"
+          "value": "-0.4209"
         },
         {
           "name": "TARGET_Z",
-          "value": "1.0"
+          "value": "0.5391"
         }
       ]
     },

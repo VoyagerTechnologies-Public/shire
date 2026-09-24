@@ -51,6 +51,23 @@
         }
       ],
       "timeout": 30000
+    },
+    {
+      "__comment": "Confirms the clock isn't just VALID but actually anchored to the scenario's real calendar epoch (nominal-baseline's 2023-09-16T23:00:00Z), not some artifact epoch. SECONDSSTCF (STCF = AtToneSTCF = NewTime - CurrentMET, see cfe_time_tone.c/cfe_time_utils.c) approximates the GPS-derived absolute time, offset below it by whatever MET (cFE ES uptime, including boot settle before simulated t=0) has accrued by this step. Bounds are seconds-since-cFE-mission-epoch (1980-01-01) for 2023-09-16T23:00:00Z (1379372400), with a wide +/-1800s margin for that MET/run-timing variance -- still tight enough to catch a prior real bug where a broken 42-IPC time feed (elapsed/time-of-day seconds mistaken for an absolute epoch) put the clock near 1980 or 2000 instead (off by hundreds of millions of seconds).",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/SECONDSSTCF",
+          "operator": "gt",
+          "value": "1379370600"
+        },
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/SECONDSSTCF",
+          "operator": "lt",
+          "value": "1379374200"
+        }
+      ],
+      "timeout": 5000
     }
   ],
   "advancement": {
