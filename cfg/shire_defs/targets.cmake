@@ -70,7 +70,7 @@ SET(MISSION_CPUNAMES cpu1) # cpu2
 # SHIRE Host Processor (amd64)
 SET(cpu1_PROCESSORID 1)
 SET(cpu1_APPLIST) # Note: Using all ${MISSION_GLOBAL_APPLIST} automatically
-SET(cpu1_FILELIST cfe_es_startup.scr)
+SET(cpu1_FILELIST cfe_es_startup.scr adcs_time.dat)
 if (ENABLE_UNIT_TESTS)
     SET(cpu1_SYSTEM amd64-linux)
 else() 

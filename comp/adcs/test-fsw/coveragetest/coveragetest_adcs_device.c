@@ -366,8 +366,10 @@ void Test_ADCS_ParseHK_Direct_Success(void)
     buf[11] = 0x00; buf[12] = 0x00; buf[13] = 0x00; buf[14] = 0x0B; /* GpsSubseconds */
 
     size_t pos = 15;
-    float fv[] = {1.5f, -2.5f, 3.25f, 4.5f, -5.5f, 6.75f, 0.125f, 0.25f, 0.375f, 1.0f, 0.0f, 0.0f, 0.5f, 0.6f, 0.7f};
-    /* Fill fields in the same order as parsing: GpsPosition(3), Velocity(3), AttitudeSource(1), AngRate(3), Quaternion(4), Eclipse(1), SunVectorBody(3) */
+    float fv[] = {1.5f, -2.5f, 3.25f, 4.5f, -5.5f, 6.75f, 0.125f, 0.25f, 0.375f, 1.0f, 0.0f, 0.0f, 0.5f,
+                 0.6f, 0.7f, 0.8f, 0.1f, 0.2f, 0.3f};
+    /* Fill fields in the same order as parsing: GpsPosition(3), Velocity(3), AttitudeSource(1), AngRate(3),
+       Quaternion(4), Eclipse(1), SunVectorBody(3), PointVectorBody(3) */
     int idx = 0;
     for (int i = 0; i < 3; ++i)
     {
@@ -387,6 +389,10 @@ void Test_ADCS_ParseHK_Direct_Success(void)
         uint32_t u; memcpy(&u, &fv[idx++], sizeof(u)); buf[pos++] = (u >> 24) & 0xFF; buf[pos++] = (u >> 16) & 0xFF; buf[pos++] = (u >> 8) & 0xFF; buf[pos++] = u & 0xFF;
     }
     /* Eclipse */ buf[pos++] = 0x01;
+    for (int i = 0; i < 3; ++i)
+    {
+        uint32_t u; memcpy(&u, &fv[idx++], sizeof(u)); buf[pos++] = (u >> 24) & 0xFF; buf[pos++] = (u >> 16) & 0xFF; buf[pos++] = (u >> 8) & 0xFF; buf[pos++] = u & 0xFF;
+    }
     for (int i = 0; i < 3; ++i)
     {
         uint32_t u; memcpy(&u, &fv[idx++], sizeof(u)); buf[pos++] = (u >> 24) & 0xFF; buf[pos++] = (u >> 16) & 0xFF; buf[pos++] = (u >> 8) & 0xFF; buf[pos++] = u & 0xFF;

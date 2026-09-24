@@ -97,6 +97,9 @@ typedef struct
     float    Quaternion[4];       /* estimated quaternion */
     uint8_t  Eclipse;             /* eclipse flag */
     float    SunVectorBody[3];    /* estimated sun vector in body frame */
+    float    PointVectorBody[3];  /* normalized body-frame vector adcs_point_vector_controller()
+                                    * is currently driving toward +X (NADIR/TRACK/INERTIAL modes
+                                    * 3/4/5 only; stale from the last such mode otherwise) */
 
 } __attribute__((packed)) ADCS_Device_HK_tlm_t;
 #define ADCS_DEVICE_HK_LNGTH sizeof(ADCS_Device_HK_tlm_t)

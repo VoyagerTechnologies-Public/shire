@@ -57,6 +57,9 @@
       <xtce:Parameter name="DEVICE_ERR_COUNT" parameterTypeRef="UINT8_Type"/>
       <xtce:Parameter name="DEVICE_COUNT" parameterTypeRef="UINT16_Type"/>
       <xtce:Parameter name="DEVICE_ENABLED" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="TIME_FILE_FALLBACK_ACTIVE" parameterTypeRef="UINT8_Type"/>
+      <xtce:Parameter name="TIME_FILE_BOOT_OFFSET_COUNT" parameterTypeRef="UINT32_LE_Type"/>
+      <xtce:Parameter name="TIME_FILE_SAVE_COUNT" parameterTypeRef="UINT32_LE_Type"/>
 
       <!-- Device HK fields (matches ADCS_Device_HK_tlm_t struct layout) -->
       <!-- NOTE: In the cFE HK packet, multi-byte fields are in host (little-endian) order -->
@@ -83,6 +86,9 @@
       <xtce:Parameter name="SUN_X" parameterTypeRef="FLOAT32_LE_Type"/>
       <xtce:Parameter name="SUN_Y" parameterTypeRef="FLOAT32_LE_Type"/>
       <xtce:Parameter name="SUN_Z" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="POINT_VEC_BODY_X" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="POINT_VEC_BODY_Y" parameterTypeRef="FLOAT32_LE_Type"/>
+      <xtce:Parameter name="POINT_VEC_BODY_Z" parameterTypeRef="FLOAT32_LE_Type"/>
       <xtce:Parameter name="CSS_CHAN1" parameterTypeRef="UINT16_Type"/>
       <xtce:Parameter name="CSS_CHAN2" parameterTypeRef="UINT16_Type"/>
       <xtce:Parameter name="CSS_CHAN3" parameterTypeRef="UINT16_Type"/>
@@ -114,6 +120,9 @@
           <xtce:ParameterRefEntry parameterRef="DEVICE_ERR_COUNT"/>
           <xtce:ParameterRefEntry parameterRef="DEVICE_COUNT"/>
           <xtce:ParameterRefEntry parameterRef="DEVICE_ENABLED"/>
+          <xtce:ParameterRefEntry parameterRef="TIME_FILE_FALLBACK_ACTIVE"/>
+          <xtce:ParameterRefEntry parameterRef="TIME_FILE_BOOT_OFFSET_COUNT"/>
+          <xtce:ParameterRefEntry parameterRef="TIME_FILE_SAVE_COUNT"/>
 
           <!-- Device HK struct fields (match ParameterSet order) -->
           <xtce:ParameterRefEntry parameterRef="DEVICE_COUNTER"/>
@@ -139,6 +148,9 @@
           <xtce:ParameterRefEntry parameterRef="SUN_X"/>
           <xtce:ParameterRefEntry parameterRef="SUN_Y"/>
           <xtce:ParameterRefEntry parameterRef="SUN_Z"/>
+          <xtce:ParameterRefEntry parameterRef="POINT_VEC_BODY_X"/>
+          <xtce:ParameterRefEntry parameterRef="POINT_VEC_BODY_Y"/>
+          <xtce:ParameterRefEntry parameterRef="POINT_VEC_BODY_Z"/>
         </xtce:EntryList>
         <xtce:BaseContainer containerRef="/CCSDS/CCSDS_TM">
           <xtce:RestrictionCriteria>

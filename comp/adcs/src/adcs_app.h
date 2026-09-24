@@ -61,6 +61,13 @@ typedef struct
     */
     uint32 LastGpsSecondsSubmitted; /* Last DeviceHK.GpsSeconds pushed to CFE_TIME_ExternalGPS */
     bool   GpsTimeSynced;           /* Whether a GPS time submission has occurred yet */
+    uint32 TimeFileSaveCounter;     /* HK cycles since the last ADCS_TIME_FILE save (decimation) */
+
+    /*
+    ** Time-fallback resubmission state (operational, not reported)
+    */
+    CFE_TIME_SysTime_t TimeFileFallbackTime;      /* Fallback time loaded from ADCS_TIME_FILE at boot */
+    bool                TimeFileFallbackAvailable; /* Whether a fallback was loaded and still needs resubmitting */
 
     /*
     ** Boot-loaded control-law gains table

@@ -163,6 +163,12 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
     }
     normalize_vector(v);
 
+    // Telemeter the normalized body-frame vector being driven toward +X,
+    // the same way SunVectorBody exposes the sun sensor's -- lets ground
+    // (and AdcsModesSweep.ycs) verify NADIR/TRACK/INERTIAL actually point
+    // at their goal, not just that rates settled.
+    for (int i = 0; i < 3; i++) state->hk.PointVectorBody[i] = (float)v[i];
+
     // Compute attitude error (vector x target)
     double attitude_error[3];
     cross_product(v, target_body, attitude_error);
@@ -628,10 +634,21 @@ static int send_housekeeping(adcs_sim_state_t* state)
     {
         uint32_t u;
         memcpy(&u, &state->hk.SunVectorBody[i], sizeof(u));
-        ptr[0] = (uint8_t)((u >> 24) & 0xFF); 
-        ptr[1] = (uint8_t)((u >> 16) & 0xFF); 
-        ptr[2] = (uint8_t)((u >> 8) & 0xFF); 
-        ptr[3] = (uint8_t)(u & 0xFF); 
+        ptr[0] = (uint8_t)((u >> 24) & 0xFF);
+        ptr[1] = (uint8_t)((u >> 16) & 0xFF);
+        ptr[2] = (uint8_t)((u >> 8) & 0xFF);
+        ptr[3] = (uint8_t)(u & 0xFF);
+        ptr += 4;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        uint32_t u;
+        memcpy(&u, &state->hk.PointVectorBody[i], sizeof(u));
+        ptr[0] = (uint8_t)((u >> 24) & 0xFF);
+        ptr[1] = (uint8_t)((u >> 16) & 0xFF);
+        ptr[2] = (uint8_t)((u >> 8) & 0xFF);
+        ptr[3] = (uint8_t)(u & 0xFF);
         ptr += 4;
     }
 
@@ -1020,7 +1037,7 @@ int adcs_sim_init(adcs_sim_state_t* state)
     state->hk.Mode = 0;
     state->hk.GpsSeconds = 0;
     state->hk.GpsSubseconds = 0;
-    for (int i = 0; i < 3; i++) { state->hk.GpsPosition[i] = 0.0f; state->hk.Velocity[i] = 0.0f; state->hk.AngRate[i] = 0.0f; state->hk.SunVectorBody[i] = 0.0f; }
+    for (int i = 0; i < 3; i++) { state->hk.GpsPosition[i] = 0.0f; state->hk.Velocity[i] = 0.0f; state->hk.AngRate[i] = 0.0f; state->hk.SunVectorBody[i] = 0.0f; state->hk.PointVectorBody[i] = 0.0f; }
     for (int i = 0; i < 4; i++) { state->hk.Quaternion[i] = 0.0f; }
     state->hk.AttitudeSource = 0;
     state->hk.Eclipse = 0;

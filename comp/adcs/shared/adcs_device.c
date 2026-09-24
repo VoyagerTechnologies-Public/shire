@@ -387,6 +387,7 @@ void ADCS_PrintHK(const ADCS_Device_HK_tlm_t *hk)
     printf("  Quaternion    : %.6f, %.6f, %.6f, %.6f\n", hk->Quaternion[0], hk->Quaternion[1], hk->Quaternion[2], hk->Quaternion[3]);
     printf("  Eclipse       : %u\n", hk->Eclipse);
     printf("  SunVectorBody : %.6f, %.6f, %.6f\n", hk->SunVectorBody[0], hk->SunVectorBody[1], hk->SunVectorBody[2]);
+    printf("  PointVecBody  : %.6f, %.6f, %.6f\n", hk->PointVectorBody[0], hk->PointVectorBody[1], hk->PointVectorBody[2]);
 }
 
 /* Parse an HK wire-format buffer (big-endian) into the in-memory structure. */
@@ -469,6 +470,15 @@ int32_t ADCS_ParseHK(const uint8_t *read_data, ADCS_Device_HK_tlm_t *data)
         float f;
         memcpy(&f, &u, sizeof(f));
         data->SunVectorBody[i] = f;
+        ptr += 4;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        uint32_t u = ((uint32_t)ptr[0] << 24) | ((uint32_t)ptr[1] << 16) | ((uint32_t)ptr[2] << 8) | ptr[3];
+        float f;
+        memcpy(&f, &u, sizeof(f));
+        data->PointVectorBody[i] = f;
         ptr += 4;
     }
 

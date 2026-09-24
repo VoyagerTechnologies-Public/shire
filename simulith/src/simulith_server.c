@@ -14,6 +14,21 @@
 #define MAX_CLIENTS 32
 #define MAX_LATENCY_SAMPLES 10000
 
+/* Caps how far next_tick_deadline_ns is allowed to fall behind real time
+** (see its use in the pacing block below). Without this, a single stall
+** (e.g. the 200ms zmq_poll fallback a few lines up when a client's
+** completion isn't immediately available) leaves the deadline schedule
+** far in the past, and since ticks run unthrottled whenever
+** completion_ns >= next_tick_deadline_ns, the server then burns through
+** the entire backlog at full speed -- a burst that can itself blow past
+** a docker --cpus quota and get throttled, stall again, and repeat,
+** producing a sustained "rubber-banding" between under- and over-speed
+** instead of one isolated blip. Clamping the lag bounds that burst; any
+** time lost to a stall beyond this cap is accepted as permanent (small)
+** drift rather than chased.
+*/
+#define MAX_CATCHUP_LAG_NS 50000000ULL /* 50ms */
+
 typedef struct
 {
     char id[64];
@@ -1090,6 +1105,11 @@ void simulith_server_run(void)
                     pacing_speed = speed;
                 }
                 next_tick_deadline_ns += target_ns;
+                if (completion_ns > next_tick_deadline_ns &&
+                    completion_ns - next_tick_deadline_ns > MAX_CATCHUP_LAG_NS)
+                {
+                    next_tick_deadline_ns = completion_ns - MAX_CATCHUP_LAG_NS;
+                }
                 if (completion_ns < next_tick_deadline_ns)
                 {
                     struct timespec deadline = {

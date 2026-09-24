@@ -73,9 +73,15 @@
       ]
     },
     {
+      "__comment": "Rates near zero proves it stopped moving; POINT_VEC_BODY_X/Y/Z near (1,0,0) proves it stopped moving AT the actual nadir goal, not just somewhere -- POINT_VEC_BODY is adcs_point_vector_controller()'s normalized body-frame input vector (nadir_body here), the same kind of direct pointing-accuracy check SUN_X/Y/Z already gives SUNSAFE above. Longer timeout than the SUNSAFE step's own budget isn't needed here, but 90s (vs. the previous 30s) gives real settle margin against a wilder-than-nominal initial tumble. MODE==3 is bundled in specifically so this can't pass on a stale pre-switch HK sample still carrying SUNSAFE's already-converged values -- the verify tool (yamcs_commander.py's _run_verify_step) checks whatever the latest sample happens to be the instant it's called, with no guaranteed minimum wait for a fresh one, so without this a same-shaped check right after a mode switch can spuriously pass on leftover telemetry from before the switch took effect.",
       "type": "verify",
       "condition": [
         {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
           "parameter": "/ADCS/ANGRATE_X",
           "operator": "lt",
           "value": "0.02"
@@ -102,11 +108,36 @@
         },
         {
           "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_X",
+          "operator": "gt",
+          "value": "0.98"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Y",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Y",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Z",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Z",
           "operator": "gt",
           "value": "-0.02"
         }
       ],
-      "timeout": 30000
+      "timeout": 90000
     },
     {
       "__comment": "Target zenith (anti-nadir) via the new SET_TARGET_VECTOR_CC (issue follow-up), standing in for 'the Moon' pending real ephemeris wiring (42 tracks World[LUNA] internally, but it is not yet piped through simulith's IPC protocol to ADCS -- see conversation notes). Deliberately the negation of the nadir direction (nadir_inertial[i] = -pos_n[i] in adcs_sim.c) at nominal-baseline's initial orbital position, rather than an arbitrary vector, so this step forces a real ~180-degree slew away from the just-verified NADIR pointing instead of a coincidental near-no-op. Also un-normalized (scaled x2 from the unit direction) to keep exercising the device's on-receipt normalization.",
@@ -140,9 +171,15 @@
       ]
     },
     {
+      "__comment": "Same pointing-accuracy upgrade as the NADIR step above: rates near zero plus POINT_VEC_BODY_X/Y/Z near (1,0,0) proves target-track actually converged onto the commanded zenith vector, not just that it stopped moving somewhere. 90s timeout (vs. the previous 30s) for settle margin against a wilder-than-nominal initial tumble. MODE==4 is bundled in for the same reason as NADIR's step above -- this is the antipodal target to NADIR's, so without it, a stale pre-switch sample still showing NADIR's own just-converged (1,0,0) pointing would spuriously satisfy this identically-shaped check before target-track has actually done anything (confirmed live: this exact scenario passed step 8 in 0.028s with ANGRATE/POINT_VEC_BODY values bit-identical to NADIR's step, before this fix).",
       "type": "verify",
       "condition": [
         {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "4"
+        },
+        {
           "parameter": "/ADCS/ANGRATE_X",
           "operator": "lt",
           "value": "0.02"
@@ -169,11 +206,36 @@
         },
         {
           "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_X",
+          "operator": "gt",
+          "value": "0.98"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Y",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Y",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Z",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Z",
           "operator": "gt",
           "value": "-0.02"
         }
       ],
-      "timeout": 30000
+      "timeout": 90000
     }
   ],
   "advancement": {

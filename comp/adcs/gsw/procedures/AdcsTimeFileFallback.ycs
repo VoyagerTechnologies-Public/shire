@@ -1,0 +1,124 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "__comment": "No command sent yet -- proves ADCS_LoadTimeFromFile() fires automatically at boot, before any ADCS_ENABLE_CC, from the build-time-shipped fallback fixture (cfg/shire_defs/cpu1_adcs_time.dat, installed to /cf/adcs_time.dat via cpu1_FILELIST in targets.cmake: Seconds=946771200 i.e. 2010-01-01T00:00:00Z, BootOffsetCount=0). BootOffsetCount reads back as 1 since this load advances it by one.",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/TIME_FILE_FALLBACK_ACTIVE",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/ADCS/TIME_FILE_BOOT_OFFSET_COUNT",
+          "operator": "eq",
+          "value": "1"
+        }
+      ],
+      "timeout": 15000
+    },
+    {
+      "__comment": "Confirms the clock is already anchored to the seed fixture's 2010 date (946771200) plus one ADCS_TIME_FILE_BOOT_OFFSET_SEC (60s) increment, not some unrelated artifact epoch -- and it's already being reported while ClockSetState is still NOT_SET (not yet ground-certified), via ADCS_ResubmitTimeFallback() re-asserting it every HK cycle.",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/SECONDSSTCF",
+          "operator": "gt",
+          "value": "946769400"
+        },
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/SECONDSSTCF",
+          "operator": "lt",
+          "value": "946773000"
+        }
+      ],
+      "timeout": 5000
+    },
+    {
+      "__comment": "Now bring up the real GPS device. Deliberately NOT certifying the clock (CFE_TIME_SET_STATE) yet -- see cfe_time_tone.c's CFE_TIME_ToneSendGPS: once ClockSetState is WAS_SET, CFE_PLATFORM_TIME_MAX_DELTA clamps any *subsequent* external submission that differs too much, which would reject real GPS's ~433M-second correction away from the stale 2010 fallback. While still NOT_SET, external data is accepted unconditionally (same reason AdcsGpsTimeSync.ycs waits to certify until after GPS has already converged).",
+      "type": "command",
+      "name": "/ADCS/ADCS_ENABLE_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "__comment": "Let several device HK cycles (each carrying a GPS sample) land, same margin as AdcsGpsTimeSync.ycs, so real GPS-derived time fully supersedes the file fallback before certifying state.",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gte",
+          "value": "5"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "__comment": "Real GPS data has now moved the clock off the stale 2010 fallback and onto nominal-baseline's real epoch (2023-09-16T23:00:00Z = 1379372400), same margin as AdcsGpsTimeSync.ycs's equivalent check.",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/SECONDSSTCF",
+          "operator": "gt",
+          "value": "1379370600"
+        },
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/SECONDSSTCF",
+          "operator": "lt",
+          "value": "1379374200"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "__comment": "Only now certify the clock, exactly like AdcsGpsTimeSync.ycs's final step -- STCF has already converged onto real GPS, so this simply confirms it, rather than certifying while still anchored to the stale fallback.",
+      "type": "command",
+      "name": "/CFE_TIME/CFE_TIME_COMMANDS/CFE_TIME_SET_STATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "CLOCKSTATE",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TIME/CFE_TIME_HKPACKET/CLOCKSTATEAPI",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "__comment": "Proves ADCS_SaveTimeToFile() persisted the fresh real time, re-arming the fallback file for next time -- the other half of the feature.",
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/TIME_FILE_SAVE_COUNT",
+          "operator": "gte",
+          "value": "1"
+        }
+      ],
+      "timeout": 15000
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

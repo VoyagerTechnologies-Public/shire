@@ -11,6 +11,12 @@
 # deliberately (rather than an arbitrary vector) so this step forces a real
 # slew away from the preceding NADIR pointing.
 #
+# NADIR and TARGET now also verify actual pointing accuracy (POINT_VEC_BODY_
+# X/Y/Z near (1,0,0), the same style of check SUNSAFE already does via
+# SUN_X/Y/Z), not just that rates settled -- see the stack's comments on
+# those steps. Their timeouts grew from 30s to 90s each for settle margin,
+# so run_duration_s below grew accordingly.
+#
 # Manual (GUI + YAMCS):  set scenario: adcs-modes-sweep in
 #                        build/active.yaml, `make`, `make start`, then run
 #                        comp/adcs/gsw/procedures/AdcsModesSweep.ycs by hand.
@@ -19,19 +25,20 @@ scenario_name: "adcs-modes-sweep"
 description: >
   Enables ADCS on the nominal-baseline reference orbit, then sweeps through
   sun point (SUNSAFE, verifying Sun-vector convergence), nadir point
-  (NADIR, verifying body rates settle near zero -- its first live scenario
+  (NADIR, verifying both body rates settle near zero and the body-frame
+  pointing vector actually converges onto nadir -- its first live scenario
   coverage), and target-track pointed at zenith (anti-nadir) via the new
   SET_TARGET_VECTOR_CC command (a placeholder direction standing in for
   "the Moon" until real lunar ephemeris is piped from 42 through
   simulith's IPC protocol into ADCS telemetry, chosen as anti-nadir so the
-  transition exercises a real slew rather than a near-no-op). Each mode
-  transition is
-  verified via real ground telemetry, not just unit-level control-law
-  correctness.
+  transition exercises a real slew rather than a near-no-op), likewise
+  verified against its actual pointing goal rather than rates alone. Each
+  mode transition is verified via real ground telemetry, not just
+  unit-level control-law correctness.
 initial_conditions: "nominal-baseline"
 overrides:
   debug: false
-run_duration_s: 180
+run_duration_s: 360
 verify_stacks:
   - stack: "comp/adcs/gsw/procedures/AdcsModesSweep.ycs"
     at_s: 0

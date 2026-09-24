@@ -884,6 +884,13 @@ static void test_convergence_mode4_track_arbitrary_vector_target(void)
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_WHEEL_TORQUE, cmd_wheel.type);
     TEST_ASSERT_TRUE(cmd_wheel.cmd.wheel.torque[1] > 0.0);
 
+    /* PointVectorBody telemeters the normalized tgt_body vector the
+     * controller is driving toward +X -- confirms AdcsModesSweep.ycs's
+     * pointing check has a real signal to verify against. */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0.0f, as->hk.PointVectorBody[0]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0.0f, as->hk.PointVectorBody[1]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 1.0f, as->hk.PointVectorBody[2]);
+
     g_state_under_test = NULL;
     g_iface->destroy(state);
 }
@@ -2252,6 +2259,13 @@ static void test_convergence_mode3_nadir_wheel_torque_reduces_error(void)
 
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_WHEEL_TORQUE, cmd_wheel.type);
     TEST_ASSERT_TRUE(cmd_wheel.cmd.wheel.torque[1] > 0.0);
+
+    /* PointVectorBody telemeters the normalized nadir_body vector the
+     * controller is driving toward +X -- confirms AdcsModesSweep.ycs's
+     * pointing check has a real signal to verify against. */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0.0f, as->hk.PointVectorBody[0]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0.0f, as->hk.PointVectorBody[1]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 1.0f, as->hk.PointVectorBody[2]);
 
     g_state_under_test = NULL;
     g_iface->destroy(state);

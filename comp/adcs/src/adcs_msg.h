@@ -95,6 +95,9 @@ typedef struct
     ** Edit and add specific telemetry values to this struct
     */
     uint8                     DeviceEnabled;
+    uint8                     TimeFileFallbackActive;  /* Whether this boot's clock came from ADCS_TIME_FILE */
+    uint32                    TimeFileBootOffsetCount; /* Boot offset applied on the last ADCS_TIME_FILE load */
+    uint32                    TimeFileSaveCount;       /* Successful ADCS_TIME_FILE saves this boot */
     ADCS_Device_HK_tlm_t      DeviceHK;
 
 } __attribute__((packed)) ADCS_Hk_tlm_t;

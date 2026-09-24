@@ -921,8 +921,9 @@ void Test_ADCS_ProcessGpsTime(void)
      * this change) may have already driven GpsTimeSynced to true as a
      * side effect. Reset the fields this test owns so "first sync"
      * below is actually first, regardless of test run order. */
-    ADCS_AppData.GpsTimeSynced           = false;
-    ADCS_AppData.LastGpsSecondsSubmitted = 0;
+    ADCS_AppData.GpsTimeSynced                         = false;
+    ADCS_AppData.LastGpsSecondsSubmitted                = 0;
+    ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive = true;
 
     UT_SetHandlerFunction(UT_KEY(ADCS_RequestHK), UT_SetDeviceHkGpsSeconds_Handler, &GpsSeconds);
     UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
@@ -946,6 +947,8 @@ void Test_ADCS_ProcessGpsTime(void)
                   "CFE_TIME_ExternalGPS() Seconds correctly offset (%u == %u)",
                   (unsigned int)CapturedTime.Seconds,
                   (unsigned int)(GpsSeconds + ADCS_GPS_TO_MISSION_EPOCH_OFFSET_SEC));
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == false,
+                  "TimeFileFallbackActive cleared once real GPS data has synced");
 
     /* Unchanged GpsSeconds: no redundant submission */
     ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
@@ -965,6 +968,163 @@ void Test_ADCS_ProcessGpsTime(void)
      * the event log with routine, expected traffic. */
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_GPS_TIME_SYNC_INF_EID generated exactly once (%u)",
                   (unsigned int)EventTest.MatchCount);
+}
+
+void Test_ADCS_LoadTimeFromFile(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_LoadTimeFromFile()
+     */
+    CFE_TIME_SysTime_t  CapturedTime;
+    ADCS_TimeFileData_t FileData;
+    ADCS_TimeFileData_t CapturedWrite;
+    UT_CheckEvent_t     EventTest;
+
+    /* See Test_ADCS_ProcessGpsTime's comment above: ADCS_AppData is a
+     * persistent global that Adcs_UT_Setup() does not clear. */
+    ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive  = false;
+    ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount = 0;
+
+    UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+
+    /* No fallback file present (expected on a first-ever boot): clock left
+       untouched, no error -- just an informational note. UT_CheckEvent_Setup
+       attaches a single hook to CFE_EVS_SendEvent, so (like every other test
+       in this file) it's re-armed for a fresh EID right before each
+       sub-case that needs one, rather than once up front for both. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_LOAD_INF_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(OS_OpenCreate), 1, OS_ERROR);
+    ADCS_LoadTimeFromFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() not called with no fallback file");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_TIME_FILE_LOAD_INF_EID sent for missing file");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == false,
+                  "TimeFileFallbackActive stays false with no fallback file");
+
+    /* File present but short/corrupt: clock still left untouched, this
+       time as a real error. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_LOAD_ERR_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(OS_read), 1, 4); /* not sizeof(ADCS_TimeFileData_t) */
+    ADCS_LoadTimeFromFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() still not called with a corrupt file");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_TIME_FILE_LOAD_ERR_EID sent for corrupt file");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == false,
+                  "TimeFileFallbackActive stays false with a corrupt file");
+
+    /* Good file: applies the boot offset, arms it for resubmission (see
+       Test_ADCS_ResubmitTimeFallback -- ADCS_LoadTimeFromFile() no longer
+       calls CFE_TIME_ExternalGPS itself, see adcs_time.h for why a single
+       one-shot submission at boot isn't enough), and persists the
+       advanced BootOffsetCount back to the file. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_LOAD_INF_EID, NULL);
+    memset(&FileData, 0, sizeof(FileData));
+    FileData.Seconds         = 1000000;
+    FileData.BootOffsetCount = 2;
+    UT_SetDataBuffer(UT_KEY(OS_read), &FileData, sizeof(FileData), false);
+    UT_SetDataBuffer(UT_KEY(OS_write), &CapturedWrite, sizeof(CapturedWrite), false);
+    ADCS_LoadTimeFromFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() not called directly by ADCS_LoadTimeFromFile()");
+    UtAssert_True(ADCS_AppData.TimeFileFallbackAvailable == true, "Fallback armed for resubmission");
+    UtAssert_True(ADCS_AppData.TimeFileFallbackTime.Seconds == FileData.Seconds + 3 * ADCS_TIME_FILE_BOOT_OFFSET_SEC,
+                  "Boot offset applied correctly (%u == %u)",
+                  (unsigned int)ADCS_AppData.TimeFileFallbackTime.Seconds,
+                  (unsigned int)(FileData.Seconds + 3 * ADCS_TIME_FILE_BOOT_OFFSET_SEC));
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_TIME_FILE_LOAD_INF_EID sent for a good fallback load");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == true,
+                  "TimeFileFallbackActive set true on a good fallback load");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount == 3,
+                  "TimeFileBootOffsetCount reflects the advanced offset (%u == 3)",
+                  (unsigned int)ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount);
+    UtAssert_True(CapturedWrite.BootOffsetCount == 3,
+                  "Advanced BootOffsetCount persisted back to the file (%u == 3)",
+                  (unsigned int)CapturedWrite.BootOffsetCount);
+    UtAssert_True(CapturedWrite.Seconds == FileData.Seconds, "Persisted Seconds unchanged from the loaded value");
+}
+
+void Test_ADCS_ResubmitTimeFallback(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_ResubmitTimeFallback()
+     */
+    CFE_TIME_SysTime_t CapturedTime;
+
+    /* See Test_ADCS_ProcessGpsTime's comment above: ADCS_AppData is a
+     * persistent global that Adcs_UT_Setup() does not clear. */
+    ADCS_AppData.TimeFileFallbackAvailable = false;
+    ADCS_AppData.GpsTimeSynced              = false;
+    memset(&ADCS_AppData.TimeFileFallbackTime, 0, sizeof(ADCS_AppData.TimeFileFallbackTime));
+    ADCS_AppData.TimeFileFallbackTime.Seconds = 946771260;
+
+    UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+
+    /* No fallback armed: no-op */
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0, "No-op with no fallback armed");
+
+    /* Fallback armed, real GPS not synced yet: re-asserts the fallback --
+       a single one-shot submission at boot isn't enough for it to stick
+       (see adcs_time.h), so this must fire every call. */
+    ADCS_AppData.TimeFileFallbackAvailable = true;
+    ADCS_ResubmitTimeFallback();
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2, "Fallback re-asserted every call while armed");
+    UtAssert_True(CapturedTime.Seconds == ADCS_AppData.TimeFileFallbackTime.Seconds,
+                  "Resubmits the stored fallback time unchanged");
+
+    /* Real GPS has since synced: stop resubmitting the stale fallback */
+    ADCS_AppData.GpsTimeSynced = true;
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2,
+                  "No longer resubmitted once real GPS has synced");
+}
+
+void Test_ADCS_SaveTimeToFile(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_SaveTimeToFile()
+     */
+    ADCS_TimeFileData_t CapturedWrite;
+    UT_CheckEvent_t     SaveErrEvent;
+    uint32              i;
+
+    /* See Test_ADCS_ProcessGpsTime's comment above: ADCS_AppData is a
+     * persistent global that Adcs_UT_Setup() does not clear. */
+    ADCS_AppData.TimeFileSaveCounter              = 0;
+    ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount = 0;
+
+    UT_CheckEvent_Setup(&SaveErrEvent, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+
+    /* Decimated: no save (and no OS_write call at all) until the period
+       elapses -- avoids needless flash wear on every HK cycle. */
+    for (i = 0; i < ADCS_TIME_FILE_SAVE_PERIOD_CYCLES - 1; i++)
+    {
+        ADCS_SaveTimeToFile();
+    }
+    UtAssert_True(UT_GetStubCount(UT_KEY(OS_write)) == 0, "No save before the period elapses");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount == 0, "TimeFileSaveCount unchanged before the period elapses");
+
+    /* Period elapses: writes the current time, resetting BootOffsetCount
+       to 0 since this is fresh real data. */
+    UT_SetDataBuffer(UT_KEY(OS_write), &CapturedWrite, sizeof(CapturedWrite), false);
+    ADCS_SaveTimeToFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(OS_write)) == 1, "Save fires once the period elapses");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount == 1, "TimeFileSaveCount incremented on a successful save");
+    UtAssert_True(CapturedWrite.BootOffsetCount == 0, "Saved BootOffsetCount reset to 0");
+    UtAssert_True(ADCS_AppData.TimeFileSaveCounter == 0, "Decimation counter reset after a save");
+
+    /* Write failure: error event, no HK increment */
+    UT_SetDeferredRetcode(UT_KEY(OS_write), 1, -1);
+    for (i = 0; i < ADCS_TIME_FILE_SAVE_PERIOD_CYCLES; i++)
+    {
+        ADCS_SaveTimeToFile();
+    }
+    UtAssert_True(SaveErrEvent.MatchCount == 1, "ADCS_TIME_FILE_SAVE_ERR_EID sent once on write failure");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount == 1, "TimeFileSaveCount unchanged on write failure");
 }
 
 /*
@@ -996,5 +1156,8 @@ void UtTest_Setup(void)
     ADD_TEST(ADCS_Enable);
     ADD_TEST(ADCS_Disable);
     ADD_TEST(ADCS_ProcessGpsTime);
+    ADD_TEST(ADCS_LoadTimeFromFile);
+    ADD_TEST(ADCS_ResubmitTimeFallback);
+    ADD_TEST(ADCS_SaveTimeToFile);
     ADD_TEST(ADCS_ValidateGainsTbl);
 }

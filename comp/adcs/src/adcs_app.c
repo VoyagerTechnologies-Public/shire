@@ -160,6 +160,13 @@ int32 ADCS_AppInit(void)
     }
 
     /*
+    ** Fall back to the last known-good persisted time (see adcs_time.h) in
+    ** case GPS never syncs this boot. Real GPS data, once flowing, simply
+    ** supersedes this via CFE_TIME_ExternalGPS's own acceptance window.
+    */
+    ADCS_LoadTimeFromFile();
+
+    /*
     ** Reset all counters during application initialization
     */
     ADCS_ResetCounters();
@@ -556,6 +563,11 @@ void ADCS_ReportHousekeeping(void)
         memset(&ADCS_AppData.HkTelemetryPkt.DeviceHK, 0, sizeof(ADCS_Device_HK_tlm_t));
     }
     /* Intentionally do not report errors if disabled */
+
+    /* Keep the file-loaded time fallback (if any) asserted every cycle
+       until real GPS data takes over -- runs regardless of device state,
+       since the fallback must work even with GPS never enabled. */
+    ADCS_ResubmitTimeFallback();
 
     /* Time stamp and publish housekeeping telemetry */
     CFE_SB_TimeStampMsg((CFE_MSG_Message_t *)&ADCS_AppData.HkTelemetryPkt);
