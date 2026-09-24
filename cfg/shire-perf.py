@@ -21,6 +21,7 @@ import yaml
 
 from shire_provenance import ROOT, run, git_metadata, host_metadata
 from shire_runner_lib import container_names, parse_marker
+from shire_perf_topology import SERVICE_CPU_REQUESTS, detect_physical_topology, plan_placement
 
 
 def active_value(key: str) -> str:
@@ -327,11 +328,14 @@ def resolved_scenario(artifact_dir: pathlib.Path, spacecraft: str) -> pathlib.Pa
 def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
               speed: str, duration: float, warmup: float,
               trial_number: int, resource_snapshot: bool,
-              names: dict[str, str], scenario: pathlib.Path) -> dict[str, object]:
+              names: dict[str, str], scenario: pathlib.Path,
+              extra_compose_files: tuple[pathlib.Path, ...] = ()) -> dict[str, object]:
     label = f"{speed.replace('.', '_')}x-trial-{trial_number}"
     trial_dir = artifact_dir / label
     trial_dir.mkdir(parents=True)
     compose_cmd = ["docker", "compose", "-f", str(compose)]
+    for extra in extra_compose_files:
+        compose_cmd += ["-f", str(extra)]
     run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
 
     trial_env = os.environ.copy()
@@ -663,6 +667,13 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
         for field in ("machine", "logical_cpus"):
             if baseline.get("host", {}).get(field) != report.get("host", {}).get(field):
                 failures.append(f"baseline host {field.replace('_', ' ')} does not match candidate")
+        # A placed run is not a fair throughput comparison against an
+        # unplaced one (or a differently-placed one): the assignment itself,
+        # not just the mode label, must match.
+        baseline_assignments = (baseline.get("placement") or {}).get("assignments")
+        candidate_assignments = (report.get("placement") or {}).get("assignments")
+        if baseline_assignments != candidate_assignments:
+            failures.append("baseline CPU placement does not match candidate (see report 'placement')")
         prior = [float(t["achieved_speed"]) for t in baseline.get("trials", [])
                  if t.get("speed") == "max"]
         if prior and statistics.median(max_speeds) < 0.9 * statistics.median(prior):
@@ -698,6 +709,12 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
     print(f"Workload: {report.get('mission')} / {report.get('spacecraft')}, "
           f"{float(report.get('simulated_duration_s', 0.0)):.1f} simulated seconds, "
           f"{float(report.get('warmup_s', 0.0)):.1f}-second warmup")
+    placement = report.get("placement") or {}
+    if placement.get("assignments"):
+        assignments = ", ".join(f"{svc}={cpuset}" for svc, cpuset in sorted(placement["assignments"].items()))
+        print(f"CPU placement: {placement.get('mode')} ({assignments})")
+    else:
+        print(f"CPU placement: unplaced ({placement.get('unplaced_reason', 'no reason recorded')})")
 
     if trials:
         print("\nTrial       Achieved   Tick p50   Tick p95    Ticks")
@@ -840,12 +857,23 @@ def main() -> int:
     spacecraft = active_value("spacecraft")
     names = container_names(mission, spacecraft)
     compose = ROOT / "build" / mission / "shire-compose.yaml"
+    placement_mode = os.environ.get("SHIRE_PERF_CPU_PLACEMENT", "auto")
+    placement = plan_placement(detect_physical_topology(), SERVICE_CPU_REQUESTS, placement_mode)
+    extra_compose_files: tuple[pathlib.Path, ...] = ()
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if args.artifact_dir:
         artifact_dir = pathlib.Path(args.artifact_dir).expanduser().resolve()
     else:
         artifact_dir = ROOT / "build" / "performance" / f"shire-perf-{timestamp}"
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    if placement.assignments:
+        override_path = artifact_dir / "cpu-placement-override.yaml"
+        override_path.write_text(
+            yaml.safe_dump({"services": {svc: {"cpuset": cpuset}
+                                          for svc, cpuset in placement.assignments.items()}},
+                           sort_keys=True),
+            encoding="utf-8")
+        extra_compose_files = (override_path,)
     duration = args.duration if args.duration is not None else 75.0
     if not math.isfinite(duration) or duration <= 0.0:
         parser.error("--duration must be a positive finite number")
@@ -884,6 +912,7 @@ def main() -> int:
         },
         "workload": "automatic mission startup plus sequence-numbered CI_LAB ADCS checkout",
         "host": host_metadata(),
+        "placement": placement.to_report(),
         "mission": mission,
         "spacecraft": spacecraft,
         "simulated_duration_s": duration,
@@ -898,7 +927,8 @@ def main() -> int:
         print(f"running synchronized {speed}x trial {number}", flush=True)
         report["trials"].append(
             one_trial(compose, artifact_dir, speed, duration, args.warmup, number,
-                      args.resource_snapshot, names, scenario))
+                      args.resource_snapshot, names, scenario,
+                      extra_compose_files=extra_compose_files))
 
     one_x = next((t for t in report["trials"] if t["speed"] == "1"), None)
     twenty_five_x = next((t for t in report["trials"] if t["speed"] == "25"), None)

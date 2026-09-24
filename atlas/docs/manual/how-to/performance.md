@@ -160,6 +160,66 @@ effective `/proc` scheduling policy.
 installed on this host, so their report fields explicitly record them as
 unavailable rather than implying those captures were collected.
 
+## CPU placement
+
+Despite the architectural work above, repeated unbounded `make perf` runs on
+the same workload, image, and host were observed landing anywhere from the
+mid-teens to the high-20s x, hours apart -- a repeatability problem, not a
+uniform slowdown. Before changing anything, this repo's own already-collected
+`make perf` instrumentation (`scheduler.json` migrations, `docker-stats.json`
+CPU%) was checked for a cause:
+
+* Across a slow run and two faster runs of the same unbounded workload,
+  `shire-director`'s CPU-migration count tracked the slowdown closely (far
+  higher in the slow run than in either faster one), and `shire-gsw` (outside
+  the Simulith tick barrier) ran the hottest CPU% of any container in every
+  run -- a plausible noisy neighbor for the barrier participants even though
+  it isn't itself barrier-gated.
+* A fresh unplaced baseline landed comfortably above the 25x floor on all
+  three unbounded trials, but *failed* on the requested-25x trial by landing
+  just outside the required tolerance band -- a narrow, specific gap, not a
+  broad slowdown.
+
+**Implementation**: `cfg/shire_perf_topology.py` (new) partitions this
+host's physical cores (read from `/sys/devices/system/cpu/*/topology/`,
+Linux-only) among `shire-server`/`shire-director`/`shire-fsw`/`shire-42`/
+`shire-gsw`/`shire-cryptolib`, proportional to each service's `cpus:` quota
+in `cfg/shire-compose.j2`, and writes a docker-compose override (`cpuset:`
+per service) that `cfg/shire-perf.py` passes as an extra `-f` alongside the
+normal generated compose file -- `cfg/shire-compose.j2` itself, and every
+ordinary `make scenario`/`make start`/campaign run, are unchanged. Default
+is automatic detection with a safe unplaced fallback (non-Linux host,
+undetectable topology, or fewer than 8 physical cores); `SHIRE_PERF_CPU_PLACEMENT=off`
+opts out explicitly, and a manual `service=cpuset,...` override string is
+honored verbatim for restricted/unusual hosts. The effective placement (or
+the reason none was applied) is recorded in `report.json`'s `placement`
+field and now required to match between a baseline and a candidate before
+`make perf-compare` accepts a throughput comparison.
+
+**Result**, on an 11-physical-core/22-logical-CPU host, across several
+independent full `make perf` runs with placement enabled (default):
+
+| Run | 25x trial | Unbounded (min/median/max) | Result |
+|---|---:|---:|---|
+| Unplaced baseline | 24.669x (FAIL, <24.75x) | 25.53x / 26.14x / 26.34x | FAIL |
+| Placed, run 1 | 25.000x | 31.25x / 32.48x / 33.69x | PASS |
+| Placed, run 2 | 25.000x | 31.66x / 32.31x / 32.84x | PASS |
+| Placed, run 3 | 24.999x | 28.10x / 32.43x / 32.92x | PASS |
+| Placed, run 4 | 24.999x | 29.43x / 31.97x / 32.87x | PASS |
+
+Every placed run hit the requested-25x trial at or within a thousandth of a
+percent of exact, and raised median unbounded throughput by roughly a
+quarter over the unplaced baseline, with a visibly tighter spread. Fidelity
+and repeatability passed in every run, placed or not -- placement changed
+throughput and its consistency, nothing about correctness.
+`MAX_CATCHUP_LAG_NS`/Simulith's pacing loop was not touched; this is purely
+a docker-compose-level change scoped to `make perf`.
+
+`shire-gsw` and `shire-cryptolib` are not gated by the Simulith tick
+barrier, but are isolated onto their own cores here anyway, because the
+measured evidence (GSW's high CPU%) supported it independent of whether
+they participate in the barrier.
+
 ## Regression commands
 
 ```sh
