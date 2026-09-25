@@ -1,14 +1,10 @@
 # ADCS Truth Comparison
 
-> **Scenario status:** The numeric-agreement gap this draft describes is now closed by an automated check:
-> `AdcsTruthComparison.ycs` (`comp/adcs/gsw/procedures/`), run via the `adcs-truth-verification` DRM scenario
-> (`make scenario SCENARIO=adcs-truth-verification`), asserts `/ADCS/SUN_X,Y,Z` agree with
-> `/SIM_42_TRUTH/SVB_1,2,3` within tolerance at a live, settled sample -- issue #8's "confirm the 42 truth
-> packet is correct." Source-level alignment (same `simulith_42_context_t` snapshot feeding both) was already
-> covered by the unit-level `comp/adcs/test-sim/test_adcs_truth_alignment.c` contract test. This document
-> remains useful as the manual/GUI procedure and as background on why the comparison is non-trivial (frame,
-> sign, timing); the rest of it (frame mapping, tolerance derivation, repeatability) is still open for anyone
-> extending the automated check's rigor.
+The `adcs-truth-verification` scenario automatically checks that a settled
+ADCS Sun vector agrees with live 42 truth within its configured tolerance.
+Run it with `make scenario SCENARIO=adcs-truth-verification`.
+The manual procedure below adds visual context and longer repeatability
+observations when those are needed.
 
 ## Objective
 
@@ -28,7 +24,8 @@ Separate command acceptance, control settling, component telemetry, truth data, 
 
 It commands `SUNSAFE` and asserts that `SUN_X` is above 0.98.
 It also asserts that `SUN_Y` and `SUN_Z` remain between negative 0.02 and positive 0.02.
-Those checks validate the component vector limits but do not calculate error against the truth vector.
+Those checks validate the component vector limits.
+The separate `AdcsTruthComparison.ycs` stack checks numeric agreement with 42 truth.
 
 ## Prerequisites
 
@@ -88,7 +85,8 @@ Do not fill missing values from unrelated timestamps.
 | Truth comparison | Aligned raw samples are retained for a reviewed frame and error calculation. |
 | Repeatability | The defined metric remains within a limit chosen before the measured run. |
 
-The truth comparison and repeatability rows remain draft criteria until the frame mapping, calculation, tolerance, and sample count are approved.
+The automated scenario checks numeric agreement at a settled sample.
+The broader manual repeatability criterion requires an approved sample count and limit.
 
 ## Troubleshooting
 

@@ -72,6 +72,7 @@ static void test_shared_barrier_lifecycle_and_completion(void)
 {
     TEST_ASSERT_EQUAL_INT(0, simulith_shared_barrier_create(&owner));
     TEST_ASSERT_EQUAL_INT(0, simulith_shared_barrier_connect(&participant, 0));
+    participant.fast_receive_safe = 1;
 
     TEST_ASSERT_EQUAL_INT(0, simulith_shared_barrier_publish(
                                   &owner, 42, 123456, 7, UINT32_C(1)));

@@ -757,6 +757,7 @@ static void test_component_phase_boundaries_and_failures(void)
     g_director_config.components[0].active = 1;
     g_director_config.components[0].interface = &interface;
     fail_service = 0;
+    fail_wait = 0;
     fail_actuate = 1;
     TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
@@ -1081,12 +1082,10 @@ static void test_telemetry_initialization(void)
     cleanup_components(&g_director_config);
 
     unsetenv("SIMULITH_GSW_HOST");
-    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
-    cleanup_components(&g_director_config);
-
     setenv("SIMULITH_GSW_HOST", "256.256.256.256", 1);
-    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    TEST_ASSERT_EQUAL_INT(-1, initialize_telemetry());
     cleanup_components(&g_director_config);
+    setenv("SIMULITH_GSW_HOST", "127.0.0.1", 1);
 }
 
 static void test_tick_command_failure_and_boundary_paths(void)

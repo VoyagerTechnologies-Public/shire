@@ -188,6 +188,10 @@ int simulith_client_handshake(void)
             simulith_log("Unable to connect shared synchronization barrier\n");
             return -1;
         }
+        shared_barrier.fast_receive_safe =
+            client_phase_mask == (SIMULITH_PHASE_MASK_PREPARE |
+                                  SIMULITH_PHASE_MASK_EXECUTE |
+                                  SIMULITH_PHASE_MASK_COMMIT);
     }
 
     // Reset timeout to infinite for normal operation
@@ -221,9 +225,9 @@ void simulith_client_run_loop(simulith_tick_callback on_tick)
     }
 }
 
-void simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
-                                     simulith_phase_callback on_execute,
-                                     simulith_phase_callback on_commit)
+int simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
+                                    simulith_phase_callback on_execute,
+                                    simulith_phase_callback on_commit)
 {
     while (!client_stop_requested)
     {
@@ -247,15 +251,16 @@ void simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
             simulith_log("Client %s failed phase %u for tick %lu; completion withheld\n",
                          client_id, (unsigned)phase,
                          (unsigned long)sequence);
-            return;
+            return -1;
         }
         if (simulith_client_complete_tick(sequence, phase) != 0)
         {
             simulith_log("Client %s failed phase %u for tick %lu\n", client_id,
                          (unsigned)phase, (unsigned long)sequence);
-            return;
+            return -1;
         }
     }
+    return 0;
 }
 
 void simulith_client_request_stop(void)

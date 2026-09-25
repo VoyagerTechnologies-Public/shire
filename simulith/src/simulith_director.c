@@ -25,7 +25,9 @@
 
 #include <ctype.h>
 #include <sys/eventfd.h>
+#include <time.h>
 #include "simulith_42_socket_client.h"
+#include "simulith_control_trace.h"
 
 director_config_t g_director_config;
 
@@ -38,6 +40,14 @@ static uint64_t g_commit_count = 0;
 static uint64_t g_telemetry_count = 0;
 static uint64_t g_telemetry_errors = 0;
 static uint64_t g_fortytwo_errors = 0;
+static uint64_t g_trace_final_time_ns = UINT64_MAX;
+static uint64_t g_worker_ready_count = 0;
+static uint64_t g_worker_parked_count = 0;
+static uint64_t g_worker_admission_total_ns = 0;
+static uint64_t g_worker_admission_max_ns = 0;
+static uint64_t director_now_ns(void);
+static void director_reset_timing(void);
+static void director_write_timing(void);
 
 static int component_interface_is_compatible(const component_interface_t *interface,
                                              const char *library)
@@ -233,58 +243,24 @@ static void drain_component_worker_signal(int fd)
 static void* component_worker(void* arg)
 {
     int idx = (int)(intptr_t)arg;
-    uint64_t last_epoch = 0;
     component_entry_t* entry = &g_director_config.components[idx];
 
     for (;;)
     {
+        int ready = entry->interface->wait_for_service(
+            entry->state, g_director_config.component_interrupt_fds[idx]);
+        uint64_t ready_at_ns = director_now_ns();
         pthread_mutex_lock(&g_director_config.tick_mutex);
-        while (!g_director_config.threads_exit &&
-               (!g_director_config.execute_active ||
-                g_director_config.execute_epoch == last_epoch))
-            pthread_cond_wait(&g_director_config.tick_cond,
-                              &g_director_config.tick_mutex);
-        if (g_director_config.threads_exit)
-        {
+        if (g_director_config.threads_exit) {
             pthread_mutex_unlock(&g_director_config.tick_mutex);
             return NULL;
         }
-        last_epoch = g_director_config.execute_epoch;
-        pthread_mutex_unlock(&g_director_config.tick_mutex);
-
-        for (;;)
-        {
-            pthread_mutex_lock(&g_director_config.tick_mutex);
-            if (g_director_config.threads_exit ||
-                !g_director_config.execute_active ||
-                g_director_config.execute_epoch != last_epoch)
-            {
-                pthread_mutex_unlock(&g_director_config.tick_mutex);
-                break;
-            }
-
-            /* Register this exact EXECUTE epoch before blocking.  COMMIT only
-             * signals registered waiters, so a worker which has not entered
-             * the wait cannot carry a stale wake into the following tick.
-             * Drain while holding tick_mutex to also cover the narrow race in
-             * which socket readiness returned immediately before COMMIT. */
+        if (ready == COMPONENT_IDLE) {
+            pthread_mutex_unlock(&g_director_config.tick_mutex);
             drain_component_worker_signal(
                 g_director_config.component_interrupt_fds[idx]);
-            g_director_config.component_wait_epochs[idx] = last_epoch;
-            pthread_mutex_unlock(&g_director_config.tick_mutex);
-
-            int ready = entry->interface->wait_for_service(
-                entry->state, g_director_config.component_interrupt_fds[idx]);
-
-            pthread_mutex_lock(&g_director_config.tick_mutex);
-            g_director_config.component_wait_epochs[idx] = 0;
-            if (ready == COMPONENT_IDLE || g_director_config.threads_exit ||
-                !g_director_config.execute_active ||
-                g_director_config.execute_epoch != last_epoch)
-            {
-                pthread_mutex_unlock(&g_director_config.tick_mutex);
-                break;
-            }
+            continue;
+        }
             if (ready == COMPONENT_ERROR)
             {
                 entry->phase_status = COMPONENT_ERROR;
@@ -294,9 +270,34 @@ static void* component_worker(void* arg)
                 simulith_log("Component %s failed service wait on tick %lu\n",
                              entry->interface->name,
                              (unsigned long)g_director_config.shared_tick_sequence);
-                break;
+                return NULL;
+            }
+            /* A ready request may arrive between ticks. Keep its readiness
+             * across that boundary, but only admit service during EXECUTE.
+             * COMMIT closes admission under this mutex and waits for every
+             * already admitted callback before ACTUATE. */
+            if (!g_director_config.execute_active)
+                __atomic_add_fetch(&g_worker_parked_count, 1, __ATOMIC_RELAXED);
+            while (!g_director_config.threads_exit &&
+                   !g_director_config.execute_active)
+                pthread_cond_wait(&g_director_config.tick_cond,
+                                  &g_director_config.tick_mutex);
+            if (g_director_config.threads_exit) {
+                pthread_mutex_unlock(&g_director_config.tick_mutex);
+                return NULL;
             }
             g_director_config.active_service_callbacks++;
+            uint64_t admission_ns = director_now_ns() - ready_at_ns;
+            __atomic_add_fetch(&g_worker_ready_count, 1, __ATOMIC_RELAXED);
+            __atomic_add_fetch(&g_worker_admission_total_ns, admission_ns,
+                               __ATOMIC_RELAXED);
+            uint64_t prior_max = __atomic_load_n(&g_worker_admission_max_ns,
+                                                 __ATOMIC_RELAXED);
+            while (admission_ns > prior_max &&
+                   !__atomic_compare_exchange_n(&g_worker_admission_max_ns,
+                                                &prior_max, admission_ns, 0,
+                                                __ATOMIC_RELAXED,
+                                                __ATOMIC_RELAXED)) {}
             pthread_mutex_unlock(&g_director_config.tick_mutex);
 
             int work = entry->interface->service(
@@ -314,12 +315,10 @@ static void* component_worker(void* arg)
                 simulith_log("Component %s failed EXECUTE on tick %lu\n",
                              entry->interface->name,
                              (unsigned long)g_director_config.shared_tick_sequence);
-                break;
+                return NULL;
             }
             pthread_cond_broadcast(&g_director_config.tick_cond);
             pthread_mutex_unlock(&g_director_config.tick_mutex);
-        }
-
     }
 }
 
@@ -444,6 +443,7 @@ int initialize_components(director_config_t* config)
     g_telemetry_count = 0;
     g_telemetry_errors = 0;
     g_fortytwo_errors = 0;
+    director_reset_timing();
     config->component_phase_errors = 0;
     config->component_service_errors = 0;
     for (int i = 0; i < MAX_COMPONENTS; ++i)
@@ -603,13 +603,17 @@ int initialize_telemetry(void)
     if (!gsw_hostname || gsw_hostname[0] == '\0')
         gsw_hostname = "shire-gsw";
     struct hostent *gsw_host = gethostbyname(gsw_hostname);
-    if (gsw_host && gsw_host->h_addrtype == AF_INET)
+    if (gsw_host && gsw_host->h_addrtype == AF_INET &&
+        gsw_host->h_addr_list[0] != NULL)
     {
         memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
     }
     else
     {
-        g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        fprintf(stderr, "Director cannot resolve Yamcs host %s\n", gsw_hostname);
+        close(g_udp_sock);
+        g_udp_sock = -1;
+        return -1;
     }
     return 0;
 }
@@ -729,8 +733,27 @@ static int scenario_resolve(simulith_scenario_command_t *command)
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     snprintf(port, sizeof(port), "%u", (unsigned)command->port);
-    if (getaddrinfo(command->host, port, &hints, &addresses) != 0 || !addresses)
+    int status = 0;
+    /* Compose starts FSW after Director; its service name can appear in DNS
+     * just after the scenario is parsed. Resolve once before any tick begins. */
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+        status = getaddrinfo(command->host, port, &hints, &addresses);
+        if (status == 0 && addresses) break;
+        if (addresses) { freeaddrinfo(addresses); addresses = NULL; }
+        if (status != EAI_AGAIN && status != EAI_NONAME) break;
+        if (attempt < 19)
+        {
+            struct timespec delay = {.tv_nsec = 100000000L};
+            nanosleep(&delay, NULL);
+        }
+    }
+    if (status != 0 || !addresses)
+    {
+        fprintf(stderr, "Scenario destination %s:%s could not be resolved: %s\n",
+                command->host, port, gai_strerror(status));
         return -1;
+    }
     memcpy(&command->destination, addresses->ai_addr,
            sizeof(command->destination));
     freeaddrinfo(addresses);
@@ -1040,9 +1063,8 @@ static int populate_42_context(simulith_42_context_t* context)
 }
 
 // Process commands and apply them to 42
-static int process_42_commands(void)
+static int process_42_commands(simulith_42_command_t *commands, uint32_t *count)
 {
-    simulith_42_command_t commands[SIMULITH_42_CMD_QUEUE_SIZE];
     int cmd_count = 0;
     
     if (!g_director_config.enable_42)
@@ -1073,21 +1095,118 @@ static int process_42_commands(void)
             return -1;
         }
     }
+    *count = (uint32_t)cmd_count;
     return 0;
 }
 
-/* Per-tick phase timing — set to 1 to enable, 0 to disable (default off). */
-#define DIRECTOR_TIMING_ENABLED 0
-#define TICK_TIMING_INTERVAL    500
+/* These spans partition the Director's blocking work in PREPARE and COMMIT.
+ * Keep measurements in memory: per-tick logging changes scheduler behavior. */
+#define DIRECTOR_TIMING_SAMPLES 10000
+typedef struct
+{
+    const char *name;
+    uint64_t count;
+    uint64_t total_ns;
+    uint64_t max_ns;
+    uint64_t samples[DIRECTOR_TIMING_SAMPLES];
+    size_t sample_count;
+} director_timing_t;
 
-#if DIRECTOR_TIMING_ENABLED
-static uint64_t ns_now(void)
+enum
+{
+    TIMING_42_STATE,
+    TIMING_ON_TICK,
+    TIMING_QUIESCE,
+    TIMING_ACTUATE,
+    TIMING_42_COMMANDS,
+    TIMING_COUNT
+};
+
+static director_timing_t g_timing[TIMING_COUNT] = {
+    {.name = "42_state"},
+    {.name = "on_tick"},
+    {.name = "quiesce"},
+    {.name = "actuate"},
+    {.name = "42_commands"},
+};
+static uint64_t g_timing_warmup_ns = 0;
+static int g_timing_active = 1;
+
+static uint64_t director_now_ns(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
-#endif
+
+static void director_record_timing(int metric, uint64_t started_ns)
+{
+    if (!g_timing_active) return;
+    uint64_t elapsed = director_now_ns() - started_ns;
+    director_timing_t *item = &g_timing[metric];
+    item->count++;
+    item->total_ns += elapsed;
+    if (elapsed > item->max_ns) item->max_ns = elapsed;
+    if (item->sample_count < DIRECTOR_TIMING_SAMPLES)
+        item->samples[item->sample_count++] = elapsed;
+}
+
+static int director_compare_ns(const void *left, const void *right)
+{
+    uint64_t a = *(const uint64_t *)left;
+    uint64_t b = *(const uint64_t *)right;
+    return (a > b) - (a < b);
+}
+
+static double director_percentile_us(const director_timing_t *item, double fraction)
+{
+    if (item->sample_count == 0) return 0.0;
+    size_t index = (size_t)(fraction * (double)(item->sample_count - 1));
+    return (double)item->samples[index] / 1000.0;
+}
+
+static void director_reset_timing(void)
+{
+    const char *warmup = getenv("SIMULITH_WARMUP");
+    g_timing_warmup_ns = 0;
+    if (warmup)
+    {
+        char *end = NULL;
+        double seconds = strtod(warmup, &end);
+        if (end != warmup && *end == '\0' && isfinite(seconds) && seconds >= 0.0 &&
+            seconds <= (double)UINT64_MAX / 1000000000.0)
+            g_timing_warmup_ns = (uint64_t)(seconds * 1000000000.0);
+    }
+    g_timing_active = g_timing_warmup_ns == 0;
+    for (int i = 0; i < TIMING_COUNT; ++i)
+    {
+        g_timing[i].count = 0;
+        g_timing[i].total_ns = 0;
+        g_timing[i].max_ns = 0;
+        g_timing[i].sample_count = 0;
+    }
+}
+
+static void director_write_timing(void)
+{
+    printf("SIMULITH_DIRECTOR_TIMING {\"segments\":[");
+    for (int i = 0; i < TIMING_COUNT; ++i)
+    {
+        director_timing_t *item = &g_timing[i];
+        qsort(item->samples, item->sample_count, sizeof(item->samples[0]),
+              director_compare_ns);
+        printf("%s{\"name\":\"%s\",\"count\":%lu,\"sample_count\":%zu,"
+               "\"mean_us\":%.3f,\"p50_us\":%.3f,\"p95_us\":%.3f,"
+               "\"max_us\":%.3f}",
+               i == 0 ? "" : ",", item->name, (unsigned long)item->count,
+               item->sample_count,
+               item->count ? (double)item->total_ns / (double)item->count / 1000.0 : 0.0,
+               director_percentile_us(item, 0.50),
+               director_percentile_us(item, 0.95),
+               (double)item->max_ns / 1000.0);
+    }
+    printf("]}\n");
+}
 
 static int validate_tick_identity(uint64_t sequence, uint64_t tick_time_ns,
                                   const char *phase)
@@ -1126,10 +1245,13 @@ static int component_phase_succeeded(const char *phase)
 int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
 {
     g_prepare_count++;
+    g_timing_active = tick_time_ns >= g_timing_warmup_ns;
     /* Fetch 42 state. 42 has been stepping since the previous tick's command
      * commit, so its step is already done and this returns quickly. */
     simulith_42_context_t context_42;
+    uint64_t started_ns = director_now_ns();
     int context_status = populate_42_context(&context_42);
+    director_record_timing(TIMING_42_STATE, started_ns);
     g_director_config.shared_context_42 = context_42;
     if (context_status != 0)
         return COMPONENT_ERROR;
@@ -1143,6 +1265,7 @@ int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
 
     /* PREPARE callbacks are deliberately ordered and run in the director.
      * They are small and do not perform device transactions. */
+    started_ns = director_now_ns();
     for (int i = 0; i < g_director_config.component_count; ++i) {
         component_entry_t *entry = &g_director_config.components[i];
         if (entry->active && entry->interface && entry->interface->on_tick && entry->state)
@@ -1158,6 +1281,7 @@ int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
             }
         }
     }
+    director_record_timing(TIMING_ON_TICK, started_ns);
 
     return component_phase_succeeded("PREPARE");
 }
@@ -1181,25 +1305,21 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
         return COMPONENT_ERROR;
 
     g_commit_count++;
+    uint64_t started_ns = director_now_ns();
     pthread_mutex_lock(&g_director_config.tick_mutex);
     g_director_config.execute_active = 0;
-    pthread_cond_broadcast(&g_director_config.tick_cond);
-    for (int i = 0; i < g_director_config.component_count; ++i)
-    {
-        if (g_director_config.component_wait_epochs[i] ==
-            g_director_config.execute_epoch)
-            signal_component_worker(g_director_config.component_interrupt_fds[i]);
-    }
     while (g_director_config.active_service_callbacks != 0U)
         pthread_cond_wait(&g_director_config.tick_cond,
                           &g_director_config.tick_mutex);
     pthread_mutex_unlock(&g_director_config.tick_mutex);
+    director_record_timing(TIMING_QUIESCE, started_ns);
 
     if (component_phase_succeeded("COMMIT") != COMPONENT_SUCCESS)
         return COMPONENT_ERROR;
 
     /* ACTUATE observes a quiescent service layer and emits one ordered command
      * batch after every component has consumed the latest FSW output. */
+    started_ns = director_now_ns();
     for (int i = 0; i < g_director_config.component_count; ++i)
     {
         component_entry_t *entry = &g_director_config.components[i];
@@ -1214,12 +1334,18 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
                          entry->interface->name, (unsigned long)sequence);
         }
     }
+    director_record_timing(TIMING_ACTUATE, started_ns);
     if (component_phase_succeeded("COMMIT") != COMPONENT_SUCCESS)
         return COMPONENT_ERROR;
 
     /* Device handlers enqueue actuator changes during FSW execute. Commit the
      * complete batch only after SCH reports that slot finished. */
-    if (process_42_commands() != 0)
+    started_ns = director_now_ns();
+    simulith_42_command_t commands[SIMULITH_42_CMD_QUEUE_SIZE];
+    uint32_t command_count = 0;
+    int command_status = process_42_commands(commands, &command_count);
+    director_record_timing(TIMING_42_COMMANDS, started_ns);
+    if (command_status != 0)
         return COMPONENT_ERROR;
 
     // Service backdoor packets
@@ -1243,7 +1369,28 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
     }
     if (director_inject_scenario_commands(&g_director_config, sequence) != 0)
         return COMPONENT_ERROR;
+    if (simulith_control_trace_tick(sequence, tick_time_ns,
+                                   &g_director_config.shared_context_42,
+                                   commands, command_count) != 0)
+        return COMPONENT_ERROR;
+    if (tick_time_ns + INTERVAL_NS >= g_trace_final_time_ns &&
+        simulith_control_trace_finish() != 0)
+        return COMPONENT_ERROR;
     return COMPONENT_SUCCESS;
+}
+
+int director_configure_trace_duration(void)
+{
+    const char *duration = getenv("SIMULITH_DURATION");
+    if (!duration || !*duration)
+        return 0;
+    char *end = NULL;
+    double seconds = strtod(duration, &end);
+    if (end == duration || *end != '\0' || !isfinite(seconds) ||
+        seconds <= 0.0 || seconds > (double)UINT64_MAX / 1000000000.0)
+        return -1;
+    g_trace_final_time_ns = (uint64_t)(seconds * 1000000000.0);
+    return 0;
 }
 
 void director_write_terminal_metrics(void)
@@ -1254,6 +1401,14 @@ void director_write_terminal_metrics(void)
     (void)populate_42_context(&terminal);
     simulith_42_cmd_queue_stats_t queue_stats;
     simulith_42_get_command_queue_stats(&queue_stats);
+    uint64_t worker_ready = __atomic_load_n(&g_worker_ready_count,
+                                            __ATOMIC_RELAXED);
+    uint64_t worker_parked = __atomic_load_n(&g_worker_parked_count,
+                                             __ATOMIC_RELAXED);
+    uint64_t worker_total_ns = __atomic_load_n(&g_worker_admission_total_ns,
+                                                __ATOMIC_RELAXED);
+    uint64_t worker_max_ns = __atomic_load_n(&g_worker_admission_max_ns,
+                                              __ATOMIC_RELAXED);
 
     const unsigned char *bytes = (const unsigned char *)&terminal;
     uint64_t digest = UINT64_C(1469598103934665603);
@@ -1271,6 +1426,8 @@ void director_write_terminal_metrics(void)
            "\"component_service_errors\":%lu,\"telemetry_errors\":%lu,"
            "\"component_phase_errors\":%lu,"
            "\"fortytwo_errors\":%lu,"
+           "\"worker_admission\":{\"ready\":%lu,\"parked\":%lu,"
+           "\"mean_us\":%.3f,\"max_us\":%.3f},"
            "\"scenario\":{\"digest\":\"%016lx\",\"expected\":%zu,"
            "\"injected\":%lu,\"errors\":%lu},"
            "\"digest\":\"%016lx\","
@@ -1291,6 +1448,12 @@ void director_write_terminal_metrics(void)
            (unsigned long)g_telemetry_errors,
            (unsigned long)g_director_config.component_phase_errors,
            (unsigned long)g_fortytwo_errors,
+           (unsigned long)worker_ready,
+           (unsigned long)worker_parked,
+           worker_ready ?
+               (double)worker_total_ns /
+               (double)worker_ready / 1000.0 : 0.0,
+           (double)worker_max_ns / 1000.0,
            (unsigned long)g_director_config.scenario_digest,
            g_director_config.scenario_command_count,
            (unsigned long)g_director_config.scenario_injected,
@@ -1300,6 +1463,8 @@ void director_write_terminal_metrics(void)
            terminal.wn[0], terminal.wn[1], terminal.wn[2],
            terminal.pos_n[0], terminal.pos_n[1], terminal.pos_n[2],
            terminal.vel_n[0], terminal.vel_n[1], terminal.vel_n[2]);
+    fflush(stdout);
+    director_write_timing();
     fflush(stdout);
 }
 

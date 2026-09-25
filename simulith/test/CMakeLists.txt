@@ -144,6 +144,10 @@ target_compile_definitions(test_director PRIVATE
     DIRECTOR_FIXTURE_DIR="${DIRECTOR_FIXTURE_DIR}")
 add_test(NAME DirectorTests COMMAND test_director)
 
+add_executable(test_control_trace test_control_trace.c ../src/simulith_control_trace.c)
+target_link_libraries(test_control_trace pthread)
+add_test(NAME ControlTraceTests COMMAND test_control_trace)
+
 # Exercise every entry-point outcome with the real main source and deterministic
 # service stubs. Renaming main is confined to this object target.
 add_library(director_main_test_object OBJECT ../src/simulith_director_main.c)

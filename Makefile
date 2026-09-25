@@ -152,7 +152,7 @@ help:
 	@echo "  gsw           - Build GSW (includes Docker image)"
 	@echo "  list          - List enabled components from configuration"
 	@echo "  mold          - Create new component from demo template (Usage: make mold COMP=<name>)"
-	@echo "  perf          - Run 1x/25x fidelity and three unbounded candidate trials"
+	@echo "  perf          - Run full-output reference, 1x/25x/50x fidelity, and three >50x trials"
 	@echo "  perf-compare  - Run perf and compare with BASELINE=<report.json>"
 	@echo "  perf-smoke    - Build and run one short synchronized diagnostic trial"
 	@echo "  scenario      - Run SCENARIO=<name> headlessly and confirm a clean pass (no GUI)"

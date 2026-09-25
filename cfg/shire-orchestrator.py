@@ -6,6 +6,7 @@ Loads global, mission, and scenario YAMLs, merges them, and writes to active.yam
 import argparse
 import sys
 import os
+import uuid
 from jinja2 import Environment, FileSystemLoader
 import yaml
 
@@ -275,13 +276,16 @@ def main():
     lab_template_full_path = os.path.join(lab_template_path, lab_template_file)
     lab_compose_dir = os.path.join(build_mission_dir, instance) if instance else build_mission_dir
     os.makedirs(lab_compose_dir, exist_ok=True)
+    trace_dir = os.path.join(lab_compose_dir, "traces", spacecraft,
+                             uuid.uuid4().hex)
+    os.makedirs(trace_dir, exist_ok=True)
     lab_compose_output_path = os.path.join(lab_compose_dir, "shire-compose.yaml")
     if os.path.exists(lab_template_full_path):
         env = Environment(loader=FileSystemLoader(lab_template_path))
         template = env.get_template(lab_template_file)
         output = template.render(log_mode=log_mode, spacecraft=spacecraft, mission=mission, fsw_dir=fsw_dir,
                                  gsw_dir=gsw_dir, instance=instance, port_offset=port_offset,
-                                 image_tag=merged["image_tag"])
+                                 image_tag=merged["image_tag"], trace_dir=trace_dir)
         with open(lab_compose_output_path, "w") as f:
             f.write(output)
         print(f"[orchestrator] shire-compose.yaml written to {lab_compose_output_path} "

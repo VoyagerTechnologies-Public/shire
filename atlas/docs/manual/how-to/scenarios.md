@@ -262,12 +262,13 @@ a static literal `value`. `yamcs_commander.py` also supports a headless-
 commander-only `"operator": "approx"` condition (`reference_parameter` +
 `tolerance` instead of `value`) for asserting numeric agreement between two
 *live* parameters, e.g. confirming ADCS telemetry matches `SIM_42_TRUTH`
-within tolerance (`comp/adcs/gsw/procedures/AdcsTruthComparison.ycs`). This
-is not part of the official YAMCS stack schema, so a `.ycs` using it still
+within tolerance (`comp/adcs/gsw/procedures/AdcsTruthComparison.ycs`).
+This is not part of the official YAMCS stack schema, so a `.ycs` using it still
 opens fine in the YAMCS web UI, but a human running it there would see that
 condition simply never resolve -- reserve "approx" for stacks driven
 exclusively through `verify_stacks`, never ones also meant for manual GUI
-use. See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
+use.
+See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
 
 `checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
 `adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,

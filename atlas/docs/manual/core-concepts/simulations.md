@@ -268,51 +268,21 @@ No synchronized mode batches ticks, queues future ticks, or skips SCH slots.
 
 ## Performance regression runs
 
-See [Synchronized Simulation Performance](../how-to/performance.md) for the
-diagnose-first findings, accepted workload, report contents, and current
-workstation results.
+See [Verify synchronized simulation performance](../how-to/performance.md) for
+the workload, acceptance checks, and report location.
+From the repository root, run:
 
-Run the complete active workload from the repository root:
-
-```bash
-make perf-smoke
+```sh
 make perf
-make perf-compare BASELINE=/path/to/accepted-report.json
 ```
 
-`make perf-smoke` runs one short diagnostic trial.
-`make perf` runs a 75 simulated second workload at 1x and 25x followed by three
-unbounded trials.
-The Director injects ADCS ENABLE at sequence 2000 and SUNSAFE at sequence 2200
-as validated CCSDS packets through the normal CI_LAB UDP port.
-This performance scenario file is independent of the DRM configuration scenario
-selected in `build/active.yaml`.
-Each command uses flat `sequence`, `host`, `port`, and `packet_hex` transport
-fields.
-Optional flat `acceptance_app`, `acceptance_event_id`, and
-`acceptance_count` fields identify the existing cFE EVS success event that the
-performance harness counts as application acceptance.
-These fields are assertions over normal flight behavior, not simulation hooks
-in an application.
-
-The performance report schema records root and submodule revisions (including dirty
-tree and untracked-file hashes), captured CMake/compiler flags and image identities, host and Docker
-metadata, scheduling policies, timestamped continuous resource samples,
-explicit scenario-command Software Bus delivery counts and scenario-declared
-application success-event counts, 5-us latency histograms with explicit
-out-of-range counts,
-phase and participant latencies, device transactions, scenario results, queue
-errors, and terminal-state digests.
-Deterministic command deliveries, including all scenario commands, are compared
-exactly.
-The report-declared periodic ground-output wakeup remains visible but
-is compared through exact `due = sent + throttled` accounting because its
-sent/throttled split is intentionally wall-clock paced.
-Generated reports and profiler captures are stored in timestamped, untracked
-directories under `build/performance/` by default.
-The comparison target also requires `BASELINE` and fails on synchronization or
-fidelity differences, an unbounded trial below 25x, or a median throughput
-regression greater than ten percent.
+`make perf` runs a full-output reference, paced 1x, 25x, and 50x control-mode
+trials, and three unbounded trials.
+Each unbounded trial must exceed 50x while the control-loop, command, device,
+truth, and trace checks pass.
+Use `make perf-smoke` for a short diagnostic or
+`make perf-compare BASELINE=/path/to/accepted-report.json` to compare with a
+reviewed report.
 
 The standalone Server also accepts `--speed <factor|max>`, `--duration`,
 `--warmup`, and `--metrics-json` while retaining the positional client count and

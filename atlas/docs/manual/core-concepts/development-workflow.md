@@ -132,7 +132,7 @@ Use the gates and evidence guidance in this workflow when moving from simulation
 | `make test-simulith` | Runs the standalone Simulith core suite and produces its coverage report. |
 | `make test-fsw` | Builds and runs cFS/application tests and produces coverage output. |
 | `make perf-smoke` | Builds and runs one short synchronized complete-stack diagnostic. |
-| `make perf` | Runs the active 1x and 25x fidelity pair plus three unbounded performance trials. |
+| `make perf` | Runs the full-output reference, 1x/25x/50x fidelity trials, and three >50x unbounded trials. |
 | `make perf-compare BASELINE=<report.json>` | Repeats the matrix and checks it against a reviewed performance baseline. |
 | `make complexity` | Writes the informational `pmccabe` report to `build/coverage-complexity.txt`. |
 

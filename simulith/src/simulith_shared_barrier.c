@@ -2,11 +2,34 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+enum {PROFILE_PUBLISH, PROFILE_RECEIVE, PROFILE_COMPLETE, PROFILE_WAIT};
+
+static uint64_t barrier_now_ns(void)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * UINT64_C(1000000000) + (uint64_t)now.tv_nsec;
+}
+
+static void barrier_profile_lock(simulith_shared_barrier_t *barrier, unsigned operation)
+{
+    uint64_t started = barrier->profile_enabled ? barrier_now_ns() : 0;
+    pthread_mutex_lock(&barrier->state->mutex);
+    if (barrier->profile_enabled) {
+        __atomic_add_fetch(&barrier->profile_lock_count[operation], 1,
+                           __ATOMIC_RELAXED);
+        __atomic_add_fetch(&barrier->profile_lock_wait_ns[operation],
+                           barrier_now_ns() - started, __ATOMIC_RELAXED);
+    }
+}
 
 static int map_barrier(simulith_shared_barrier_t *barrier, int fd)
 {
@@ -23,6 +46,8 @@ int simulith_shared_barrier_create(simulith_shared_barrier_t *barrier)
 {
     memset(barrier, 0, sizeof(*barrier));
     barrier->fd = -1;
+    barrier->profile_enabled = getenv("SHIRE_BARRIER_PROFILE") != NULL &&
+        strcmp(getenv("SHIRE_BARRIER_PROFILE"), "1") == 0;
     /* A crashed prior server can leave the pathname behind. Remove it before
      * creating a new object so clients cannot map an old initialized barrier
      * while this server rebuilds it in place. */
@@ -78,6 +103,8 @@ int simulith_shared_barrier_connect(simulith_shared_barrier_t *barrier, int slot
 {
     memset(barrier, 0, sizeof(*barrier));
     barrier->fd = -1;
+    barrier->profile_enabled = getenv("SHIRE_BARRIER_PROFILE") != NULL &&
+        strcmp(getenv("SHIRE_BARRIER_PROFILE"), "1") == 0;
     if (slot < 0 || slot >= SIMULITH_SHARED_BARRIER_SLOTS)
         return -1;
     int fd = -1;
@@ -131,8 +158,9 @@ int simulith_shared_barrier_connect(simulith_shared_barrier_t *barrier, int slot
         return -1;
     }
     pthread_mutex_lock(&barrier->state->mutex);
-    barrier->last_generation = barrier->state->generation > 0 ?
-        barrier->state->generation - 1 : 0;
+    uint64_t generation = __atomic_load_n(&barrier->state->generation,
+                                          __ATOMIC_ACQUIRE);
+    barrier->last_generation = generation > 0 ? generation - 1 : 0;
     pthread_mutex_unlock(&barrier->state->mutex);
     return 0;
 }
@@ -140,6 +168,22 @@ int simulith_shared_barrier_connect(simulith_shared_barrier_t *barrier, int slot
 void simulith_shared_barrier_close(simulith_shared_barrier_t *barrier)
 {
     if (!barrier) return;
+    if (barrier->profile_enabled) {
+        static const char *names[] = {"publish", "receive", "complete", "wait"};
+        printf("SIMULITH_BARRIER_TIMING {\"owner\":%d,\"operations\":[",
+               barrier->owner);
+        for (unsigned i = 0; i < 4; ++i)
+            printf("%s{\"name\":\"%s\",\"locks\":%lu,\"mean_lock_us\":%.3f}",
+                   i ? "," : "", names[i],
+                   (unsigned long)barrier->profile_lock_count[i],
+                   barrier->profile_lock_count[i] ?
+                       (double)barrier->profile_lock_wait_ns[i] /
+                       (double)barrier->profile_lock_count[i] / 1000.0 : 0.0);
+        printf("],\"fast_receive\":%lu,\"fast_wait\":%lu}\n",
+               (unsigned long)barrier->profile_fast_receive,
+               (unsigned long)barrier->profile_fast_wait);
+        fflush(stdout);
+    }
     if (barrier->state)
         munmap(barrier->state, sizeof(*barrier->state));
     if (barrier->fd >= 0)
@@ -155,13 +199,13 @@ int simulith_shared_barrier_publish(simulith_shared_barrier_t *barrier,
                                     uint32_t participant_mask)
 {
     if (!barrier || !barrier->state) return -1;
-    pthread_mutex_lock(&barrier->state->mutex);
+    barrier_profile_lock(barrier, PROFILE_PUBLISH);
     barrier->state->sequence = sequence;
     barrier->state->time_ns = time_ns;
     barrier->state->phase = phase;
     barrier->state->participant_mask = participant_mask;
-    barrier->state->completion_mask = 0;
-    barrier->state->generation++;
+    __atomic_store_n(&barrier->state->completion_mask, 0, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&barrier->state->generation, 1, __ATOMIC_RELEASE);
     for (int slot = 0; slot < SIMULITH_SHARED_BARRIER_SLOTS; ++slot)
         if ((participant_mask & (UINT32_C(1) << slot)) != 0)
             pthread_cond_signal(&barrier->state->phase_condition[slot]);
@@ -173,9 +217,42 @@ int simulith_shared_barrier_receive(simulith_shared_barrier_t *barrier,
                                     uint64_t *sequence, uint64_t *time_ns, uint32_t *phase)
 {
     if (!barrier || !barrier->state || !sequence || !time_ns || !phase) return -1;
-    pthread_mutex_lock(&barrier->state->mutex);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    uint64_t spin_until = (uint64_t)now.tv_sec * UINT64_C(1000000000) +
+                          (uint64_t)now.tv_nsec + UINT64_C(80000);
+    while (__atomic_load_n(&barrier->state->generation, __ATOMIC_ACQUIRE) ==
+               barrier->last_generation &&
+           !__atomic_load_n(&barrier->interrupted, __ATOMIC_ACQUIRE))
+    {
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if ((uint64_t)now.tv_sec * UINT64_C(1000000000) +
+            (uint64_t)now.tv_nsec >= spin_until)
+            break;
+#if defined(__x86_64__) || defined(__i386__)
+        __builtin_ia32_pause();
+#endif
+    }
+    /* A participant's phase stays published until it completes. The release
+     * generation publication makes its payload visible on this common path. */
+    uint64_t published = __atomic_load_n(&barrier->state->generation,
+                                         __ATOMIC_ACQUIRE);
+    if (barrier->fast_receive_safe && published != barrier->last_generation &&
+        !__atomic_load_n(&barrier->interrupted, __ATOMIC_ACQUIRE))
+    {
+        if (barrier->profile_enabled)
+            __atomic_add_fetch(&barrier->profile_fast_receive, 1,
+                               __ATOMIC_RELAXED);
+        *sequence = barrier->state->sequence;
+        *time_ns = barrier->state->time_ns;
+        *phase = barrier->state->phase;
+        barrier->last_generation = published;
+        return 0;
+    }
+    barrier_profile_lock(barrier, PROFILE_RECEIVE);
     while (!barrier->state->stopping &&
-           barrier->state->generation == barrier->last_generation &&
+           __atomic_load_n(&barrier->state->generation, __ATOMIC_ACQUIRE) ==
+               barrier->last_generation &&
            !__atomic_load_n(&barrier->interrupted, __ATOMIC_ACQUIRE))
         pthread_cond_wait(&barrier->state->phase_condition[barrier->slot],
                           &barrier->state->mutex);
@@ -189,7 +266,8 @@ int simulith_shared_barrier_receive(simulith_shared_barrier_t *barrier,
         pthread_mutex_unlock(&barrier->state->mutex);
         return 1;
     }
-    barrier->last_generation = barrier->state->generation;
+    barrier->last_generation = __atomic_load_n(&barrier->state->generation,
+                                               __ATOMIC_ACQUIRE);
     *sequence = barrier->state->sequence;
     *time_ns = barrier->state->time_ns;
     *phase = barrier->state->phase;
@@ -201,17 +279,17 @@ int simulith_shared_barrier_complete(simulith_shared_barrier_t *barrier,
                                      uint64_t sequence, uint32_t phase)
 {
     if (!barrier || !barrier->state || barrier->slot < 0) return -1;
-    pthread_mutex_lock(&barrier->state->mutex);
+    barrier_profile_lock(barrier, PROFILE_COMPLETE);
     uint32_t slot_bit = UINT32_C(1) << barrier->slot;
     if (barrier->state->stopping ||
         (barrier->state->participant_mask & slot_bit) == 0 ||
         barrier->state->sequence != sequence || barrier->state->phase != phase ||
-        (barrier->state->completion_mask & slot_bit) != 0)
+        (__atomic_load_n(&barrier->state->completion_mask, __ATOMIC_ACQUIRE) & slot_bit) != 0)
     {
         pthread_mutex_unlock(&barrier->state->mutex);
         return -1;
     }
-    barrier->state->completion_mask |= slot_bit;
+    __atomic_fetch_or(&barrier->state->completion_mask, slot_bit, __ATOMIC_RELEASE);
     pthread_cond_signal(&barrier->state->completion_condition);
     pthread_mutex_unlock(&barrier->state->mutex);
     return 0;
@@ -221,8 +299,38 @@ uint32_t simulith_shared_barrier_wait(simulith_shared_barrier_t *barrier,
                                       uint32_t required_mask, int timeout_ms)
 {
     if (!barrier || !barrier->state) return 0;
-    pthread_mutex_lock(&barrier->state->mutex);
-    if ((barrier->state->completion_mask & required_mask) != required_mask &&
+    /* The server normally receives the required completions within one tick.
+     * A bounded spin avoids a process wakeup on that short critical path. */
+    if (timeout_ms > 0)
+    {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        uint64_t spin_until = (uint64_t)now.tv_sec * UINT64_C(1000000000) +
+                              (uint64_t)now.tv_nsec + UINT64_C(80000);
+        while ((__atomic_load_n(&barrier->state->completion_mask,
+                                __ATOMIC_ACQUIRE) & required_mask) != required_mask)
+        {
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if ((uint64_t)now.tv_sec * UINT64_C(1000000000) +
+                (uint64_t)now.tv_nsec >= spin_until)
+                break;
+#if defined(__x86_64__) || defined(__i386__)
+            __builtin_ia32_pause();
+#endif
+        }
+    }
+    uint32_t ready = __atomic_load_n(&barrier->state->completion_mask,
+                                     __ATOMIC_ACQUIRE);
+    if ((ready & required_mask) == required_mask)
+    {
+        if (barrier->profile_enabled)
+            __atomic_add_fetch(&barrier->profile_fast_wait, 1,
+                               __ATOMIC_RELAXED);
+        return ready;
+    }
+    barrier_profile_lock(barrier, PROFILE_WAIT);
+    if ((__atomic_load_n(&barrier->state->completion_mask,
+                         __ATOMIC_ACQUIRE) & required_mask) != required_mask &&
         !barrier->state->stopping)
     {
         struct timespec deadline;
@@ -233,7 +341,8 @@ uint32_t simulith_shared_barrier_wait(simulith_shared_barrier_t *barrier,
         (void)pthread_cond_timedwait(&barrier->state->completion_condition,
                                      &barrier->state->mutex, &deadline);
     }
-    uint32_t completed = barrier->state->completion_mask;
+    uint32_t completed = __atomic_load_n(&barrier->state->completion_mask,
+                                         __ATOMIC_ACQUIRE);
     pthread_mutex_unlock(&barrier->state->mutex);
     return completed;
 }

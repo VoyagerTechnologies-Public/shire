@@ -12,15 +12,18 @@ import os
 import pathlib
 import re
 import statistics
+import struct
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 
 import yaml
 
 from shire_provenance import ROOT, run, git_metadata, host_metadata
-from shire_runner_lib import container_names, parse_marker
+from shire_runner_lib import container_names, parse_marker, try_parse_marker
 from shire_perf_topology import SERVICE_CPU_REQUESTS, detect_physical_topology, plan_placement
 
 
@@ -29,6 +32,52 @@ def active_value(key: str) -> str:
         if line.startswith(f"{key}:"):
             return line.split(":", 1)[1].strip()
     raise RuntimeError(f"missing {key} in build/active.yaml")
+
+
+TRUTH_URL = ("http://127.0.0.1:8090/api/processors/shire/realtime/"
+             "parameters/SIM_42_TRUTH/DYN_TIME")
+
+
+def observe_yamcs_truth(stop: threading.Event,
+                        samples: list[dict[str, object]]) -> None:
+    """Poll decoded, current Yamcs truth while the simulation runs."""
+    previous: float | None = None
+    while not stop.is_set():
+        try:
+            with urllib.request.urlopen(TRUTH_URL, timeout=1) as response:
+                parameter = json.load(response)
+            value_data = parameter.get("engValue", {})
+            raw = next((value for key, value in value_data.items()
+                        if key != "type"), None)
+            if raw is not None:
+                value = float(raw)
+                if math.isfinite(value) and value != previous:
+                    samples.append({"value": value,
+                                    "wall_utc": dt.datetime.now(dt.timezone.utc).isoformat()})
+                    previous = value
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        stop.wait(0.005)
+
+
+def control_trace_states(path: pathlib.Path) -> list[float]:
+    data = path.read_bytes()
+    if data[:8] != b"SHCT\x01\x00\x00\x00":
+        raise RuntimeError(f"unsupported control trace: {path}")
+    values: list[float] = []
+    offset = 8
+    while offset < len(data):
+        if offset + 4 > len(data):
+            raise RuntimeError(f"truncated control trace length: {path}")
+        length = struct.unpack_from("<I", data, offset)[0]
+        if length < 32 or offset + 4 + length > len(data):
+            raise RuntimeError(f"truncated control trace tick: {path}")
+        sequence, tick_time_ns = struct.unpack_from("<QQ", data, offset + 4)
+        if sequence != len(values) or tick_time_ns != sequence * 10000000:
+            raise RuntimeError(f"unordered control trace tick: {path}")
+        values.append(struct.unpack_from("<d", data, offset + 28)[0])
+        offset += 4 + length
+    return values
 
 
 def parse_stats(output: str, containers: tuple[str, ...]) -> list[dict[str, str]]:
@@ -137,6 +186,20 @@ def sha256_file(path: pathlib.Path) -> str | None:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def same_trace_bytes(left: pathlib.Path, right: pathlib.Path) -> bool:
+    """Compare complete trace files without relying on digest equality."""
+    if left.stat().st_size != right.stat().st_size:
+        return False
+    with left.open("rb") as left_file, right.open("rb") as right_file:
+        while True:
+            left_chunk = left_file.read(1024 * 1024)
+            right_chunk = right_file.read(1024 * 1024)
+            if left_chunk != right_chunk:
+                return False
+            if not left_chunk:
+                return True
 
 
 def cmake_cache_metadata(path: pathlib.Path) -> dict[str, object]:
@@ -329,10 +392,15 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
               speed: str, duration: float, warmup: float,
               trial_number: int, resource_snapshot: bool,
               names: dict[str, str], scenario: pathlib.Path,
-              extra_compose_files: tuple[pathlib.Path, ...] = ()) -> dict[str, object]:
+              extra_compose_files: tuple[pathlib.Path, ...] = (),
+              report_mode: str = "control") -> dict[str, object]:
     label = f"{speed.replace('.', '_')}x-trial-{trial_number}"
+    if report_mode == "full":
+        label += "-full-reference"
     trial_dir = artifact_dir / label
     trial_dir.mkdir(parents=True)
+    trace_dir = trial_dir / "traces"
+    trace_dir.mkdir(exist_ok=True)
     compose_cmd = ["docker", "compose", "-f", str(compose)]
     for extra in extra_compose_files:
         compose_cmd += ["-f", str(extra)]
@@ -345,10 +413,40 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
     trial_env["SIMULITH_WATCHDOG_SECONDS"] = "1"
     trial_env["SIMULITH_SCENARIO_ENABLED"] = "1"
     trial_env["SIMULITH_SCENARIO_FILE"] = str(scenario)
+    trial_env["SHIRE_42_REPORT_MODE"] = report_mode
+    trial_env["SHIRE_CONTROL_TRACE_DIR"] = str(trace_dir)
     started = time.monotonic()
+    yamcs_samples: list[dict[str, object]] = []
+    observer_stop = threading.Event()
+    observer: threading.Thread | None = None
+    gsw_output = run(compose_cmd + ["up", "-d", "shire-gsw"],
+                     env=trial_env, check=False)
+    (trial_dir / "compose-gsw.log").write_text(gsw_output.stdout, encoding="utf-8")
+    if gsw_output.returncode != 0:
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        raise RuntimeError(f"Yamcs startup failed; see {trial_dir / 'compose-gsw.log'}")
+    health_deadline = time.monotonic() + 120.0
+    while time.monotonic() < health_deadline:
+        health = run(["docker", "inspect", "--format",
+                      "{{.State.Health.Status}}", names["gsw"]], check=False)
+        if health.stdout.strip() == "healthy":
+            break
+        time.sleep(0.2)
+    else:
+        (trial_dir / f"{names['gsw']}.log").write_text(
+            run(["docker", "logs", names["gsw"]], check=False).stdout,
+            encoding="utf-8")
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        raise RuntimeError(f"Yamcs did not become healthy in trial {label}")
+    observer = threading.Thread(target=observe_yamcs_truth,
+                                args=(observer_stop, yamcs_samples), daemon=True)
+    observer.start()
     output = run(compose_cmd + ["up", "-d"], env=trial_env, check=False)
     (trial_dir / "compose-up.log").write_text(output.stdout, encoding="utf-8")
     if output.returncode != 0:
+        observer_stop.set()
+        observer.join(timeout=2)
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
         raise RuntimeError(f"compose up failed; see {trial_dir / 'compose-up.log'}")
 
     waiter: subprocess.Popen[str] | None = None
@@ -418,8 +516,14 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
         metrics = parse_marker(logs[names["server"]], "SIMULITH_METRICS")
         metrics["terminal"] = parse_marker(
             logs[names["director"]], "SIMULITH_DIRECTOR_TERMINAL")
+        metrics["director_timing"] = parse_marker(
+            logs[names["director"]], "SIMULITH_DIRECTOR_TIMING")
         metrics["fsw"] = parse_marker(
             logs[names["fsw"]], "SIMULITH_FSW_TERMINAL")
+        if trial_env.get("SHIRE_BARRIER_PROFILE") == "1":
+            metrics["barrier_timing"] = {
+                role: try_parse_marker(logs[names[role]], "SIMULITH_BARRIER_TIMING")
+                for role in ("server", "director", "fsw")}
         classify_command_deliveries(metrics["fsw"])
         metrics["scheduling_policy"] = scheduler_samples
         metrics["resource_samples"] = resource_samples
@@ -446,6 +550,9 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
                 ("graphics_due", "graphics_sent", "graphics_throttled"),
                 (int(value) for value in graphics_values)))
     finally:
+        observer_stop.set()
+        if observer is not None:
+            observer.join(timeout=2)
         if stats_process is not None and stats_process.poll() is None:
             stats_process.terminate()
             try:
@@ -463,7 +570,35 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
             if container not in logs:
                 value = run(["docker", "logs", container], check=False).stdout
                 (trial_dir / f"{container}.log").write_text(value, encoding="utf-8")
+        fortytwo_output = run(
+            ["docker", "exec", names["42"], "cat", "/tmp/fortytwo-run.log"],
+            check=False)
+        if fortytwo_output.returncode == 0:
+            (trial_dir / "fortytwo-run.log").write_text(
+                fortytwo_output.stdout, encoding="utf-8")
         run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+    trace_path = trace_dir / "control-trace.v1"
+    if not trace_path.exists():
+        raise RuntimeError(f"complete control trace missing: {trace_path}")
+    trace_values = control_trace_states(trace_path)
+    increasing = [item["value"] for item in yamcs_samples]
+    matches = [any(abs(value - state) <= 1e-6 for state in trace_values)
+               for value in increasing]
+    metrics["control_trace"] = {
+        "format_version": 1,
+        "path": str(trace_path),
+        "sha256": sha256_file(trace_path),
+        "ticks": len(trace_values),
+    }
+    metrics["yamcs_truth"] = {
+        "samples": yamcs_samples,
+        "matched_to_trace": matches,
+        "increasing_pairs": sum(right > left for left, right in
+                                zip(increasing, increasing[1:])),
+    }
+    (trial_dir / "yamcs-truth.json").write_text(
+        json.dumps(metrics["yamcs_truth"], indent=2) + "\n", encoding="utf-8")
+    metrics["report_mode"] = report_mode
     metrics["speed"] = speed
     metrics["trial"] = trial_number
     metrics["startup_and_run_wall_s"] = time.monotonic() - started
@@ -540,15 +675,23 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
     trials = report["trials"]
     assert isinstance(trials, list)
     max_speeds = [float(t["achieved_speed"]) for t in trials if t["speed"] == "max"]
+    target = int(report.get("target_speed", 25))
     for index, achieved in enumerate(max_speeds, 1):
-        if enforce_performance and achieved < 25.0:
-            failures.append(f"unbounded trial {index} achieved {achieved:.3f}x (<25x)")
+        below_target = achieved <= target if target > 25 else achieved < 25.0
+        if enforce_performance and below_target:
+            comparison = f"≤{target}x" if target > 25 else f"<{target}x"
+            failures.append(
+                f"unbounded trial {index} achieved {achieved:.3f}x ({comparison})")
     for trial in trials:
         achieved = float(trial["achieved_speed"])
         if enforce_performance and trial["speed"] == "1" and not 0.99 <= achieved <= 1.01:
             failures.append(f"1x trial achieved {achieved:.3f}x")
         if enforce_performance and trial["speed"] == "25" and not 24.75 <= achieved <= 25.25:
             failures.append(f"25x trial achieved {achieved:.3f}x")
+        if enforce_performance and trial["speed"] == "50" and not 49.5 <= achieved <= 50.5:
+            failures.append(f"50x trial achieved {achieved:.3f}x")
+        if enforce_performance and trial["speed"] == "200" and not 198.0 <= achieved <= 202.0:
+            failures.append(f"200x trial achieved {achieved:.3f}x")
         if int(trial["protocol_errors"]) != 0:
             failures.append(f"trial {trial['speed']} had protocol errors")
         for field in ("duplicate_completions", "stale_completions",
@@ -573,6 +716,16 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
             failures.append(f"trial {trial['speed']} had component phase errors")
         if int(terminal.get("telemetry_errors", -1)) != 0:
             failures.append(f"trial {trial['speed']} had director telemetry errors")
+        if int(terminal.get("telemetry_count", -1)) != ticks // 100:
+            failures.append(f"trial {trial['speed']} truth send count differs from tick cadence")
+        trace = trial.get("control_trace", {})
+        if int(trace.get("ticks", -1)) != ticks:
+            failures.append(f"trial {trial['speed']} control trace is incomplete")
+        truth = trial.get("yamcs_truth", {})
+        if int(truth.get("increasing_pairs", 0)) < 1 or \
+           len(truth.get("matched_to_trace", [])) < 2 or \
+           not all(truth.get("matched_to_trace", [])):
+            failures.append(f"trial {trial['speed']} lacks two advancing, trace-matched Yamcs truth values")
         if int(terminal.get("fortytwo_errors", -1)) != 0:
             failures.append(f"trial {trial['speed']} had 42 transport errors")
         if int(terminal.get("state", {}).get("valid", 0)) != 1:
@@ -659,6 +812,8 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
     if enforce_performance and baseline and max_speeds:
         if baseline.get("schema_version") != report.get("schema_version"):
             failures.append("baseline report schema does not match candidate schema")
+        if int(baseline.get("target_speed", 25)) != target:
+            failures.append("baseline performance target does not match candidate target")
         for field in ("mission", "spacecraft", "workload", "simulated_duration_s",
                       "warmup_s", "output_configuration", "latency_histograms",
                       "scenario", "fidelity_policy"):
@@ -709,6 +864,8 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
     print(f"Workload: {report.get('mission')} / {report.get('spacecraft')}, "
           f"{float(report.get('simulated_duration_s', 0.0)):.1f} simulated seconds, "
           f"{float(report.get('warmup_s', 0.0)):.1f}-second warmup")
+    target = int(report.get("target_speed", 25))
+    print(f"Unbounded target: >{target}x" if target > 25 else "Unbounded target: ≥25x")
     placement = report.get("placement") or {}
     if placement.get("assignments"):
         assignments = ", ".join(f"{svc}={cpuset}" for svc, cpuset in sorted(placement["assignments"].items()))
@@ -758,6 +915,24 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
     else:
         print(f"Cross-trial repeatability: "
               f"{'PASS' if repeatability.get('passed') else 'FAIL'}")
+
+    full_comparison = report.get("full_output_comparison")
+    if full_comparison:
+        reference_ok = (full_comparison.get("passed") and
+                        full_comparison.get("trace_equal"))
+        print(f"Full-output reference trace: {'PASS' if reference_ok else 'FAIL'}")
+
+    truth_trials = ([report["full_output_reference"]]
+                    if report.get("full_output_reference") else []) + trials
+    truth_ok = all(
+        int(trial.get("terminal", {}).get("telemetry_count", -1)) ==
+        int(trial.get("ticks", 0)) // 100 and
+        int(trial.get("terminal", {}).get("telemetry_errors", -1)) == 0 and
+        int(trial.get("yamcs_truth", {}).get("increasing_pairs", 0)) >= 1 and
+        len(trial.get("yamcs_truth", {}).get("matched_to_trace", [])) >= 2 and
+        all(trial.get("yamcs_truth", {}).get("matched_to_trace", []))
+        for trial in truth_trials)
+    print(f"Yamcs decoded truth: {'PASS' if truth_ok else 'FAIL'}")
 
     scenario_ok = all(
         int(trial.get("scenario", {}).get("errors", -1)) == 0 and
@@ -838,7 +1013,7 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("smoke", "perf", "compare", "determinism"),
+    parser.add_argument("--mode", choices=("smoke", "perf", "perf-200", "compare", "determinism"),
                         default="smoke")
     parser.add_argument("--baseline")
     parser.add_argument(
@@ -888,11 +1063,19 @@ def main() -> int:
         # (qn/wn/pos_n/vel_n/dyn_time) check, to confirm a scenario's
         # Initial Condition bin produces the same run every time.
         plan = [("max", 1), ("max", 2)]
+    elif args.mode == "perf-200":
+        plan = [("1", 1), ("25", 1), ("50", 1), ("200", 1),
+                ("max", 1), ("max", 2), ("max", 3)]
+    elif args.mode in ("perf", "compare"):
+        plan = [("1", 1), ("25", 1), ("50", 1),
+                ("max", 1), ("max", 2), ("max", 3)]
     else:
-        plan = [("1", 1), ("25", 1), ("max", 1), ("max", 2), ("max", 3)]
+        raise AssertionError(f"unknown performance mode: {args.mode}")
 
     report: dict[str, object] = {
-        "schema_version": 4,
+        "schema_version": 5,
+        "target_speed": 200 if args.mode == "perf-200" else
+                        50 if args.mode in ("perf", "compare") else 25,
         "created_utc": timestamp,
         "git": git_metadata(),
         "build": build_metadata(mission, spacecraft, compose),
@@ -902,7 +1085,10 @@ def main() -> int:
             "histogram_max_us": 10240,
         },
         "output_configuration": {"graphics_hz": os.environ.get("FORTYTWO_GRAPHICS_HZ", "1"),
-                                 "ground_output_hz": os.environ.get("SHIRE_GROUND_OUTPUT_HZ", "20")},
+                                 "ground_output_hz": os.environ.get("SHIRE_GROUND_OUTPUT_HZ", "20"),
+                                 "42_report_mode": "control",
+                                 "barrier_profile": os.environ.get("SHIRE_BARRIER_PROFILE", "0"),
+                                 "control_trace_format": 1},
         "fidelity_policy": {
             "deterministic_commands":
                 "all observed command deliveries except the reported periodic-ground-output MID",
@@ -923,6 +1109,12 @@ def main() -> int:
     report["scenario"] = json.loads(scenario.read_text(encoding="utf-8"))
     report["initial_conditions"] = initial_conditions_snapshot(
         mission, active_value("scenario"))
+    if args.mode in ("perf", "compare", "perf-200"):
+        print("running synchronized 1x full-output trace reference", flush=True)
+        report["full_output_reference"] = one_trial(
+            compose, artifact_dir, "1", duration, args.warmup, 0,
+            args.resource_snapshot, names, scenario,
+            extra_compose_files=extra_compose_files, report_mode="full")
     for speed, number in plan:
         print(f"running synchronized {speed}x trial {number}", flush=True)
         report["trials"].append(
@@ -935,6 +1127,12 @@ def main() -> int:
     report["fidelity"] = fidelity(one_x, twenty_five_x) if one_x and twenty_five_x else {
         "passed": True, "not_run": True}
     reference = one_x or report["trials"][0]
+    full_output = report.get("full_output_reference")
+    if full_output:
+        report["full_output_comparison"] = fidelity(full_output, reference)
+        report["full_output_comparison"]["trace_equal"] = same_trace_bytes(
+            pathlib.Path(full_output["control_trace"]["path"]),
+            pathlib.Path(reference["control_trace"]["path"]))
     repeatability = []
     for trial in report["trials"]:
         if trial is reference:
@@ -952,6 +1150,23 @@ def main() -> int:
     report["failures"] = evaluate(
         report, baseline,
         enforce_performance=args.mode not in ("smoke", "determinism"))
+    if full_output and (not report["full_output_comparison"]["passed"] or
+                        not report["full_output_comparison"]["trace_equal"]):
+        report["failures"].append("full-output and control-mode traces/fidelity differ")
+    if full_output:
+        full_truth = full_output["yamcs_truth"]
+        if (full_output["control_trace"]["ticks"] != full_output["ticks"] or
+            full_output["terminal"]["telemetry_count"] != full_output["ticks"] // 100 or
+            full_output["terminal"]["telemetry_errors"] != 0 or
+            full_truth["increasing_pairs"] < 1 or
+            len(full_truth["matched_to_trace"]) < 2 or
+            not all(full_truth["matched_to_trace"])):
+            report["failures"].append("full-output reference lacks complete trace or advancing Yamcs truth")
+    for trial in report["trials"]:
+        if not same_trace_bytes(pathlib.Path(trial["control_trace"]["path"]),
+                                pathlib.Path(reference["control_trace"]["path"])):
+            report["failures"].append(
+                f"trial {trial['speed']} #{trial['trial']} control trace differs from 1x")
     report_path = artifact_dir / "report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print_summary(report, report_path, args.mode, baseline)

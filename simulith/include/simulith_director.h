@@ -107,6 +107,7 @@ typedef struct
 } director_config_t;
 
 // Function declarations
+int director_configure_trace_duration(void);
 
 /**
  * Parse command line arguments

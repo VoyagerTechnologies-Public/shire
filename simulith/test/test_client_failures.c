@@ -175,7 +175,11 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
             if (receive_calls == 3)
                 return copy_tick(buffer, length, 0, 100,
                                  SIMULITH_PHASE_COMMIT);
-            return copy_reply(buffer, length, "WHAT");
+            if (receive_calls == 4)
+                return copy_reply(buffer, length, "ACK");
+            simulith_client_request_stop();
+            errno = EAGAIN;
+            return -1;
         case RECV_TIME_VALIDATION:
             if (receive_calls == 1)
                 return copy_tick(buffer, length, 0, 100, SIMULITH_PHASE_PREPARE);
@@ -336,7 +340,8 @@ static void test_phase_callback_failure_withholds_completion(void)
         SIMULITH_PHASE_MASK_PREPARE));
     receive_mode = RECV_PHASE_CALLBACK_FAILURE;
 
-    simulith_client_run_phased_loop(fail_phase_callback, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_run_phased_loop(
+        fail_phase_callback, NULL, NULL));
     TEST_ASSERT_EQUAL_INT(0, send_calls);
 }
 
@@ -354,8 +359,8 @@ static void test_phased_loop_dispatches_execute_and_commit(void)
         SIMULITH_PHASE_MASK_EXECUTE | SIMULITH_PHASE_MASK_COMMIT));
     receive_mode = RECV_PHASE_VARIANTS;
 
-    simulith_client_run_phased_loop(NULL, successful_phase_callback,
-                                    successful_phase_callback);
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_run_phased_loop(
+        NULL, successful_phase_callback, successful_phase_callback));
     TEST_ASSERT_EQUAL_INT(2, send_calls);
 }
 
