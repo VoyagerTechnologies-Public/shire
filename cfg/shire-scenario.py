@@ -126,7 +126,22 @@ def update_active(mission: str | None, spacecraft: str | None, scenario: str, *,
     return active
 
 
-def wait_for_completion(server_container: str, deadline_s: float) -> bool:
+def exited_container_code(container: str) -> int | None:
+    status = run(["docker", "inspect", "--format",
+                  "{{.State.Running}} {{.State.ExitCode}}", container], check=False)
+    if status.returncode != 0:
+        return None
+    fields = status.stdout.split()
+    if len(fields) != 2 or fields[0] != "false":
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def wait_for_completion(server_container: str, deadline_s: float,
+                        director_container: str | None = None) -> bool:
     """Blocks until `server_container` exits, or returns False if it hasn't
     by `deadline_s` seconds (a hung participant never lets Simulith's
     server container exit on its own)."""
@@ -134,12 +149,19 @@ def wait_for_completion(server_container: str, deadline_s: float) -> bool:
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     started = time.monotonic()
     last_report_s = 0.0
+    next_director_check_s = 0.0
     try:
         while waiter.poll() is None:
             elapsed_s = time.monotonic() - started
             if elapsed_s > deadline_s:
                 waiter.terminate()
                 return False
+            if director_container and elapsed_s >= next_director_check_s:
+                director_code = exited_container_code(director_container)
+                if director_code is not None and director_code != 0:
+                    waiter.terminate()
+                    return False
+                next_director_check_s = elapsed_s + 1.0
             if elapsed_s - last_report_s >= HEARTBEAT_INTERVAL_S:
                 current = read_latest_simulated_time(server_container)
                 current_str = f"{current:.1f}s" if current is not None else "unknown"
@@ -151,7 +173,7 @@ def wait_for_completion(server_container: str, deadline_s: float) -> bool:
     finally:
         if waiter.poll() is None:
             waiter.terminate()
-    return True
+    return waiter.returncode == 0 and waiter.communicate()[0].strip() == "0"
 
 
 def read_latest_simulated_time(server_container: str) -> float | None:
@@ -179,7 +201,8 @@ FSW_BOOT_SETTLE_S = 15.0
 
 
 def wait_for_simulated_time(server_container: str, target_s: float, deadline_s: float,
-                            min_real_settle_s: float = 0.0) -> bool:
+                            min_real_settle_s: float = 0.0,
+                            director_container: str | None = None) -> bool:
     """Blocks until the run has reached `target_s` simulated seconds AND
     at least `min_real_settle_s` real seconds have elapsed, or returns
     False if `deadline_s` wall-clock seconds elapse first (the run ended,
@@ -198,6 +221,10 @@ def wait_for_simulated_time(server_container: str, target_s: float, deadline_s: 
     started = time.monotonic()
     last_report_s = 0.0
     while time.monotonic() - started < deadline_s:
+        if director_container:
+            director_code = exited_container_code(director_container)
+            if director_code is not None and director_code != 0:
+                return False
         current = read_latest_simulated_time(server_container)
         elapsed_real_s = time.monotonic() - started
         if current is not None and current >= target_s and elapsed_real_s >= min_real_settle_s:
@@ -215,7 +242,9 @@ def wait_for_simulated_time(server_container: str, target_s: float, deadline_s: 
 
 def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_container: str,
                                 deadline_s: float, report_dir: pathlib.Path,
-                                port_offset: int = 0) -> dict[str, object]:
+                                port_offset: int = 0,
+                                director_container: str | None = None,
+                                sim_time_parameter: str | None = None) -> dict[str, object]:
     """Runs each {stack, at_s} entry in ascending at_s order, waiting for
     the run to reach each one's simulated time before firing it. Every
     entry is attempted regardless of earlier failures (same "run to
@@ -240,7 +269,8 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
         remaining_s = deadline_s - (time.monotonic() - started)
         min_real_settle_s = FSW_BOOT_SETTLE_S if index == 0 else 0.0
         reached = remaining_s > 0 and wait_for_simulated_time(
-            server_container, at_s, remaining_s, min_real_settle_s)
+            server_container, at_s, remaining_s, min_real_settle_s,
+            director_container)
         if not reached:
             stack_results.append({
                 "stack": stack_path, "at_s": at_s, "passed": False,
@@ -260,11 +290,12 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
             # it, every campaign trial's verification would silently hit
             # port 8090 regardless of offset (either verifying nothing, or
             # worse, verifying a *different* trial's YAMCS instance).
-            returncode, stdout = run_streaming(
-                [sys.executable, str(ROOT / "yamcs" / "yamcs_commander.py"),
-                 "--stack", str(ROOT / stack_path), "--report", str(report_path),
-                 "--yamcs-url", yamcs_url],
-                timeout=max(1.0, remaining_s))
+            command = [sys.executable, str(ROOT / "yamcs" / "yamcs_commander.py"),
+                       "--stack", str(ROOT / stack_path), "--report", str(report_path),
+                       "--yamcs-url", yamcs_url]
+            if sim_time_parameter:
+                command += ["--sim-time-parameter", sim_time_parameter]
+            returncode, stdout = run_streaming(command, timeout=max(1.0, remaining_s))
         except subprocess.TimeoutExpired as e:
             stdout, returncode = (e.output or ""), None
         (report_dir / f"verify-{stem}.log").write_text(stdout, encoding="utf-8")
@@ -468,19 +499,35 @@ def main() -> int:
         verify_stacks = scenario_cfg.get("verify_stacks", [])
         if verify_stacks:
             result["verification"] = run_scheduled_verify_stacks(
-                verify_stacks, names["server"], deadline_s, report_dir, port_offset=port_offset)
+                verify_stacks, names["server"], deadline_s, report_dir,
+                port_offset=port_offset, director_container=names["director"],
+                sim_time_parameter=scenario_cfg.get("verification_clock_parameter"))
 
-        completed = wait_for_completion(names["server"], deadline_s)
+        completed = wait_for_completion(names["server"], deadline_s,
+                                        names["director"])
 
         logs: dict[str, str] = {}
         for role, container in names.items():
             value = run(["docker", "logs", container], check=False).stdout
             logs[role] = value
             (report_dir / f"{container}.log").write_text(value, encoding="utf-8")
+        fortytwo_output = run(
+            ["docker", "exec", names["42"], "cat", "/tmp/fortytwo-run.log"],
+            check=False)
+        if fortytwo_output.returncode == 0:
+            (report_dir / "fortytwo-run.log").write_text(
+                fortytwo_output.stdout, encoding="utf-8")
 
         if not completed:
-            result["watchdog"] = {"deadline_s": deadline_s, "timed_out": True}
-            reason = f"server container did not exit within {deadline_s:.0f}s watchdog deadline"
+            director_code = exited_container_code(names["director"])
+            server_code = exited_container_code(names["server"])
+            if director_code is not None and director_code != 0:
+                reason = f"director container exited with status {director_code}"
+            elif server_code is not None and server_code != 0:
+                reason = f"server container exited with status {server_code}"
+            else:
+                result["watchdog"] = {"deadline_s": deadline_s, "timed_out": True}
+                reason = f"server container did not exit within {deadline_s:.0f}s watchdog deadline"
             return finish(result, passed, reason, report_dir)
 
         director_terminal = try_parse_marker(logs["director"], "SIMULITH_DIRECTOR_TERMINAL")

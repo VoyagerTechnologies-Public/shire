@@ -292,6 +292,9 @@ multiplier).
 This only affects the autonomous `make scenario` path (`shire-scenario.py`
 sets it as an env var before `docker compose up`), never `make start`'s
 manual GUI path, which keeps defaulting to real-time (1x) for watching.
+For accelerated verification, set `verification_clock_parameter` to a Yamcs
+simulation clock such as `/SIM_42_TRUTH/DYN_TIME` to record `sim_elapsed_s`
+for each verify step alongside its wall-clock `elapsed_s`.
 
 Whether raising it is safe depends on whether the scenario has
 `verify_stacks`.

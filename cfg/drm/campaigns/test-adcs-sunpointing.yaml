@@ -1,16 +1,11 @@
-# Test/example campaign: measures time-to-Sun-pointed as a function of
-# initial tumble rate, using the `checkout` scenario's existing
-# verify_stacks entry (CheckoutTest.ycs) rather than a dedicated stack --
-# step 118 commands SUNSAFE and step 119 verifies the Sun vector converges
-# (timeout 120000ms), so step 119's "elapsed_s" is a real, already-checked
-# convergence-time measurement, not a synthetic one. Exists to exercise
-# the campaign metrics: extraction mechanism end to end, not to model a
-# specific mission question.
+# Sweep initial tumble rate and measure the ADCS SUNSAFE convergence check.
+# The ADCS truth scenario verifies the control loop and the Yamcs truth path
+# without coupling campaign acceptance to Demo or CFDP checkout steps.
 name: "test-adcs-sunpointing"
 description: >
   Sweeps initial angular velocity (tumble rate at insertion) and measures
-  how long CheckoutTest.ycs's SUNSAFE convergence check takes to pass.
-scenario: "checkout"
+  how long the ADCS SUNSAFE convergence check takes to pass.
+scenario: "adcs-truth-verification"
 base_initial_conditions: "nominal-baseline"
 trial_count: 2
 seed: 20260921
@@ -26,6 +21,6 @@ parameters:
 
 metrics:
   - name: "time_to_sun_pointed_s"
-    stack: "CheckoutTest"    # matches verify-CheckoutTest.json (the .ycs file's stem)
-    step_index: 119          # the verify step immediately after step 118's SUNSAFE command
-    field: "elapsed_s"
+    stack: "AdcsTruthComparison"
+    step_index: 3            # SUNSAFE convergence verify immediately after its mode command
+    field: "sim_elapsed_s"

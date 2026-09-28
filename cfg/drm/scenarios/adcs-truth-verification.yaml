@@ -28,6 +28,11 @@ initial_conditions: "nominal-baseline"
 overrides:
   debug: false
 run_duration_s: 180
+# Keep the headless truth check within the simulated run while shortening
+# wall-clock campaign trials. The runner allows 15 real seconds for FSW boot
+# before starting the stack; validation must confirm the remaining window.
+simulith_speed: 5
+verification_clock_parameter: "/SIM_42_TRUTH/DYN_TIME"
 verify_stacks:
   - stack: "comp/adcs/gsw/procedures/AdcsTruthComparison.ycs"
     at_s: 0

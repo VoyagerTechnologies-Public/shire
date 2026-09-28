@@ -85,26 +85,26 @@ A campaign can also pull a specific named value out of a trial's own `verify_sta
 ```yaml
 metrics:
   - name: "time_to_sun_pointed_s"
-    stack: "CheckoutTest"    # matches verify-CheckoutTest.json, the .ycs file's stem
-    step_index: 119          # the verify step to read, 0-based
-    field: "elapsed_s"       # which field of that step's result to extract
+    stack: "AdcsTruthComparison" # matches verify-AdcsTruthComparison.json
+    step_index: 3            # SUNSAFE convergence verify, 0-based
+    field: "sim_elapsed_s"   # decoded simulation time spent converging
 ```
 
 `stack` names the `.ycs` file's stem, the same name `verify-<stem>.json` already uses in a
 trial's report directory (see
 [Layering telemetry verification](scenarios.md#layering-telemetry-verification-verify_stacks)).
 `step_index` (0-based) or `step_name` selects one step, exactly one of the two required.
-`field` names the key to read off that step's own result dict, most usefully `elapsed_s`, the
-time (in seconds) a `verify` step spent polling before its condition passed or its timeout
-elapsed.
+`field` names the key to read off that step's own result dict.
+`elapsed_s` measures wall clock time spent polling.
+When the scenario sets `verification_clock_parameter`, each verify step also
+records `sim_elapsed_s` from that Yamcs clock parameter's values before and after the step.
 
-A `verify` step's `elapsed_s` is a real convergence-time measurement whenever the step
-immediately follows the command that starts whatever it's waiting for.
-`cfg/drm/gsw/procedures/CheckoutTest.ycs`'s step 118 commands ADCS into `SUNSAFE`, and step 119
-verifies the reported Sun vector converges, timing out at 120 seconds.
-That step's `elapsed_s` is genuinely time-to-Sun-pointed, not a synthetic stand-in, which is
-exactly what `cfg/drm/campaigns/test-adcs-sunpointing.yaml` measures against a swept initial
-tumble rate.
+`AdcsTruthComparison.ycs`'s step 2 commands ADCS into `SUNSAFE`, and step 3 verifies the
+reported Sun vector converges, timing out at 120 wall clock seconds.
+The ADCS scenario runs at 5× and samples `/SIM_42_TRUTH/DYN_TIME` around that verify step, so the campaign's
+`time_to_sun_pointed_s` remains a simulated-time measurement across different run speeds.
+The truth clock arrives once per simulated second, which limits the metric's resolution.
+The procedure also compares ADCS telemetry with 42 truth through Yamcs.
 
 A metric resolves to `null` rather than raising whenever a trial has no matching verification to
 read, a build failure, a crashed trial, or a scenario without `verify_stacks` at all.
