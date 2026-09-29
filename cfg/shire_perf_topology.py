@@ -86,14 +86,14 @@ class PlacementResult:
 
 
 def detect_physical_topology(cpu_root: pathlib.Path = pathlib.Path("/sys/devices/system/cpu"),
-                             ) -> dict[int, list[int]] | None:
-    """Maps physical core id -> sorted logical CPU (thread) ids, on Linux,
-    from /sys/devices/system/cpu/cpu*/topology/core_id. Returns None on any
+                             ) -> dict[tuple[int, int], list[int]] | None:
+    """Maps (physical package, core) -> sorted logical CPU (thread) ids,
+    from /sys/devices/system/cpu/cpu*/topology. Returns None on any
     non-Linux host or if the topology can't be read cleanly -- callers must
     treat None as "can't safely place," not retry or error."""
     if platform.system() != "Linux":
         return None
-    cores: dict[int, list[int]] = {}
+    cores: dict[tuple[int, int], list[int]] = {}
     try:
         cpu_dirs = sorted(
             (p for p in cpu_root.glob("cpu[0-9]*") if p.is_dir()),
@@ -104,10 +104,12 @@ def detect_physical_topology(cpu_root: pathlib.Path = pathlib.Path("/sys/devices
         for cpu_dir in cpu_dirs:
             logical_id = int(cpu_dir.name[3:])
             core_id_path = cpu_dir / "topology" / "core_id"
-            if not core_id_path.exists():
+            package_id_path = cpu_dir / "topology" / "physical_package_id"
+            if not core_id_path.exists() or not package_id_path.exists():
                 return None
             core_id = int(core_id_path.read_text().strip())
-            cores.setdefault(core_id, []).append(logical_id)
+            package_id = int(package_id_path.read_text().strip())
+            cores.setdefault((package_id, core_id), []).append(logical_id)
     except (OSError, ValueError):
         return None
     for logical_ids in cores.values():
@@ -132,8 +134,8 @@ def format_cpuset(logical_ids: list[int]) -> str:
     return ",".join(f"{a}-{b}" if a != b else str(a) for a, b in ranges)
 
 
-def _partition_cores(core_ids: list[int], requests: dict[str, float],
-                     order: list[str]) -> dict[str, list[int]]:
+def _partition_cores(core_ids: list[tuple[int, int]], requests: dict[str, float],
+                     order: list[str]) -> dict[str, list[tuple[int, int]]]:
     """Partitions whole physical cores among `order`'s services,
     proportional to each service's requested `cpus:` quota, never splitting
     one physical core across two services. Every requested service gets at
@@ -142,7 +144,7 @@ def _partition_cores(core_ids: list[int], requests: dict[str, float],
     so no single big quota can crowd out everything after it."""
     total_request = sum(requests[s] for s in order if s in requests)
     remaining = list(core_ids)
-    assignment: dict[str, list[int]] = {}
+    assignment: dict[str, list[tuple[int, int]]] = {}
     for i, service in enumerate(order):
         if service not in requests or not remaining:
             continue
@@ -157,7 +159,7 @@ def _partition_cores(core_ids: list[int], requests: dict[str, float],
     return assignment
 
 
-def plan_placement(topology: dict[int, list[int]] | None,
+def plan_placement(topology: dict[tuple[int, int], list[int]] | None,
                     service_cpu_requests: dict[str, float],
                     mode: str) -> PlacementResult:
     """Pure placement decision -- no filesystem/docker access. `mode` is
@@ -167,7 +169,7 @@ def plan_placement(topology: dict[int, list[int]] | None,
 
     if mode != "auto":
         assignments: dict[str, str] = {}
-        for entry in mode.split(","):
+        for entry in re.split(r",(?=\s*[^,=]+\s*=)", mode):
             entry = entry.strip()
             if not entry:
                 continue

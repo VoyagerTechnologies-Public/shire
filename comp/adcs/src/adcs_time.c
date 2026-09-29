@@ -70,7 +70,10 @@ void ADCS_ResubmitTimeFallback(void)
         return;
     }
 
-    CFE_TIME_ExternalGPS(ADCS_AppData.TimeFileFallbackTime, 0);
+    CFE_TIME_SysTime_t elapsed = CFE_TIME_Subtract(CFE_TIME_GetMET(),
+                                                   ADCS_AppData.TimeFileFallbackMET);
+    CFE_TIME_SysTime_t advancing_time = CFE_TIME_Add(ADCS_AppData.TimeFileFallbackTime, elapsed);
+    CFE_TIME_ExternalGPS(advancing_time, 0);
 }
 
 /*
@@ -111,6 +114,7 @@ void ADCS_LoadTimeFromFile(void)
     FallbackTime.Subseconds = FileData.Subseconds;
 
     ADCS_AppData.TimeFileFallbackTime      = FallbackTime;
+    ADCS_AppData.TimeFileFallbackMET       = CFE_TIME_GetMET();
     ADCS_AppData.TimeFileFallbackAvailable = true;
     ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive  = true;
     ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount = BootOffsetCount;

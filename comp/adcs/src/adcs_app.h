@@ -67,13 +67,15 @@ typedef struct
     ** Time-fallback resubmission state (operational, not reported)
     */
     CFE_TIME_SysTime_t TimeFileFallbackTime;      /* Fallback time loaded from ADCS_TIME_FILE at boot */
+    CFE_TIME_SysTime_t TimeFileFallbackMET;       /* MET when the fallback was loaded */
     bool                TimeFileFallbackAvailable; /* Whether a fallback was loaded and still needs resubmitting */
 
     /*
     ** Boot-loaded control-law gains table
     */
     CFE_TBL_Handle_t GainsTblHandle; /* cFE Table Services handle */
-    ADCS_GainsTbl_t *GainsTblPtr;    /* Address of the active table buffer */
+    ADCS_GainsTbl_t  GainsTblSnapshot; /* Copy made while the cFE address is held */
+    ADCS_GainsTbl_t *GainsTblPtr;      /* Points to GainsTblSnapshot after a successful read */
 
 } ADCS_AppData_t;
 

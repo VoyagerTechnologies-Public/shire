@@ -286,6 +286,13 @@ static void test_parse_state_fields_and_eclipse(void)
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_parse_state_for_test("", NULL));
 }
 
+static void test_truncated_time_line_is_rejected(void)
+{
+    simulith_42_context_t context;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_parse_state_for_test(
+        "TIME 2026-001-02:03\nSC[0].svb = [1 0 0]\n", &context));
+}
+
 static void test_unconnected_and_invalid_connections(void)
 {
     simulith_42_context_t context;
@@ -609,6 +616,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_parse_state_fields_and_eclipse);
+    RUN_TEST(test_truncated_time_line_is_rejected);
     RUN_TEST(test_unconnected_and_invalid_connections);
     RUN_TEST(test_unix_connection_state_and_commands);
     RUN_TEST(test_tcp_connection_and_unsupported_command);

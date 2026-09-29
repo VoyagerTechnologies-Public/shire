@@ -103,43 +103,22 @@ static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_conte
     return status == 0 ? COMPONENT_SUCCESS : COMPONENT_ERROR;
 }
 
-// Robust inertial->body rotation that tests both quaternion conventions and
-// picks the one that gives the largest alignment with the +X body axis.
-//
 // q_native (context_42->qn) is 42's own quaternion, which is scalar-LAST:
 // [qx, qy, qz, qw] -- verified against 42/Kit/Source/mathkit.c's QxV(), whose
 // rotation-matrix diagonal terms match qq[3][3] (index 3) to w^2. quat_mul()
 // below is a standard Hamilton product in scalar-FIRST order: [qw, qx, qy,
 // qz]. Reorder once here so the rest of this function operates on a
-// correctly-interpreted quaternion.
-static void rotate_inertial_to_body_safe(const double q_native[4], const double vin[3], double vout[3]) {
+// correctly-interpreted quaternion. 42's Q2C(qn) maps inertial coordinates
+// into body coordinates and has the same signs as conjugate(q) * v * q.
+// q * v * conjugate(q) is the transpose (body-to-inertial) transform.
+static void rotate_inertial_to_body(const double q_native[4], const double vin[3], double vout[3]) {
     const double q[4] = { q_native[3], q_native[0], q_native[1], q_native[2] };
-    double v1[3], v2[3];
-    // v1 = q_conj * vin * q
-    {
-        double qc[4] = { q[0], -q[1], -q[2], -q[3] };
-        double vq[4] = {0.0, vin[0], vin[1], vin[2]};
-        double tmp[4]; quat_mul(qc, vq, tmp);
-        double res[4]; quat_mul(tmp, q, res);
-        v1[0] = res[1]; v1[1] = res[2]; v1[2] = res[3];
-    }
-    // v2 = q * vin * q_conj
-    {
-        double qc[4] = { q[0], -q[1], -q[2], -q[3] };
-        double vq[4] = {0.0, vin[0], vin[1], vin[2]};
-        double tmp[4]; quat_mul((double*)q, vq, tmp); // q * v
-        double res[4]; quat_mul(tmp, qc, res); // (q*v)*q_conj
-        v2[0] = res[1]; v2[1] = res[2]; v2[2] = res[3];
-    }
-
-    // Choose the vector that gives larger dot with +X (1,0,0)
-    double dot1 = v1[0];
-    double dot2 = v2[0];
-    if (dot1 >= dot2) {
-        vout[0] = v1[0]; vout[1] = v1[1]; vout[2] = v1[2];
-    } else {
-        vout[0] = v2[0]; vout[1] = v2[1]; vout[2] = v2[2];
-    }
+    const double qc[4] = { q[0], -q[1], -q[2], -q[3] };
+    const double vq[4] = {0.0, vin[0], vin[1], vin[2]};
+    double tmp[4], result[4];
+    quat_mul(qc, vq, tmp);
+    quat_mul(tmp, q, result);
+    vout[0] = result[1]; vout[1] = result[2]; vout[2] = result[3];
 }
 
 // Align body +X axis (1,0,0) with the provided vector expressed in body frame
@@ -169,9 +148,17 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
     // at their goal, not just that rates settled.
     for (int i = 0; i < 3; i++) state->hk.PointVectorBody[i] = (float)v[i];
 
-    // Compute attitude error (vector x target)
+    // Compute attitude error (vector x target). The cross product vanishes
+    // at both +X and -X; at the antipode, choose a deterministic transverse
+    // axis so an actual half-turn is commanded instead of holding -X.
     double attitude_error[3];
     cross_product(v, target_body, attitude_error);
+    if (v[0] < -0.999999 && vector_magnitude(attitude_error) < 0.001414214)
+    {
+        attitude_error[0] = 0.0;
+        attitude_error[1] = 0.0;
+        attitude_error[2] = 1.0;
+    }
     double rate_magnitude = vector_magnitude(context_42->wn);
     
     #ifdef ADCS_CFG_DEBUG
@@ -513,21 +500,21 @@ static int adcs_controller_update(adcs_sim_state_t* state,
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS CONTROLLER: Nadir pointing mode\n");
             #endif
-            rotate_inertial_to_body_safe(context_42->qn, nadir_inertial, nadir_body);
+            rotate_inertial_to_body(context_42->qn, nadir_inertial, nadir_body);
             return adcs_point_vector_controller(state, context_42, nadir_body, dt, "NADIR");
 
         case 4: // Target-track - rotate the instance-owned inertial target into body
             #ifdef ADCS_CFG_DEBUG    
             printf("ADCS CONTROLLER: Target-track mode\n");
             #endif
-            rotate_inertial_to_body_safe(context_42->qn, state->inertial_target, tgt_body);
+            rotate_inertial_to_body(context_42->qn, state->inertial_target, tgt_body);
             return adcs_point_vector_controller(state, context_42, tgt_body, dt, "TRACK");
 
         case 5: // Inertial pointing - keep body +X aligned to a fixed inertial direction
             #ifdef ADCS_CFG_DEBUG    
             printf("ADCS CONTROLLER: Inertial pointing mode\n");
             #endif
-            rotate_inertial_to_body_safe(context_42->qn, state->inertial_target, tgt_body);
+            rotate_inertial_to_body(context_42->qn, state->inertial_target, tgt_body);
             return adcs_point_vector_controller(state, context_42, tgt_body, dt, "INERTIAL");
             
         default:

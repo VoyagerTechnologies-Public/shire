@@ -18,20 +18,20 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import shire_perf_topology as topo  # noqa: E402
 
 
-def make_topology(physical_cores: int, threads_per_core: int = 2) -> dict[int, list[int]]:
+def make_topology(physical_cores: int, threads_per_core: int = 2) -> dict[tuple[int, int], list[int]]:
     """A synthetic topology matching how detect_physical_topology() shapes
     its real return value: core_id -> sorted logical CPU ids, interleaved
     the way Linux typically numbers hyperthread siblings (0,11 / 1,12 / ...
     for an 11-core/22-thread host) is not assumed -- callers only rely on
     the mapping, not any particular numbering scheme."""
-    topology: dict[int, list[int]] = {}
+    topology: dict[tuple[int, int], list[int]] = {}
     logical = 0
     for core in range(physical_cores):
         ids = []
         for _ in range(threads_per_core):
             ids.append(logical)
             logical += 1
-        topology[core] = ids
+        topology[(0, core)] = ids
     return topology
 
 
@@ -63,9 +63,22 @@ class DetectPhysicalTopologyTests(unittest.TestCase):
                 topo_dir = root / f"cpu{cpu}" / "topology"
                 topo_dir.mkdir(parents=True)
                 (topo_dir / "core_id").write_text(str(core_id))
+                (topo_dir / "physical_package_id").write_text("0")
             with patch.object(topo.platform, "system", return_value="Linux"):
                 result = topo.detect_physical_topology(cpu_root=root)
-        self.assertEqual(result, {0: [0, 2], 1: [1, 3]})
+        self.assertEqual(result, {(0, 0): [0, 2], (0, 1): [1, 3]})
+
+    def test_identical_core_ids_on_two_packages_remain_distinct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for cpu, package, core in ((0, 0, 0), (1, 1, 0), (2, 0, 0), (3, 1, 0)):
+                topo_dir = root / f"cpu{cpu}" / "topology"
+                topo_dir.mkdir(parents=True)
+                (topo_dir / "core_id").write_text(str(core))
+                (topo_dir / "physical_package_id").write_text(str(package))
+            with patch.object(topo.platform, "system", return_value="Linux"):
+                result = topo.detect_physical_topology(cpu_root=root)
+        self.assertEqual(result, {(0, 0): [0, 2], (1, 0): [1, 3]})
 
     def test_missing_core_id_file_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,6 +144,11 @@ class PlanPlacementTests(unittest.TestCase):
         self.assertEqual(result.mode, "manual")
         self.assertEqual(result.assignments, {"shire-fsw": "4-7", "shire-42": "8-9"})
         self.assertIsNone(result.unplaced_reason)
+
+    def test_manual_override_keeps_noncontiguous_cpuset(self):
+        result = topo.plan_placement(None, topo.SERVICE_CPU_REQUESTS,
+                                     "shire-fsw=0-2,4,shire-42=8-9,11")
+        self.assertEqual(result.assignments, {"shire-fsw": "0-2,4", "shire-42": "8-9,11"})
 
     def test_manual_override_ignores_topology_entirely(self):
         # A manual override must work even when auto-detection would have

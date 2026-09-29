@@ -118,6 +118,88 @@ foreach(target coverage-io_lib-shire_psp_runtime-object coverage-io_lib-shire_ps
 endforeach()
 target_link_libraries(coverage-io_lib-shire_psp_runtime-testrunner pthread)
 
+# The ground-output interval is intentionally cached on first use. Run each
+# parser case in a fresh test process so the same production initialization
+# path handles every valid and invalid rate value.
+foreach(hz IN ITEMS 0 bad 2oops inf 1e999 1e20 1e-20 1)
+    set(test_name "coverage-io_lib-shire_psp_runtime_ground_hz_${hz}")
+    add_test(NAME "${test_name}"
+        COMMAND $<TARGET_FILE:coverage-io_lib-shire_psp_runtime-testrunner>)
+    set_tests_properties("${test_name}" PROPERTIES ENVIRONMENT
+        "SHIRE_PSP_COVERAGE_GROUND_OUTPUT_ONLY=1;SHIRE_GROUND_OUTPUT_HZ=${hz}")
+endforeach()
+
+add_cfe_coverage_test(io_lib shire_psp_sb_observer
+    "${CMAKE_CURRENT_SOURCE_DIR}/shire_psp_sb_observer_tests.c"
+    "${CFEPSP_SOURCE_DIR}/fsw/shire/src/cfe_psp_sb_observer.c"
+)
+foreach(target coverage-io_lib-shire_psp_sb_observer-object coverage-io_lib-shire_psp_sb_observer-testrunner)
+    target_compile_definitions(${target} PRIVATE CFE_SB_OBSERVER_ENABLED)
+    target_include_directories(${target} PRIVATE
+        "${CFE_SOURCE_DIR}/modules/sb/fsw/src"
+        "${CFEPSP_SOURCE_DIR}/fsw/shire/inc"
+    )
+endforeach()
+
+add_cfe_coverage_test(io_lib shire_psp_start
+    "${CMAKE_CURRENT_SOURCE_DIR}/shire_psp_start_tests.c"
+    "${CFEPSP_SOURCE_DIR}/fsw/shire/src/cfe_psp_start.c"
+)
+target_compile_definitions(coverage-io_lib-shire_psp_start-object PRIVATE
+    OS_Application_Startup=UT_OS_Application_Startup
+    OS_Application_Run=UT_OS_Application_Run
+    exit=ShireTest_Exit
+    _GNU_SOURCE
+)
+foreach(target coverage-io_lib-shire_psp_start-object coverage-io_lib-shire_psp_start-testrunner)
+    target_include_directories(${target} PRIVATE
+        "${CFE_SOURCE_DIR}/cmake/target/inc"
+        "${CFEPSP_SOURCE_DIR}/fsw/inc"
+        "${CFEPSP_SOURCE_DIR}/fsw/shared/inc"
+        "${CFEPSP_SOURCE_DIR}/fsw/shire/inc"
+        "${OSAL_SOURCE_DIR}/src/bsp/shared/inc"
+    )
+endforeach()
+target_link_libraries(coverage-io_lib-shire_psp_start-testrunner pthread)
+
+add_cfe_coverage_test(io_lib shire_posix_queue
+    "${CMAKE_CURRENT_SOURCE_DIR}/shire_posix_queue_tests.c"
+    "${OSAL_SOURCE_DIR}/src/os/posix/src/os-impl-queues.c"
+)
+foreach(target coverage-io_lib-shire_posix_queue-object coverage-io_lib-shire_posix_queue-testrunner)
+    target_include_directories(${target} PRIVATE
+        "${OSAL_SOURCE_DIR}/src/os/posix/inc"
+        "${OSAL_SOURCE_DIR}/src/os/shared/inc"
+        "${OSAL_SOURCE_DIR}/src/os/inc"
+        "${OSAL_SOURCE_DIR}/src/bsp/shared/inc"
+    )
+endforeach()
+
+add_cfe_coverage_test(io_lib shire_posix_condvar
+    "${CMAKE_CURRENT_SOURCE_DIR}/shire_posix_condvar_tests.c"
+    "${OSAL_SOURCE_DIR}/src/os/posix/src/os-impl-condvar.c"
+)
+target_compile_definitions(coverage-io_lib-shire_posix_condvar-object PRIVATE
+    pthread_mutex_init=ShireTest_MutexInit
+    pthread_cond_init=ShireTest_CondInit
+    pthread_cond_destroy=ShireTest_CondDestroy
+    pthread_mutex_destroy=ShireTest_MutexDestroy
+    pthread_mutex_lock=ShireTest_MutexLock
+    pthread_mutex_unlock=ShireTest_MutexUnlock
+    pthread_cond_signal=ShireTest_CondSignal
+    pthread_cond_broadcast=ShireTest_CondBroadcast
+    pthread_cond_wait=ShireTest_CondWait
+    pthread_cond_timedwait=ShireTest_CondTimedWait
+)
+foreach(target coverage-io_lib-shire_posix_condvar-object coverage-io_lib-shire_posix_condvar-testrunner)
+    target_include_directories(${target} PRIVATE
+        "${OSAL_SOURCE_DIR}/src/os/posix/inc"
+        "${OSAL_SOURCE_DIR}/src/os/shared/inc"
+        "${OSAL_SOURCE_DIR}/src/os/inc"
+    )
+endforeach()
+target_link_libraries(coverage-io_lib-shire_posix_condvar-testrunner pthread)
+
 add_cfe_coverage_test(io_lib shire_osal_tasks_runtime
     "${CMAKE_CURRENT_SOURCE_DIR}/shire_osal_tasks_runtime_tests.c"
     "${OSAL_SOURCE_DIR}/src/os/shire/src/os-impl-tasks.c"

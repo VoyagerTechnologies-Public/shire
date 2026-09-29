@@ -1,5 +1,6 @@
 #include "adcs_app.h"
 #include "adcs_gains_limits.h"
+#include <math.h>
 
 /*
 ** Bounds-check each gain against the physical actuator ceilings (mirrored
@@ -11,7 +12,16 @@ int32 ADCS_ValidateGainsTbl(void *TblData)
     const ADCS_GainsTbl_t *tbl = (const ADCS_GainsTbl_t *)TblData;
     int32                  status = CFE_SUCCESS;
 
-    if (tbl->SunPointKp <= 0.0f || tbl->SunPointKd <= 0.0f)
+    if (!isfinite(tbl->SunPointKp) || !isfinite(tbl->SunPointKd) ||
+        !isfinite(tbl->WheelMaxTorqueNm) || !isfinite(tbl->MtbMaxDipoleAm2) ||
+        !isfinite(tbl->DetumbleGainBase) || !isfinite(tbl->DetumbleGainHigh) ||
+        !isfinite(tbl->RotisserieRateRadS))
+    {
+        CFE_EVS_SendEvent(ADCS_TBL_VALIDATE_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Gains table contains a non-finite value");
+        status = CFE_STATUS_VALIDATION_FAILURE;
+    }
+    else if (tbl->SunPointKp <= 0.0f || tbl->SunPointKd <= 0.0f)
     {
         CFE_EVS_SendEvent(ADCS_TBL_VALIDATE_ERR_EID, CFE_EVS_EventType_ERROR,
                           "ADCS: Gains table validation failed: SunPointKp/Kd must be > 0 (Kp=%f Kd=%f)",
@@ -55,7 +65,7 @@ int32 ADCS_ValidateGainsTbl(void *TblData)
 /*
 ** Register and load the boot-time gains table. Called from ADCS_AppInit().
 ** Does not push the table to the device -- the UART isn't open until
-** ADCS_Enable() (ground-commanded), which pushes ADCS_AppData.GainsTblPtr
+** ADCS_Enable() (ground-commanded), which pushes the cached gains snapshot
 ** at the end of its success path.
 */
 int32 ADCS_TableInit(void)
@@ -80,14 +90,15 @@ int32 ADCS_TableInit(void)
     }
 
     status = CFE_TBL_Manage(ADCS_AppData.GainsTblHandle);
-    if (status != CFE_SUCCESS)
+    if (status != CFE_SUCCESS && status != CFE_TBL_INFO_UPDATED)
     {
         CFE_EVS_SendEvent(ADCS_TBL_MANAGE_ERR_EID, CFE_EVS_EventType_ERROR,
                           "ADCS: Error in CFE_TBL_Manage for gains table, RC=0x%08X", (unsigned int)status);
         return status;
     }
 
-    status = CFE_TBL_GetAddress((void **)&ADCS_AppData.GainsTblPtr, ADCS_AppData.GainsTblHandle);
+    const ADCS_GainsTbl_t *table = NULL;
+    status = CFE_TBL_GetAddress((void **)&table, ADCS_AppData.GainsTblHandle);
     if ((status != CFE_SUCCESS) && (status != CFE_TBL_INFO_UPDATED))
     {
         CFE_EVS_SendEvent(ADCS_TBL_GETADDR_ERR_EID, CFE_EVS_EventType_ERROR,
@@ -95,5 +106,49 @@ int32 ADCS_TableInit(void)
         return status;
     }
 
+    if (table == NULL)
+    {
+        CFE_EVS_SendEvent(ADCS_TBL_GETADDR_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Gains table address is null");
+        return CFE_TBL_BAD_ARGUMENT;
+    }
+
+    ADCS_AppData.GainsTblSnapshot = *table;
+    ADCS_AppData.GainsTblPtr = &ADCS_AppData.GainsTblSnapshot;
+    status = CFE_TBL_ReleaseAddress(ADCS_AppData.GainsTblHandle);
+    if (status != CFE_SUCCESS && status != CFE_TBL_INFO_UPDATED)
+        return status;
+
+    return CFE_SUCCESS;
+}
+
+int32 ADCS_RefreshGainsTable(void)
+{
+    int32 status = CFE_TBL_Manage(ADCS_AppData.GainsTblHandle);
+    if (status != CFE_SUCCESS && status != CFE_TBL_INFO_UPDATED)
+    {
+        CFE_EVS_SendEvent(ADCS_TBL_MANAGE_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Error applying gains table update, RC=0x%08X", (unsigned int)status);
+        return status;
+    }
+
+    const ADCS_GainsTbl_t *table = NULL;
+    status = CFE_TBL_GetAddress((void **)&table, ADCS_AppData.GainsTblHandle);
+    if ((status != CFE_SUCCESS && status != CFE_TBL_INFO_UPDATED) || table == NULL)
+    {
+        CFE_EVS_SendEvent(ADCS_TBL_GETADDR_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Error reading gains table, RC=0x%08X", (unsigned int)status);
+        return status == CFE_SUCCESS || status == CFE_TBL_INFO_UPDATED ? CFE_TBL_BAD_ARGUMENT : status;
+    }
+
+    ADCS_AppData.GainsTblSnapshot = *table;
+    status = CFE_TBL_ReleaseAddress(ADCS_AppData.GainsTblHandle);
+    if (status != CFE_SUCCESS && status != CFE_TBL_INFO_UPDATED)
+    {
+        CFE_EVS_SendEvent(ADCS_TBL_GETADDR_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Error releasing gains table address, RC=0x%08X", (unsigned int)status);
+        return status;
+    }
+    ADCS_AppData.GainsTblPtr = &ADCS_AppData.GainsTblSnapshot;
     return CFE_SUCCESS;
 }

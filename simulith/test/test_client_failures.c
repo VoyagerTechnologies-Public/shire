@@ -1,4 +1,5 @@
 #include "simulith.h"
+#include "simulith_shared_barrier.h"
 #include "unity.h"
 
 #include <errno.h>
@@ -24,7 +25,8 @@ typedef enum
     RECV_DUPLICATE_TICK,
     RECV_STOP_TICK,
     RECV_EAGAIN_THEN_STOP,
-    RECV_OVERSIZED
+    RECV_OVERSIZED,
+    RECV_SHARED_PHASE_RACE
 } receive_mode_t;
 
 static int socket_calls;
@@ -35,6 +37,9 @@ static int send_failure;
 static int send_calls;
 static int receive_calls;
 static receive_mode_t receive_mode;
+static int shared_phase_receives;
+static int shared_phase_completions;
+static int shared_complete_failure;
 
 void simulith_log(const char *format, ...)
 {
@@ -136,6 +141,8 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
         case RECV_OVERSIZED:
             memset(buffer, 'A', length);
             return (int)length + 1;
+        case RECV_SHARED_PHASE_RACE:
+            return copy_reply(buffer, length, "ACK 1");
         case RECV_TICK_SEND_FAILURE:
             if (receive_calls == 1)
                 return copy_tick(buffer, length, 0, 42, SIMULITH_PHASE_EXECUTE);
@@ -210,6 +217,46 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
     }
 }
 
+int __wrap_simulith_shared_barrier_connect(simulith_shared_barrier_t *barrier, int slot)
+{
+    barrier->slot = slot;
+    return 0;
+}
+
+int __wrap_simulith_shared_barrier_receive(simulith_shared_barrier_t *barrier,
+                                           uint64_t *sequence, uint64_t *time_ns,
+                                           uint32_t *phase)
+{
+    (void)barrier;
+    shared_phase_receives++;
+    *sequence = (uint64_t)shared_phase_receives;
+    *time_ns = 100 + (uint64_t)shared_phase_receives;
+    *phase = SIMULITH_PHASE_EXECUTE;
+    return 0;
+}
+
+int __wrap_simulith_shared_barrier_complete(simulith_shared_barrier_t *barrier,
+                                            uint64_t sequence, uint32_t phase)
+{
+    (void)barrier;
+    (void)phase;
+    shared_phase_completions++;
+    if (shared_complete_failure)
+        return -1;
+    if (sequence == 1)
+    {
+        /* The server publishes the next phase before the old barrier call
+         * returns to its caller. This used to overwrite the new phase's
+         * completion state after receive had cleared it. */
+        uint64_t time_ns = 0, next_sequence = 0;
+        simulith_phase_t next_phase = 0;
+        TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(
+            &time_ns, &next_sequence, &next_phase));
+        TEST_ASSERT_EQUAL_UINT64(2, next_sequence);
+    }
+    return 0;
+}
+
 void setUp(void)
 {
     simulith_client_shutdown();
@@ -221,6 +268,9 @@ void setUp(void)
     send_calls = 0;
     receive_calls = 0;
     receive_mode = RECV_ACK;
+    shared_phase_receives = 0;
+    shared_phase_completions = 0;
+    shared_complete_failure = 0;
 }
 
 void tearDown(void)
@@ -324,6 +374,37 @@ static void test_client_rejects_duplicate_completion(void)
     TEST_ASSERT_EQUAL_INT(0, simulith_client_wait_for_tick(&tick));
     TEST_ASSERT_EQUAL_UINT64(42, tick);
     TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(0, SIMULITH_PHASE_EXECUTE));
+}
+
+static void test_shared_completion_does_not_clobber_next_phase(void)
+{
+    receive_mode = RECV_SHARED_PHASE_RACE;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init(
+        "pub", "ipc:///tmp/shire-client-test.sock", "shire-fsw", 1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_handshake());
+    uint64_t time_ns = 0, sequence = 0;
+    simulith_phase_t phase = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_UINT64(1, sequence);
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_complete_tick(sequence, phase));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_complete_tick(2, SIMULITH_PHASE_EXECUTE));
+    TEST_ASSERT_EQUAL_INT(2, shared_phase_completions);
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(2, SIMULITH_PHASE_EXECUTE));
+}
+
+static void test_shared_completion_failure_allows_retry(void)
+{
+    receive_mode = RECV_SHARED_PHASE_RACE;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init(
+        "pub", "ipc:///tmp/shire-client-test.sock", "shire-fsw", 1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_handshake());
+    uint64_t time_ns = 0, sequence = 0;
+    simulith_phase_t phase = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    shared_complete_failure = 1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence, phase));
+    shared_complete_failure = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_complete_tick(sequence, phase));
 }
 
 static int fail_phase_callback(uint64_t sequence, uint64_t time_ns)
@@ -432,6 +513,8 @@ int main(void)
     RUN_TEST(test_client_handshake_failures);
     RUN_TEST(test_client_tick_failures_and_null_callback);
     RUN_TEST(test_client_rejects_duplicate_completion);
+    RUN_TEST(test_shared_completion_does_not_clobber_next_phase);
+    RUN_TEST(test_shared_completion_failure_allows_retry);
     RUN_TEST(test_phase_callback_failure_withholds_completion);
     RUN_TEST(test_phased_loop_dispatches_execute_and_commit);
     RUN_TEST(test_client_rejects_invalid_duplicate_and_stop_ticks);

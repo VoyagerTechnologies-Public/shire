@@ -31,6 +31,10 @@ typedef struct
 */
 int32 ADCS_TableInit(void);
 
+/* Apply a pending ground update and copy the current gains without retaining
+ * a cFE table address across software-bus waits. */
+int32 ADCS_RefreshGainsTable(void);
+
 /*
 ** cFE table validation function: bounds-checks each gain against physical
 ** actuator/behavioral limits.

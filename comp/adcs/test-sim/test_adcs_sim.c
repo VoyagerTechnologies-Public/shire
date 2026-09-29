@@ -1607,8 +1607,7 @@ static void test_controller_mode2_high_rate_mtb_assist(void)
 
 static void test_controller_mode3_nadir_dot1_branch(void)
 {
-    /* Identity quaternion → v1 == v2, dot1 == dot2, first (>=) branch taken
-     * in rotate_inertial_to_body_safe. */
+    /* Identity quaternion leaves the inertial nadir vector unchanged. */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -1631,10 +1630,7 @@ static void test_controller_mode3_nadir_dot1_branch(void)
 
 static void test_controller_mode3_nadir_dot2_branch(void)
 {
-    /* 90° rotation around Y: q=(cos45°, 0, sin45°, 0) in scalar-first (w,x,y,z)
-     * math terms, stored scalar-last [x,y,z,w] per 42's real qn convention.
-     * With nadir_inertial=(0,0,1): v1[0]=-1, v2[0]=+1 → dot1 < dot2 →
-     * else branch (v2 chosen) in rotate_inertial_to_body_safe. */
+    /* 42's inertial-to-body quaternion rotates the nadir vector by +90° Y. */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -1651,6 +1647,58 @@ static void test_controller_mode3_nadir_dot2_branch(void)
     ctx.wn[0] = 0.0; ctx.wn[1] = 0.0; ctx.wn[2] = 0.0;
     ctx.mag_field_body[2] = 1.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_nadir_rotation_uses_42_frame_convention(void)
+{
+    /* 42's Q2C(+90 deg about Z) maps inertial [0.6,0.8,0] to
+     * body [+0.8,-0.6,0]. The transpose gives [-0.8,+0.6,0]. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    g_state_under_test = state;
+    arm_controller(as, 3, 300000000ULL);
+    simulith_42_context_t ctx = {0};
+    ctx.valid = 1;
+    ctx.qn[2] = 0.7071067811865476;
+    ctx.qn[3] = 0.7071067811865476;
+    ctx.pos_n[0] = -0.6;
+    ctx.pos_n[1] = -0.8;
+    ctx.mag_field_body[2] = 1.0;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->on_tick(state, 300000000ULL, &ctx));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5, 0.8f, as->hk.PointVectorBody[0]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5, -0.6f, as->hk.PointVectorBody[1]);
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_controller_mode4_antipodal_target_commands_slew(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    as->inertial_target[0] = -1.0;
+    as->inertial_target[1] = 0.0;
+    as->inertial_target[2] = 0.0;
+    arm_controller(as, 4, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid = 1;
+    ctx.qn[3] = 1.0;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick(state, 300000000ULL, &ctx));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, -1.0f, as->hk.PointVectorBody[0]);
+
+    simulith_42_command_t command, wheel = {0};
+    while (dequeue_command(&command) == 0)
+        if (command.type == SIMULITH_42_CMD_WHEEL_TORQUE) wheel = command;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_WHEEL_TORQUE, wheel.type);
+    TEST_ASSERT_TRUE(wheel.cmd.wheel.torque[2] > 0.0);
 
     g_state_under_test = NULL;
     g_iface->destroy(state);
@@ -2235,7 +2283,7 @@ static void test_convergence_mode2_eclipse_bdot_rate_damping(void)
 static void test_convergence_mode3_nadir_wheel_torque_reduces_error(void)
 {
     /* q=identity, pos_n=[0,0,-1]:
-     *   nadir_inertial = [0,0,1]; rotate_inertial_to_body_safe(identity) → [0,0,1]
+     *   nadir_inertial = [0,0,1]; rotate_inertial_to_body(identity) → [0,0,1]
      *   attitude_error = [0,0,1] x [1,0,0] = [0,1,0]
      *   PD law → wheel_torques[1] > 0 (positive Y torque rotates +Z toward +X). */
     component_state_t *state = NULL;
@@ -2273,11 +2321,8 @@ static void test_convergence_mode3_nadir_wheel_torque_reduces_error(void)
 
 static void test_convergence_mode4_track_wheel_torque_reduces_error(void)
 {
-    /* SET_TARGET 1 selects the instance-owned +X inertial target.
-     * q=(cos45°,0,sin45°,0) — 90° around Y:
-     *   tgt_body = rotate_inertial_to_body_safe([1,0,0]) = [0,0,1]
-     *   attitude_error = [0,0,1] x [1,0,0] = [0,1,0]
-     *   PD law → wheel_torques[1] > 0. */
+    /* SET_TARGET 1 selects +X inertial. 42's +90 deg Y quaternion maps it
+     * to body +Z, giving a positive Y pointing torque. */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -2387,7 +2432,7 @@ static void test_convergence_mode4_track_wheel_torque_capped_by_table_gain(void)
 static void test_convergence_mode5_inertial_wheel_torque_reduces_error(void)
 {
     /* Same geometry as mode 4 but mode=5 (fixed inertial pointing).
-     * SET_TARGET 1, q=(cos45°,0,sin45°,0) → wheel_torques[1] > 0. */
+     * SET_TARGET 1, q=(cos45°,0,sin45°,0) gives positive Y torque. */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -2526,6 +2571,8 @@ int main(void)
     RUN_TEST(test_controller_mode2_high_rate_mtb_assist);
     RUN_TEST(test_controller_mode3_nadir_dot1_branch);
     RUN_TEST(test_controller_mode3_nadir_dot2_branch);
+    RUN_TEST(test_nadir_rotation_uses_42_frame_convention);
+    RUN_TEST(test_controller_mode4_antipodal_target_commands_slew);
     RUN_TEST(test_controller_mode3_nadir_high_rate_mtb_assist);
     RUN_TEST(test_controller_mode3_point_vector_zero_magnitude);
     RUN_TEST(test_controller_mode4_target_track);

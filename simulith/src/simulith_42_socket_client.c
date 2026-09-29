@@ -403,7 +403,9 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
             long year, day_of_year;
             int hours, minutes;
             double seconds;
-            sscanf(line + 5, "%ld-%ld-%d:%d:%lf", &year, &day_of_year, &hours, &minutes, &seconds);
+            if (sscanf(line + 5, "%ld-%ld-%d:%d:%lf", &year, &day_of_year,
+                       &hours, &minutes, &seconds) != 5)
+                return -1;
             context->sim_time = hours * 3600.0 + minutes * 60.0 + seconds;
             context->dyn_time = civil_calendar_to_seconds_since_j2000(year, day_of_year,
                                                                       hours, minutes, seconds);

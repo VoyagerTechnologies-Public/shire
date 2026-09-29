@@ -1,10 +1,11 @@
 #include "adcs_app.h"
 #include "adcs_time.h"
+#include <math.h>
 #include <string.h>
 
 ADCS_AppData_t ADCS_AppData;
 
-static void ADCS_PushGainsToDevice(void);
+static int32 ADCS_PushGainsToDevice(void);
 
 /*
 ** Application entry point and main process loop
@@ -328,8 +329,11 @@ void ADCS_ProcessGroundCommand(void)
             {
                 if (ADCS_AppData.HkTelemetryPkt.DeviceEnabled == ADCS_DEVICE_ENABLED)
                 {
-                    ADCS_AppData.HkTelemetryPkt.CommandCount++;
-                    ADCS_PushGainsToDevice();
+                    if (ADCS_RefreshGainsTable() == CFE_SUCCESS &&
+                        ADCS_PushGainsToDevice() == OS_SUCCESS)
+                        ADCS_AppData.HkTelemetryPkt.CommandCount++;
+                    else
+                        ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
                 }
                 else
                 {
@@ -423,6 +427,16 @@ void ADCS_ProcessGroundCommand(void)
                     ADCS_Device_TargetVectorCmd_t target = {
                         .X = vcmd_buf.X, .Y = vcmd_buf.Y, .Z = vcmd_buf.Z,
                     };
+                    double magnitude_squared = (double)target.X * target.X + (double)target.Y * target.Y +
+                                               (double)target.Z * target.Z;
+                    if (!isfinite(target.X) || !isfinite(target.Y) || !isfinite(target.Z) ||
+                        magnitude_squared < 1e-12)
+                    {
+                        ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                        CFE_EVS_SendEvent(ADCS_SET_TARGET_VECTOR_ERR_EID, CFE_EVS_EventType_ERROR,
+                                          "ADCS: Invalid target vector");
+                        break;
+                    }
                     int32 status = ADCS_SendTargetVectorCmd(&ADCS_AppData.AdcsUart, &target);
                     if (status == OS_SUCCESS)
                     {
@@ -635,13 +649,13 @@ void ADCS_ResetCounters(void)
 ** Push the currently active gains table down to the device. Only
 ** meaningful while the UART is open (device enabled).
 */
-static void ADCS_PushGainsToDevice(void)
+static int32 ADCS_PushGainsToDevice(void)
 {
     if (ADCS_AppData.GainsTblPtr == NULL)
     {
         CFE_EVS_SendEvent(ADCS_SEND_GAINS_ERR_EID, CFE_EVS_EventType_ERROR,
                           "ADCS: Cannot push gains to device, table address not available");
-        return;
+        return OS_ERROR;
     }
 
     ADCS_Device_GainsCmd_t cmd = {
@@ -664,6 +678,7 @@ static void ADCS_PushGainsToDevice(void)
         CFE_EVS_SendEvent(ADCS_SEND_GAINS_ERR_EID, CFE_EVS_EventType_ERROR,
                           "ADCS: Failed to push gains to device: %d", (int)status);
     }
+    return status;
 }
 
 /*

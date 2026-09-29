@@ -67,8 +67,8 @@ void ADCS_ProcessGpsTime(void);
 void ADCS_LoadTimeFromFile(void);
 
 /*
-** Re-submit the file-loaded fallback time to cFE TIME via
-** CFE_TIME_ExternalGPS every HK cycle, until real GPS data takes over
+** Re-submit the file-loaded fallback time, advanced by elapsed MET since
+** loading, to cFE TIME via CFE_TIME_ExternalGPS every HK cycle until real GPS data takes over
 ** (ADCS_AppData.GpsTimeSynced). A single one-shot submission at boot
 ** isn't enough: cFE TIME's virtual tone generator (no physical
 ** CFE_PLATFORM_TIME_CFG_SIGNAL, CFE_PLATFORM_TIME_CFG_VIRTUAL instead)
