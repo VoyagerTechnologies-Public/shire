@@ -96,6 +96,7 @@ typedef struct
     uint64_t          execute_epoch;
     int               threads_exit;     /* set to 1 under tick_mutex to stop workers */
     int               execute_active;   /* service device I/O until COMMIT */
+    size_t            pending_service_callbacks;
     size_t            active_service_callbacks;
     int               threads_spawned;  /* number of live worker threads */
     int               worker_sync_initialized;

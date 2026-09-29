@@ -672,6 +672,15 @@ static void test_component_phase_boundaries_and_failures(void)
     g_director_config.components[0].interface = &interface;
     TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
 
+    /* The worker has observed a request before EXECUTE. The phase must not be
+     * acknowledged until that request is admitted, or a CLI client can lose
+     * the race to COMMIT indefinitely. */
+    pthread_mutex_lock(&g_director_config.tick_mutex);
+    while (g_director_config.pending_service_callbacks == 0U)
+        pthread_cond_wait(&g_director_config.tick_cond,
+                          &g_director_config.tick_mutex);
+    pthread_mutex_unlock(&g_director_config.tick_mutex);
+
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
                           director_prepare_tick(7, 1234));
     TEST_ASSERT_EQUAL_INT(0, fake_service_calls);
@@ -682,16 +691,12 @@ static void test_component_phase_boundaries_and_failures(void)
 
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
                           director_execute_tick(7, 1234));
-    for (int attempt = 0; attempt < 100 && fake_service_calls == 0; ++attempt)
-    {
-        struct timespec delay = {.tv_nsec = 1000000L};
-        nanosleep(&delay, NULL);
-    }
-    TEST_ASSERT_GREATER_THAN_INT(0, fake_service_calls);
+    TEST_ASSERT_EQUAL_size_t(0, g_director_config.pending_service_callbacks);
     TEST_ASSERT_EQUAL_INT(0, fake_state.actuations);
 
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
                           director_commit_tick(7, 1234));
+    TEST_ASSERT_GREATER_THAN_INT(0, fake_service_calls);
     TEST_ASSERT_EQUAL_INT(1, fake_state.actuations);
     cleanup_components(&g_director_config);
 

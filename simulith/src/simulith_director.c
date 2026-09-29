@@ -276,17 +276,27 @@ static void* component_worker(void* arg)
              * across that boundary, but only admit service during EXECUTE.
              * COMMIT closes admission under this mutex and waits for every
              * already admitted callback before ACTUATE. */
-            if (!g_director_config.execute_active)
+            int pending = !g_director_config.execute_active;
+            if (pending)
+            {
+                g_director_config.pending_service_callbacks++;
                 __atomic_add_fetch(&g_worker_parked_count, 1, __ATOMIC_RELAXED);
+                pthread_cond_broadcast(&g_director_config.tick_cond);
+            }
             while (!g_director_config.threads_exit &&
                    !g_director_config.execute_active)
                 pthread_cond_wait(&g_director_config.tick_cond,
                                   &g_director_config.tick_mutex);
             if (g_director_config.threads_exit) {
+                if (pending)
+                    g_director_config.pending_service_callbacks--;
                 pthread_mutex_unlock(&g_director_config.tick_mutex);
                 return NULL;
             }
+            if (pending)
+                g_director_config.pending_service_callbacks--;
             g_director_config.active_service_callbacks++;
+            pthread_cond_broadcast(&g_director_config.tick_cond);
             uint64_t admission_ns = director_now_ns() - ready_at_ns;
             __atomic_add_fetch(&g_worker_ready_count, 1, __ATOMIC_RELAXED);
             __atomic_add_fetch(&g_worker_admission_total_ns, admission_ns,
@@ -480,6 +490,7 @@ int initialize_components(director_config_t* config)
     config->execute_epoch = 0;
     config->threads_exit  = 0;
     config->execute_active = 0;
+    config->pending_service_callbacks = 0;
     config->active_service_callbacks = 0;
     config->threads_spawned = 0;
     config->worker_sync_initialized = 0;
@@ -1295,6 +1306,13 @@ int director_execute_tick(uint64_t sequence, uint64_t tick_time_ns)
     g_director_config.execute_active = 1;
     g_director_config.execute_epoch++;
     pthread_cond_broadcast(&g_director_config.tick_cond);
+    /* A request observed between ticks must be admitted before EXECUTE is
+     * acknowledged. Otherwise an unsynchronized client such as the component
+     * CLI can lose the scheduling race to COMMIT on every tick and time out
+     * even though its request is queued. */
+    while (g_director_config.pending_service_callbacks != 0U)
+        pthread_cond_wait(&g_director_config.tick_cond,
+                          &g_director_config.tick_mutex);
     pthread_mutex_unlock(&g_director_config.tick_mutex);
     return COMPONENT_SUCCESS;
 }
