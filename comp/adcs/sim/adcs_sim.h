@@ -31,8 +31,25 @@
 #define ADCS_HIGH_RATE_THRESHOLD 0.5        // High rate threshold (rad/s)
 #define ADCS_ERROR_THRESHOLD 0.15           // Error threshold for fine pointing (rad)
 
+// Runtime-tunable control-law gains. Seeded from the ADCS_* macros above
+// (the compiled-in defaults / hardware ceilings) by adcs_sim_init(), and
+// overwritten by an ADCS_DEVICE_SET_GAINS_CMD frame once the cFE app pushes
+// down its boot-loaded gains table (see comp/adcs/src/adcs_tbl.c). The
+// controllers read these fields instead of the macros directly, so a table
+// load actually changes runtime behavior.
+typedef struct
+{
+    double sun_point_kp;
+    double sun_point_kd;
+    double wheel_max_torque;
+    double mtb_max_dipole;
+    double detumble_gain_base;
+    double detumble_gain_high;
+    double rotisserie_rate_rad_s;
+} adcs_sim_gains_t;
+
 // Adcs simulator state
-typedef struct 
+typedef struct
 {
     // Resources and model state are instance-owned; no callback globals.
     transport_port_t uart_port;
@@ -49,6 +66,7 @@ typedef struct
     double inertial_target[3];
     int current_mode;
     int controller_active;
+    adcs_sim_gains_t gains;
 } adcs_sim_state_t;
 
 // Public API

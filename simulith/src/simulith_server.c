@@ -14,6 +14,21 @@
 #define MAX_CLIENTS 32
 #define MAX_LATENCY_SAMPLES 10000
 
+/* Caps how far next_tick_deadline_ns is allowed to fall behind real time
+** (see its use in the pacing block below). Without this, a single stall
+** (e.g. the 200ms zmq_poll fallback a few lines up when a client's
+** completion isn't immediately available) leaves the deadline schedule
+** far in the past, and since ticks run unthrottled whenever
+** completion_ns >= next_tick_deadline_ns, the server then burns through
+** the entire backlog at full speed -- a burst that can itself blow past
+** a docker --cpus quota and get throttled, stall again, and repeat,
+** producing a sustained "rubber-banding" between under- and over-speed
+** instead of one isolated blip. Clamping the lag bounds that burst; any
+** time lost to a stall beyond this cap is accepted as permanent (small)
+** drift rather than chased.
+*/
+#define MAX_CATCHUP_LAG_NS 50000000ULL /* 50ms */
+
 typedef struct
 {
     char id[64];
@@ -58,6 +73,9 @@ static simulith_phase_t current_phase           = SIMULITH_PHASE_PREPARE;
 static uint64_t     completion_count           = 0;
 static uint64_t     tick_latency_samples[MAX_LATENCY_SAMPLES];
 static size_t       tick_latency_sample_count  = 0;
+static uint64_t     phase_latency_total_ns[4]  = {0};
+static uint64_t     phase_latency_samples[4][MAX_LATENCY_SAMPLES];
+static size_t       phase_latency_sample_count[4] = {0};
 static double       g_attempted_speed          = 1.0;
 static uint64_t     g_last_log_real_ns         = 0;
 static uint64_t     g_last_log_sim_ns          = 0;
@@ -179,6 +197,8 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     measured_ticks_completed = 0;
     completion_count = 0;
     tick_latency_sample_count = 0;
+    memset(phase_latency_total_ns, 0, sizeof(phase_latency_total_ns));
+    memset(phase_latency_sample_count, 0, sizeof(phase_latency_sample_count));
     protocol_errors = duplicate_completions = stale_completions = future_completions = 0;
     tick_latency_total_ns = tick_latency_max_ns = 0;
     tick_latency_min_ns = UINT64_MAX;
@@ -1060,6 +1080,15 @@ void simulith_server_run(void)
                     if (poll_and_dispatch_commands(&paused, &speed))
                         running = 0;
                 }
+                if (current_time_ns >= configured_warmup_ns && running &&
+                    !simulith_server_stop_requested)
+                {
+                    uint64_t duration_ns = monotonic_ns() - active_phase_start_ns;
+                    phase_latency_total_ns[current_phase] += duration_ns;
+                    if (phase_latency_sample_count[current_phase] < MAX_LATENCY_SAMPLES)
+                        phase_latency_samples[current_phase][
+                            phase_latency_sample_count[current_phase]++] = duration_ns;
+                }
             }
 
             if (current_phase <= SIMULITH_PHASE_COMMIT)
@@ -1090,6 +1119,11 @@ void simulith_server_run(void)
                     pacing_speed = speed;
                 }
                 next_tick_deadline_ns += target_ns;
+                if (completion_ns > next_tick_deadline_ns &&
+                    completion_ns - next_tick_deadline_ns > MAX_CATCHUP_LAG_NS)
+                {
+                    next_tick_deadline_ns = completion_ns - MAX_CATCHUP_LAG_NS;
+                }
                 if (completion_ns < next_tick_deadline_ns)
                 {
                     struct timespec deadline = {
@@ -1207,6 +1241,21 @@ static void write_metrics(FILE *stream)
                                   client_states[i].completion_latency_sample_count[phase], 0.99),
                     (double)client_states[i].completion_latency_max_ns[phase] / 1000.0);
         }
+    }
+    fputs("],\"phase_latency_us\":[", stream);
+    for (simulith_phase_t phase = SIMULITH_PHASE_PREPARE;
+         phase <= SIMULITH_PHASE_COMMIT;
+         phase = (simulith_phase_t)(phase + 1))
+    {
+        size_t count = phase_latency_sample_count[phase];
+        fprintf(stream,
+                "%s{\"phase\":\"%s\",\"count\":%zu,\"mean\":%.3f,"
+                "\"p50\":%.3f,\"p95\":%.3f}",
+                phase == SIMULITH_PHASE_PREPARE ? "" : ",", phase_name(phase),
+                count, measured_ticks > 0 ?
+                    (double)phase_latency_total_ns[phase] / (double)measured_ticks / 1000.0 : 0.0,
+                percentile_us(phase_latency_samples[phase], count, 0.50),
+                percentile_us(phase_latency_samples[phase], count, 0.95));
     }
     fputs("]}\n", stream);
 }

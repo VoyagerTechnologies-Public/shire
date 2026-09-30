@@ -25,6 +25,8 @@
 #define ADCS_SET_MODE_ERR_EID    21
 #define ADCS_SET_TARGET_INF_EID  22
 #define ADCS_SET_TARGET_ERR_EID  23
+#define ADCS_SET_TARGET_VECTOR_INF_EID 24
+#define ADCS_SET_TARGET_VECTOR_ERR_EID 25
 
 /* Hardware protocol event IDs */
 #define ADCS_UART_INIT_ERR_EID  30
@@ -37,5 +39,18 @@
 /* Device specific telemetry event IDs */
 #define ADCS_REQ_DATA_ERR_EID        42
 #define ADCS_REQ_DATA_STATUS_ERR_EID 43
+
+/* Table and time synchronization event IDs */
+#define ADCS_GPS_TIME_SYNC_INF_EID 50
+#define ADCS_TBL_REGISTER_ERR_EID  51
+#define ADCS_TBL_LOAD_ERR_EID      52
+#define ADCS_TBL_MANAGE_ERR_EID    53
+#define ADCS_TBL_GETADDR_ERR_EID   54
+#define ADCS_TBL_VALIDATE_ERR_EID  55
+#define ADCS_SEND_GAINS_INF_EID    56
+#define ADCS_SEND_GAINS_ERR_EID    57
+#define ADCS_TIME_FILE_LOAD_INF_EID 58
+#define ADCS_TIME_FILE_LOAD_ERR_EID 59
+#define ADCS_TIME_FILE_SAVE_ERR_EID 60
 
 #endif /* _ADCS_EVENTS_H_ */

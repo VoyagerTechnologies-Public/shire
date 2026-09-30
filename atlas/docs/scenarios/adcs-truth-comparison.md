@@ -1,7 +1,10 @@
 # ADCS Truth Comparison
 
-> **Scenario status:** Draft simulated scenario built around `AdcsComponent.ycs` and current 42 truth telemetry.
-> The existing procedure displays truth values but does not assert numeric agreement between ADCS telemetry and 42.
+The `adcs-truth-verification` scenario automatically checks that a settled
+ADCS Sun vector agrees with live 42 truth within its configured tolerance.
+Run it with `make scenario SCENARIO=adcs-truth-verification`.
+The manual procedure below adds visual context and longer repeatability
+observations when those are needed.
 
 ## Objective
 
@@ -21,7 +24,8 @@ Separate command acceptance, control settling, component telemetry, truth data, 
 
 It commands `SUNSAFE` and asserts that `SUN_X` is above 0.98.
 It also asserts that `SUN_Y` and `SUN_Z` remain between negative 0.02 and positive 0.02.
-Those checks validate the component vector limits but do not calculate error against the truth vector.
+Those checks validate the component vector limits.
+The separate `AdcsTruthComparison.ycs` stack checks numeric agreement with 42 truth.
 
 ## Prerequisites
 
@@ -81,7 +85,8 @@ Do not fill missing values from unrelated timestamps.
 | Truth comparison | Aligned raw samples are retained for a reviewed frame and error calculation. |
 | Repeatability | The defined metric remains within a limit chosen before the measured run. |
 
-The truth comparison and repeatability rows remain draft criteria until the frame mapping, calculation, tolerance, and sample count are approved.
+The automated scenario checks numeric agreement at a settled sample.
+The broader manual repeatability criterion requires an approved sample count and limit.
 
 ## Troubleshooting
 
@@ -105,4 +110,4 @@ A complete procedure needs fresh data checks, time alignment, explicit frame con
 Add another ADCS mode only after its target, expected 42 behavior, and acceptance limits are documented.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20260923

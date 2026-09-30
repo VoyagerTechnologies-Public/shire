@@ -84,6 +84,7 @@ pkg_check_modules(ZeroMQ REQUIRED libzmq)
 add_executable(test_adcs_truth_alignment
     test_adcs_truth_alignment.c
     ${SIMULITH_DIR}/src/simulith_director.c
+    ${SIMULITH_DIR}/src/simulith_control_trace.c
     ${UNITY_SRC}
 )
 

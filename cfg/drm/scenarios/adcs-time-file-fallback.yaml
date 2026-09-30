@@ -1,0 +1,41 @@
+# Confirms ADCS's GPS-loss time fallback works, ground-visible, end to
+# end: at boot, before any command at all, ADCS_LoadTimeFromFile() loads
+# the build-time fallback fixture (cfg/shire_defs/cpu1_adcs_time.dat, a
+# stale 2010 date standing in for "last known-good time saved before a
+# real reboot") and feeds it to cFE TIME with the boot offset applied,
+# resubmitted every HK cycle by ADCS_ResubmitTimeFallback() (see
+# adcs_time.h -- a one-shot submission isn't enough). ADCS is then
+# enabled and real GPS data is shown to supersede the stale fallback
+# while the clock is still uncertified (NOT_SET); only then does ground
+# certify it, exactly like adcs-gps-time-sync.yaml -- certifying while
+# still anchored to the stale fallback would have the real GPS
+# correction rejected by CFE_PLATFORM_TIME_MAX_DELTA once WAS_SET. Real
+# GPS also re-arms the fallback file via ADCS_SaveTimeToFile() -- via
+# AdcsTimeFileFallback.ycs's verify_stacks steps.
+#
+# Manual (GUI + YAMCS):  set scenario: adcs-time-file-fallback in
+#                        build/active.yaml, `make`, `make start`, then run
+#                        comp/adcs/gsw/procedures/AdcsTimeFileFallback.ycs
+#                        by hand.
+# Autonomous (no GUI):   make scenario SCENARIO=adcs-time-file-fallback
+scenario_name: "adcs-time-file-fallback"
+description: >
+  Boots sat-1 on the nominal-baseline reference orbit and, before any
+  ground command at all, verifies ADCS_LoadTimeFromFile() has already
+  loaded the build-time fallback fixture (a stale 2010 date) and fed it to
+  cFE TIME with one boot-offset increment applied, kept alive every HK
+  cycle by ADCS_ResubmitTimeFallback() -- proving the fallback path fires
+  automatically at boot, independent of the GPS device, and holds while
+  the clock is still uncertified (NOT_SET). ADCS is then enabled and real
+  GPS data is confirmed to supersede the stale fallback; only then does
+  ground certify the clock (CFE_TIME_SET_STATE), matching
+  adcs-gps-time-sync.yaml's pattern of certifying only after the external
+  source has already converged. Also confirms ADCS_SaveTimeToFile()
+  persists the fresh real time back to the fallback file for next time.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+run_duration_s: 180
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsTimeFileFallback.ycs"
+    at_s: 0

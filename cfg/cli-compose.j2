@@ -51,6 +51,7 @@ services:
     environment:
       - SIMULITH_COMPONENT_EXECUTION=sequential
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SIMULITH_GSW_HOST=127.0.0.1
       - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
     cpus: "1.0"
     mem_limit: 512m

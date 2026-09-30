@@ -172,10 +172,10 @@ extern "C"
      */
     void simulith_client_run_loop(simulith_tick_callback on_tick);
 
-    /** Run a director-style PREPARE/EXECUTE/COMMIT loop. */
-    void simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
-                                         simulith_phase_callback on_execute,
-                                         simulith_phase_callback on_commit);
+    /** Run a director-style PREPARE/EXECUTE/COMMIT loop; fail on phase errors. */
+    int simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
+                                        simulith_phase_callback on_execute,
+                                        simulith_phase_callback on_commit);
 
     /** Request that a client loop running on another thread return. */
     void simulith_client_request_stop(void);

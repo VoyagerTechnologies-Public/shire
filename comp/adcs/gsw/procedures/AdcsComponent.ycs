@@ -56,6 +56,22 @@
       ]
     },
     {
+      "type": "command",
+      "name": "/ADCS/ADCS_CONFIG_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/CMD_COUNT",
+          "operator": "gte",
+          "value": "2"
+        }
+      ]
+    },
+    {
       "type": "check",
       "parameters": [
         {
@@ -117,7 +133,93 @@
           "operator": "gt",
           "value": "-0.02"
         }
+      ],
+      "timeout": 120000
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "TARGET"
+        }
       ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_TARGET_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TARGET",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/ADCS/CMD_COUNT",
+          "operator": "gte",
+          "value": "5"
+        },
+        {
+          "parameter": "/ADCS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/ANGRATE_X",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_X",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "gt",
+          "value": "-0.02"
+        }
+      ],
+      "timeout": 30000
     }
   ],
   "advancement": {

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /*
  * Simulith 42 Socket Client
  * 
@@ -22,8 +23,15 @@
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <linux/futex.h>
+#include <sys/file.h>
+#include <sys/mman.h>
 #include <sys/select.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
+#include <time.h>
 
 #define SOCKET_BUFFER_SIZE 16384
 #define RECONNECT_ATTEMPTS 20
@@ -61,6 +69,10 @@ typedef struct {
     char rx_buffer[SOCKET_BUFFER_SIZE];
     size_t rx_buffer_len;
     int binary_mode;
+    int shared_mode;
+    int shared_fd;
+    uint32_t shared_seq;
+    shire_ipc_shared_t *shared;
 } fortytwo_socket_client_t;
 
 static fortytwo_socket_client_t g_client = {
@@ -69,8 +81,87 @@ static fortytwo_socket_client_t g_client = {
     .hostname = "shire-42",
     .port = 5556,
     .rx_buffer_len = 0,
-    .binary_mode = 1
+    .binary_mode = 1,
+    .shared_fd = -1,
+    .shared_seq = 1
 };
+
+static void shared_wake(uint32_t *word)
+{
+    (void)syscall(SYS_futex, word, FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
+}
+
+static int shared_wait(uint32_t *word, uint32_t expected)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    uint64_t spin_until = (uint64_t)now.tv_sec * 1000000000ULL +
+                          (uint64_t)now.tv_nsec + 100000ULL;
+    while (__atomic_load_n(word, __ATOMIC_ACQUIRE) != expected)
+    {
+        uint32_t observed = __atomic_load_n(word, __ATOMIC_ACQUIRE);
+        if (observed == expected) return 0;
+        if (observed > expected) return -1;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if ((uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec < spin_until)
+        {
+#if defined(__x86_64__) || defined(__i386__)
+            __builtin_ia32_pause();
+#endif
+            continue;
+        }
+        struct timespec timeout = {.tv_sec = 5};
+        if (syscall(SYS_futex, word, FUTEX_WAIT, observed, &timeout, NULL, 0) < 0 &&
+            errno != EAGAIN && errno != EINTR &&
+            __atomic_load_n(word, __ATOMIC_ACQUIRE) != expected)
+            return -1;
+    }
+    return 0;
+}
+
+static int connect_shared(void)
+{
+    for (unsigned int attempt = 0; attempt < reconnect_attempts(); ++attempt)
+    {
+        int fd = open(SHIRE_IPC_SHARED_PATH, O_RDWR);
+        if (fd >= 0)
+        {
+            struct stat details;
+            /* A held flock proves this inode belongs to a live 42 owner,
+             * rather than a valid-looking file left in the shared volume. */
+            if (fstat(fd, &details) == 0 &&
+                details.st_size >= (off_t)sizeof(shire_ipc_shared_t) &&
+                flock(fd, LOCK_EX | LOCK_NB) < 0 && errno == EWOULDBLOCK)
+            {
+                shire_ipc_shared_t *shared = mmap(NULL, sizeof(*shared),
+                    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+                if (shared != MAP_FAILED)
+                {
+                    if (__atomic_load_n(&shared->magic, __ATOMIC_ACQUIRE) ==
+                            SHIRE_IPC_SHARED_MAGIC &&
+                        shared->version == SHIRE_IPC_SHARED_VERSION)
+                    {
+                        g_client.shared_fd = fd;
+                        g_client.shared = shared;
+                        g_client.shared_seq = 1;
+                        g_client.connected = 1;
+                        return 0;
+                    }
+                    munmap(shared, sizeof(*shared));
+                }
+            }
+            else
+            {
+                /* Release a stale-file probe lock if it was acquired. */
+                (void)flock(fd, LOCK_UN);
+            }
+            close(fd);
+        }
+        if (attempt + 1U < reconnect_attempts()) wait_before_reconnect();
+    }
+    fprintf(stderr, "[42-client] Failed to connect to live shared 42 IPC\n");
+    return -1;
+}
 
 static int socket_read_all(int socket_fd, void *buffer, size_t length)
 {
@@ -118,7 +209,17 @@ static int socket_read_text_frame(int socket_fd, char *buffer, size_t capacity)
 static int receive_binary_state(simulith_42_context_t *context)
 {
     shire_ipc_state_t state;
-    if (socket_read_all(g_client.socket_fd, &state, sizeof(state)) != 0)
+    if (g_client.shared_mode)
+    {
+        if (shared_wait(&g_client.shared->state_seq, g_client.shared_seq) != 0)
+        {
+            fprintf(stderr, "[42-client] Shared state wait failed: expected=%u observed=%u errno=%d\n",
+                    g_client.shared_seq, __atomic_load_n(&g_client.shared->state_seq, __ATOMIC_ACQUIRE), errno);
+            return -1;
+        }
+        state = g_client.shared->state;
+    }
+    else if (socket_read_all(g_client.socket_fd, &state, sizeof(state)) != 0)
         return -1;
     if (state.header.magic != SHIRE_IPC_MAGIC ||
         state.header.version != SHIRE_IPC_VERSION ||
@@ -128,7 +229,7 @@ static int receive_binary_state(simulith_42_context_t *context)
 
     memset(context, 0, sizeof(*context));
     context->sim_time = state.sim_time;
-    context->dyn_time = state.sim_time;
+    context->dyn_time = state.utc_civil_time;
     memcpy(context->qn, state.qn, sizeof(state.qn));
     memcpy(context->wn, state.wn, sizeof(state.wn));
     memcpy(context->pos_n, state.pos_n, sizeof(state.pos_n));
@@ -150,6 +251,19 @@ static int receive_binary_state(simulith_42_context_t *context)
 
 static int receive_binary_ack(void)
 {
+    if (g_client.shared_mode)
+    {
+        if (shared_wait(&g_client.shared->ack_seq, g_client.shared_seq) != 0 ||
+            g_client.shared->ack_status != 0)
+        {
+            fprintf(stderr, "[42-client] Shared command ack failed: expected=%u observed=%u status=%u errno=%d\n",
+                    g_client.shared_seq, __atomic_load_n(&g_client.shared->ack_seq, __ATOMIC_ACQUIRE),
+                    g_client.shared->ack_status, errno);
+            return -1;
+        }
+        g_client.shared_seq++;
+        return 0;
+    }
     shire_ipc_ack_t ack;
     if (socket_read_all(g_client.socket_fd, &ack, sizeof(ack)) != 0 ||
         ack.header.magic != SHIRE_IPC_MAGIC ||
@@ -159,6 +273,15 @@ static int receive_binary_ack(void)
         ack.status != 0)
         return -1;
     return 0;
+}
+
+static int send_shared_commands(const shire_ipc_commands_t *batch)
+{
+    g_client.shared->commands = *batch;
+    __atomic_store_n(&g_client.shared->command_seq, g_client.shared_seq,
+                     __ATOMIC_RELEASE);
+    shared_wake(&g_client.shared->command_seq);
+    return receive_binary_ack();
 }
 
 /*
@@ -217,6 +340,41 @@ static int connect_to_42(void)
     return -1;
 }
 
+static int is_gregorian_leap_year(long year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+/*
+ * Convert a UTC calendar time (year, day-of-year, time-of-day) from 42's
+ * "TIME YYYY-DDD-HH:MM:SS.SSSSSSSSS" IPC line into seconds since the J2000
+ * epoch (2000-01-01T12:00:00 UTC). This mirrors 42's own CivilTime
+ * convention (see 42/Kit/Source/timekit.c's DateToTime) and is what
+ * simulith_42_context_t's dyn_time field documents itself as. Anchoring to
+ * the real calendar epoch configured in Inp_Sim.txt -- rather than just
+ * time-of-day, which wraps every 86400s and carries no date at all -- is
+ * required for any consumer that needs absolute time, e.g. ADCS's GPS time
+ * sync into cFE TIME.
+ */
+static double civil_calendar_to_seconds_since_j2000(long year, long day_of_year,
+                                                     int hour, int minute, double second)
+{
+    long days = 0;
+    if (year >= 2000) {
+        for (long y = 2000; y < year; y++) {
+            days += is_gregorian_leap_year(y) ? 366 : 365;
+        }
+    } else {
+        for (long y = year; y < 2000; y++) {
+            days -= is_gregorian_leap_year(y) ? 366 : 365;
+        }
+    }
+    days += (day_of_year - 1);
+    /* J2000 is 2000-01-01T12:00:00 UTC (noon), a half day after the
+       2000-01-01T00:00:00 reference the day count above is relative to. */
+    return ((double)days - 0.5) * 86400.0 + hour * 3600.0 + minute * 60.0 + second;
+}
+
 /*
  * Parse spacecraft state from 42's IPC text format
  */
@@ -241,12 +399,16 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
         
         // Parse known fields (based on 42's TxRxIPC.c output format)
         if (strncmp(line, "TIME ", 5) == 0) {
-            // TIME format: YYYY-DDD-HH:MM:SS.SSSSSSSSS
-            // Extract total SimTime by converting HH:MM:SS to seconds
+            // TIME format: YYYY-DDD-HH:MM:SS.SSSSSSSSS (UTC calendar time)
+            long year, day_of_year;
             int hours, minutes;
             double seconds;
-            sscanf(line + 5, "%*d-%*d-%d:%d:%lf", &hours, &minutes, &seconds);
+            if (sscanf(line + 5, "%ld-%ld-%d:%d:%lf", &year, &day_of_year,
+                       &hours, &minutes, &seconds) != 5)
+                return -1;
             context->sim_time = hours * 3600.0 + minutes * 60.0 + seconds;
+            context->dyn_time = civil_calendar_to_seconds_since_j2000(year, day_of_year,
+                                                                      hours, minutes, seconds);
         }
         // 42 uses array format: "SC[0].qn = [q0 q1 q2 q3]"
         else if (strncmp(line, "SC[0].qn = [", 12) == 0) {
@@ -279,8 +441,6 @@ static int parse_42_state(const char *message, simulith_42_context_t *context)
         }
     }
     
-    // Set dyn_time to sim_time (they're the same in 42)
-    context->dyn_time = context->sim_time;
     context->valid = 1;
     context->spacecraft_id = 0;
     context->exists = 1;
@@ -362,6 +522,9 @@ int simulith_42_init(const char *hostname, int port)
 {
     const char *mode = getenv("FORTYTWO_IPC_MODE");
     g_client.binary_mode = !mode || strcmp(mode, "text") != 0;
+    g_client.shared_mode = mode && strcmp(mode, "shared") == 0;
+    if (g_client.shared_mode)
+        return connect_shared();
     if (hostname) {
         strncpy(g_client.hostname, hostname, sizeof(g_client.hostname) - 1);
         g_client.hostname[sizeof(g_client.hostname) - 1] = '\0';
@@ -449,6 +612,18 @@ void simulith_42_cleanup(void)
         close(g_client.socket_fd);
         g_client.socket_fd = -1;
     }
+    if (g_client.shared)
+    {
+        munmap(g_client.shared, sizeof(*g_client.shared));
+        g_client.shared = NULL;
+    }
+    if (g_client.shared_fd >= 0)
+    {
+        close(g_client.shared_fd);
+        g_client.shared_fd = -1;
+    }
+    g_client.shared_mode = 0;
+    g_client.shared_seq = 1;
     g_client.connected = 0;
     printf("[42-client] Disconnected from 42\n");
 }
@@ -524,6 +699,15 @@ int simulith_42_send_command_batch(const simulith_42_command_t *commands, int co
         }
         batch.header.payload_size = (uint32_t)
             SHIRE_IPC_COMMANDS_PAYLOAD_SIZE(batch.count);
+        if (g_client.shared_mode)
+        {
+            if (send_shared_commands(&batch) != 0)
+            {
+                g_client.connected = 0;
+                return -1;
+            }
+            return 0;
+        }
         if (socket_write_all(g_client.socket_fd, &batch,
                              SHIRE_IPC_COMMANDS_FRAME_SIZE(batch.count)) != 0) {
             g_client.connected = 0;
@@ -630,6 +814,15 @@ int simulith_42_send_empty_commands(void)
         batch.header.version = SHIRE_IPC_VERSION;
         batch.header.type = SHIRE_IPC_COMMANDS;
         batch.header.payload_size = SHIRE_IPC_COMMANDS_PREFIX_SIZE;
+        if (g_client.shared_mode)
+        {
+            if (send_shared_commands(&batch) != 0)
+            {
+                g_client.connected = 0;
+                return -1;
+            }
+            return 0;
+        }
         if (socket_write_all(g_client.socket_fd, &batch,
                              SHIRE_IPC_COMMANDS_FRAME_SIZE(0)) != 0) {
             g_client.connected = 0;

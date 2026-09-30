@@ -1,7 +1,11 @@
 #include "adcs_app.h"
+#include "adcs_time.h"
+#include <math.h>
 #include <string.h>
 
 ADCS_AppData_t ADCS_AppData;
+
+static int32 ADCS_PushGainsToDevice(void);
 
 /*
 ** Application entry point and main process loop
@@ -146,6 +150,22 @@ int32 ADCS_AppInit(void)
     /* Device telemetry uses the CSS telemetry MID for device frames */
     CFE_MSG_Init(CFE_MSG_PTR(ADCS_AppData.DevicePkt.TlmHeader), CFE_SB_ValueToMsgId(ADCS_CSS_TLM_MID),
                  ADCS_DEVICE_TLM_LNGTH);
+
+    /*
+    ** Register and load the boot-time control-law gains table
+    */
+    status = ADCS_TableInit();
+    if (status != CFE_SUCCESS)
+    {
+        return status;
+    }
+
+    /*
+    ** Fall back to the last known-good persisted time (see adcs_time.h) in
+    ** case GPS never syncs this boot. Real GPS data, once flowing, simply
+    ** supersedes this via CFE_TIME_ExternalGPS's own acceptance window.
+    */
+    ADCS_LoadTimeFromFile();
 
     /*
     ** Reset all counters during application initialization
@@ -300,6 +320,30 @@ void ADCS_ProcessGroundCommand(void)
             }
             break;
 
+        /*
+        ** Config Command: re-push the currently loaded gains table to the
+        ** device (useful after a ground table load/activate cycle).
+        */
+        case ADCS_CONFIG_CC:
+            if (ADCS_VerifyCmdLength(ADCS_AppData.MsgPtr, sizeof(ADCS_NoArgs_cmd_t)) == OS_SUCCESS)
+            {
+                if (ADCS_AppData.HkTelemetryPkt.DeviceEnabled == ADCS_DEVICE_ENABLED)
+                {
+                    if (ADCS_RefreshGainsTable() == CFE_SUCCESS &&
+                        ADCS_PushGainsToDevice() == OS_SUCCESS)
+                        ADCS_AppData.HkTelemetryPkt.CommandCount++;
+                    else
+                        ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                }
+                else
+                {
+                    ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                    CFE_EVS_SendEvent(ADCS_CMD_DISABLED_ERR_EID, CFE_EVS_EventType_ERROR,
+                                      "ADCS: Config command failed, device not enabled");
+                }
+            }
+            break;
+
         case ADCS_SET_MODE_CC:
             if (ADCS_VerifyCmdLength(ADCS_AppData.MsgPtr, sizeof(ADCS_SetMode_cmd_t)) == OS_SUCCESS)
             {
@@ -368,6 +412,54 @@ void ADCS_ProcessGroundCommand(void)
                     /* Send command event failure to the console */
                     CFE_EVS_SendEvent(ADCS_CMD_DISABLED_ERR_EID, CFE_EVS_EventType_ERROR,
                                       "ADCS: Set mode command failed, device not enabled");
+                }
+            }
+            break;
+
+        case ADCS_SET_TARGET_VECTOR_CC:
+            if (ADCS_VerifyCmdLength(ADCS_AppData.MsgPtr, sizeof(ADCS_SetTargetVector_cmd_t)) == OS_SUCCESS)
+            {
+                /* Check that device is enabled */
+                if (ADCS_AppData.HkTelemetryPkt.DeviceEnabled == ADCS_DEVICE_ENABLED)
+                {
+                    ADCS_SetTargetVector_cmd_t vcmd_buf;
+                    memcpy(&vcmd_buf, ADCS_AppData.MsgPtr, sizeof(vcmd_buf));
+                    ADCS_Device_TargetVectorCmd_t target = {
+                        .X = vcmd_buf.X, .Y = vcmd_buf.Y, .Z = vcmd_buf.Z,
+                    };
+                    double magnitude_squared = (double)target.X * target.X + (double)target.Y * target.Y +
+                                               (double)target.Z * target.Z;
+                    if (!isfinite(target.X) || !isfinite(target.Y) || !isfinite(target.Z) ||
+                        magnitude_squared < 1e-12)
+                    {
+                        ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                        CFE_EVS_SendEvent(ADCS_SET_TARGET_VECTOR_ERR_EID, CFE_EVS_EventType_ERROR,
+                                          "ADCS: Invalid target vector");
+                        break;
+                    }
+                    int32 status = ADCS_SendTargetVectorCmd(&ADCS_AppData.AdcsUart, &target);
+                    if (status == OS_SUCCESS)
+                    {
+                        ADCS_AppData.HkTelemetryPkt.CommandCount++;
+                        CFE_EVS_SendEvent(ADCS_SET_TARGET_VECTOR_INF_EID, CFE_EVS_EventType_INFORMATION,
+                                        "ADCS: Set target vector command forwarded to device (%.4f,%.4f,%.4f)",
+                                        (double)target.X, (double)target.Y, (double)target.Z);
+                    }
+                    else
+                    {
+                        ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+                        CFE_EVS_SendEvent(ADCS_SET_TARGET_VECTOR_ERR_EID, CFE_EVS_EventType_ERROR,
+                                        "ADCS: Set target vector device command failed: %d", status);
+                    }
+                }
+                else
+                {
+                    /* Increment command error count */
+                    ADCS_AppData.HkTelemetryPkt.CommandErrorCount++;
+
+                    /* Send command event failure to the console */
+                    CFE_EVS_SendEvent(ADCS_CMD_DISABLED_ERR_EID, CFE_EVS_EventType_ERROR,
+                                      "ADCS: Set target vector command failed, device not enabled");
                 }
             }
             break;
@@ -470,6 +562,7 @@ void ADCS_ReportHousekeeping(void)
         if (status == OS_SUCCESS)
         {
             ADCS_AppData.HkTelemetryPkt.DeviceCount++;
+            ADCS_ProcessGpsTime();
         }
         else
         {
@@ -484,6 +577,11 @@ void ADCS_ReportHousekeeping(void)
         memset(&ADCS_AppData.HkTelemetryPkt.DeviceHK, 0, sizeof(ADCS_Device_HK_tlm_t));
     }
     /* Intentionally do not report errors if disabled */
+
+    /* Keep the file-loaded time fallback (if any) asserted every cycle
+       until real GPS data takes over -- runs regardless of device state,
+       since the fallback must work even with GPS never enabled. */
+    ADCS_ResubmitTimeFallback();
 
     /* Time stamp and publish housekeeping telemetry */
     CFE_SB_TimeStampMsg((CFE_MSG_Message_t *)&ADCS_AppData.HkTelemetryPkt);
@@ -548,6 +646,42 @@ void ADCS_ResetCounters(void)
 }
 
 /*
+** Push the currently active gains table down to the device. Only
+** meaningful while the UART is open (device enabled).
+*/
+static int32 ADCS_PushGainsToDevice(void)
+{
+    if (ADCS_AppData.GainsTblPtr == NULL)
+    {
+        CFE_EVS_SendEvent(ADCS_SEND_GAINS_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Cannot push gains to device, table address not available");
+        return OS_ERROR;
+    }
+
+    ADCS_Device_GainsCmd_t cmd = {
+        .SunPointKp         = ADCS_AppData.GainsTblPtr->SunPointKp,
+        .SunPointKd         = ADCS_AppData.GainsTblPtr->SunPointKd,
+        .WheelMaxTorqueNm   = ADCS_AppData.GainsTblPtr->WheelMaxTorqueNm,
+        .MtbMaxDipoleAm2    = ADCS_AppData.GainsTblPtr->MtbMaxDipoleAm2,
+        .DetumbleGainBase   = ADCS_AppData.GainsTblPtr->DetumbleGainBase,
+        .DetumbleGainHigh   = ADCS_AppData.GainsTblPtr->DetumbleGainHigh,
+        .RotisserieRateRadS = ADCS_AppData.GainsTblPtr->RotisserieRateRadS,
+    };
+    int32 status = ADCS_SendGainsCmd(&ADCS_AppData.AdcsUart, &cmd);
+    if (status == OS_SUCCESS)
+    {
+        CFE_EVS_SendEvent(ADCS_SEND_GAINS_INF_EID, CFE_EVS_EventType_INFORMATION,
+                          "ADCS: Gains pushed to device successfully");
+    }
+    else
+    {
+        CFE_EVS_SendEvent(ADCS_SEND_GAINS_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "ADCS: Failed to push gains to device: %d", (int)status);
+    }
+    return status;
+}
+
+/*
 ** Enable component
 */
 void ADCS_Enable(void)
@@ -580,6 +714,9 @@ void ADCS_Enable(void)
             /* Send device event success to the console */
             CFE_EVS_SendEvent(ADCS_ENABLE_INF_EID, CFE_EVS_EventType_INFORMATION,
                               "ADCS: Device enabled successfully");
+
+            /* Push the currently loaded gains table now that the UART is open */
+            ADCS_PushGainsToDevice();
         }
         else
         {

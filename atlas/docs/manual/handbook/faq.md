@@ -90,18 +90,16 @@ make perf-smoke
 make perf
 ```
 
-The complete performance run includes active ADCS and radio transactions and
-compares terminal state and exact counts across 1x, 25x, and three unbounded
-trials.
+The complete performance run includes active ADCS and radio transactions,
+a full-output reference, paced 1x, 25x, and 50x trials, and three unbounded
+trials that must exceed 50x.
+It compares complete control traces and verifies advancing Yamcs truth.
 Its report path is printed at completion and defaults to a timestamped directory
 under `build/performance/`.
 
 Inspect the report before changing priorities or disabling outputs.
-Check phase percentiles, participant registration-to-dispatch and
-dispatch-to-return latency, per-device transaction latency, Docker samples,
-scheduling policy, protocol errors, and queue overflows.
-The report records `perf`, `pidstat`, or `strace` as unavailable when the host
-does not provide them.
+Check phase and device latency, resource samples, protocol errors, and queue
+overflows.
 
 After accepting a report for this workstation, test a candidate with:
 

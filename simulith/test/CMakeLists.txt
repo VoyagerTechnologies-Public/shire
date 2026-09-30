@@ -59,7 +59,10 @@ target_link_options(test_client_failures PRIVATE
     -Wl,--wrap=zmq_setsockopt
     -Wl,--wrap=zmq_close
     -Wl,--wrap=zmq_send
-    -Wl,--wrap=zmq_recv)
+    -Wl,--wrap=zmq_recv
+    -Wl,--wrap=simulith_shared_barrier_connect
+    -Wl,--wrap=simulith_shared_barrier_receive
+    -Wl,--wrap=simulith_shared_barrier_complete)
 add_test(NAME ClientFailureTests COMMAND test_client_failures)
 
 add_executable(test_time test_time.c ${UNITY_SRC})
@@ -143,6 +146,10 @@ target_compile_definitions(test_director PRIVATE
     SIMULITH_TESTING
     DIRECTOR_FIXTURE_DIR="${DIRECTOR_FIXTURE_DIR}")
 add_test(NAME DirectorTests COMMAND test_director)
+
+add_executable(test_control_trace test_control_trace.c ../src/simulith_control_trace.c)
+target_link_libraries(test_control_trace pthread)
+add_test(NAME ControlTraceTests COMMAND test_control_trace)
 
 # Exercise every entry-point outcome with the real main source and deterministic
 # service stubs. Renaming main is confined to this object target.

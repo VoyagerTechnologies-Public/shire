@@ -1,0 +1,25 @@
+# Confirms ADCS actually drives the spacecraft clock from GPS time
+# (issue #8 item 5), via AdcsGpsTimeSync.ycs's verify_stacks step.
+#
+# Manual (GUI + YAMCS):  set scenario: adcs-gps-time-sync in
+#                        build/active.yaml, `make`, `make start`, then run
+#                        comp/adcs/gsw/procedures/AdcsGpsTimeSync.ycs by
+#                        hand (its final step needs CFE_PLATFORM_TIME_CFG_SRC_GPS
+#                        built in to ever pass).
+# Autonomous (no GUI):   make scenario SCENARIO=adcs-gps-time-sync
+scenario_name: "adcs-gps-time-sync"
+description: >
+  Enables ADCS on the nominal-baseline reference orbit and waits for cFE
+  TIME's CLOCKSTATEAPI to transition from INVALID (never set, cFE's state
+  at boot once CFE_PLATFORM_TIME_CFG_SOURCE is enabled) to VALID, which
+  only happens once ADCS_ProcessGpsTime() has successfully pushed a GPS
+  time sample through CFE_TIME_ExternalGPS(). A pass is a real, ground-
+  visible proof the spacecraft clock is GPS-driven, not just that the code
+  compiles and the unit tests pass.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+run_duration_s: 120
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsGpsTimeSync.ycs"
+    at_s: 0

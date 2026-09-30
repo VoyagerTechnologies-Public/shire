@@ -14,6 +14,7 @@
 #define ADCS_CONFIG_CC         4
 #define ADCS_SET_MODE_CC       5
 #define ADCS_SET_TARGET_CC     6
+#define ADCS_SET_TARGET_VECTOR_CC 7
 
 /*
 ** Telemetry Request Command Codes
@@ -53,6 +54,19 @@ typedef struct
 
 } ADCS_SetTarget_cmd_t;
 
+/* Set Target Vector command (payload: an arbitrary inertial direction,
+ * normalized on receipt -- see ADCS_Device_TargetVectorCmd_t). Lets ground
+ * (or a scenario) point modes 4/5 at any direction, not just the canned
+ * +X/-X inertial selectors ADCS_SetTarget_cmd_t offers. */
+typedef struct
+{
+    CFE_MSG_CommandHeader_t CmdHeader;
+    float                   X;
+    float                   Y;
+    float                   Z;
+
+} ADCS_SetTargetVector_cmd_t;
+
 /* Get CSS / sensor data command has no additional args */
 
 /*
@@ -81,6 +95,9 @@ typedef struct
     ** Edit and add specific telemetry values to this struct
     */
     uint8                     DeviceEnabled;
+    uint8                     TimeFileFallbackActive;  /* Whether this boot's clock came from ADCS_TIME_FILE */
+    uint32                    TimeFileBootOffsetCount; /* Boot offset applied on the last ADCS_TIME_FILE load */
+    uint32                    TimeFileSaveCount;       /* Successful ADCS_TIME_FILE saves this boot */
     ADCS_Device_HK_tlm_t      DeviceHK;
 
 } __attribute__((packed)) ADCS_Hk_tlm_t;

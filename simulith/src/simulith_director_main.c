@@ -1,4 +1,5 @@
 #include "simulith_director.h"
+#include "simulith_control_trace.h"
 
 int main(int argc, char *argv[])
 {
@@ -28,6 +29,19 @@ int main(int argc, char *argv[])
 
     if (initialize_telemetry() != 0)
     {
+        cleanup_components(&g_director_config);
+        return 1;
+    }
+
+    if (simulith_control_trace_open(getenv("SHIRE_CONTROL_TRACE_DIR")) != 0)
+    {
+        cleanup_components(&g_director_config);
+        return 1;
+    }
+    if (director_configure_trace_duration() != 0)
+    {
+        fprintf(stderr, "Invalid SIMULITH_DURATION for control trace\n");
+        simulith_control_trace_abort();
         cleanup_components(&g_director_config);
         return 1;
     }
@@ -62,11 +76,12 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    simulith_client_run_phased_loop(director_prepare_tick,
-                                    director_execute_tick,
-                                    director_commit_tick);
+    int run_status = simulith_client_run_phased_loop(director_prepare_tick,
+                                                     director_execute_tick,
+                                                     director_commit_tick);
     director_write_terminal_metrics();
+    simulith_control_trace_abort();
     simulith_client_shutdown();
     cleanup_components(&g_director_config);
-    return 0;
+    return run_status == 0 ? 0 : 1;
 }

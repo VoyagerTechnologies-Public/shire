@@ -55,7 +55,7 @@ Coverage reports show which code executed and do not establish that an acceptanc
 | DRM integration | `make` followed by `make start` | Manual observation of the generated flight, ground, security, dynamics, and simulation stack |
 | Scenario initialization | `make scenario SCENARIO=<name>` | Headless, no-GUI confirmation that a named scenario (deterministic orbit, epoch, attitude, and per-component state) completes cleanly, with a reproducible Initial Condition snapshot and container logs retained per run |
 | Scenario determinism | `make scenario-smoke` | Cross-trial repeatability check (exact terminal dynamics state, command deliveries, and protocol counts) for the currently configured scenario |
-| Synchronized performance | `make perf` and `make perf-compare BASELINE=<report.json>` | Active ADCS and radio workload with pacing, throughput, exact-count, and terminal-state acceptance |
+| Synchronized performance | `make perf` and `make perf-compare BASELINE=<report.json>` | Active ADCS and radio workload with 50x throughput, trace, Yamcs truth, and control-loop acceptance |
 | Component procedures | `comp/*/gsw/procedures/*.ycs`, executable manually in the YAMCS web UI or headlessly via `yamcs/yamcs_commander.py --stack` or a scenario's `verify_stacks` | Repeatable YAMCS component command sequences |
 | DRM procedures | `cfg/<mission>/gsw/procedures/*.ycs`, staged into the `yamcs/` submodule at build time, same manual or headless execution paths | Repeatable YAMCS system command sequences |
 | Published scenario | `atlas/docs/scenarios/commissioning.md` | Manual commissioning workflow, expected results, limitations, and evidence guidance |

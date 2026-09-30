@@ -25,7 +25,7 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make test-simulith` | Clean and run the standalone Simulith core tests. |
 | `make test-fsw` | Clean, regenerate configuration, and run the cFS and application tests. |
 | `make perf-smoke` | Build and run one short synchronized diagnostic trial. |
-| `make perf` | Build and run the active 1x and 25x fidelity pair plus three unbounded trials. |
+| `make perf` | Build and run the full-output reference, 1x/25x/50x trials, and three >50x unbounded trials. |
 | `make perf-compare BASELINE=<report.json>` | Repeat the performance matrix and compare it with an accepted performance report. |
 | `make campaign CAMPAIGN=<name> MAX_PARALLEL=<n>` | Run a Monte Carlo campaign's trials and aggregate the results. |
 | `make docs-check` | Validate the Atlas content and run a strict production build. |
@@ -87,7 +87,10 @@ The UDP endpoints remain inside the Compose bridge because the templates do not 
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The current DRM scenarios are `nominal`, `debug`, `eclipse-entry-adcs`, `eclipse-exit-adcs`, and `checkout`.
+The DRM scenarios include `nominal`, `debug`, `checkout`, `eclipse-entry-adcs`,
+`eclipse-exit-adcs`, `adcs-gps-time-sync`, `adcs-boot-config`,
+`adcs-sunpoint-rotisserie`, `adcs-truth-verification`, `adcs-target-track`,
+`adcs-modes-sweep`, and `adcs-time-file-fallback`.
 `nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
 `eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
 Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.

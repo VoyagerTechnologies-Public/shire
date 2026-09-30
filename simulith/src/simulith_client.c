@@ -14,6 +14,7 @@ static uint64_t last_received_sequence = UINT64_MAX;
 static uint64_t last_received_time_ns = 0;
 static simulith_phase_t last_received_phase = 0;
 static int last_received_phase_completed = 0;
+static pthread_mutex_t phase_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int use_shared_barrier = 0;
 static simulith_shared_barrier_t shared_barrier = {.fd = -1, .slot = -1};
 
@@ -44,10 +45,12 @@ static void close_client_resources(void)
 int simulith_client_init(const char *pub_addr, const char *rep_addr, const char *id, uint64_t rate_ns)
 {
     client_stop_requested = 0;
+    pthread_mutex_lock(&phase_state_mutex);
     last_received_sequence = UINT64_MAX;
     last_received_time_ns = 0;
     last_received_phase = 0;
     last_received_phase_completed = 0;
+    pthread_mutex_unlock(&phase_state_mutex);
     client_phase_mask = strcmp(id ? id : "", "shire-fsw") == 0 ?
         SIMULITH_PHASE_MASK_EXECUTE : SIMULITH_PHASE_MASK_COMMIT;
     const char *sync_transport = getenv("SIMULITH_SYNC_TRANSPORT");
@@ -188,6 +191,10 @@ int simulith_client_handshake(void)
             simulith_log("Unable to connect shared synchronization barrier\n");
             return -1;
         }
+        shared_barrier.fast_receive_safe =
+            client_phase_mask == (SIMULITH_PHASE_MASK_PREPARE |
+                                  SIMULITH_PHASE_MASK_EXECUTE |
+                                  SIMULITH_PHASE_MASK_COMMIT);
     }
 
     // Reset timeout to infinite for normal operation
@@ -221,9 +228,9 @@ void simulith_client_run_loop(simulith_tick_callback on_tick)
     }
 }
 
-void simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
-                                     simulith_phase_callback on_execute,
-                                     simulith_phase_callback on_commit)
+int simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
+                                    simulith_phase_callback on_execute,
+                                    simulith_phase_callback on_commit)
 {
     while (!client_stop_requested)
     {
@@ -247,15 +254,16 @@ void simulith_client_run_phased_loop(simulith_phase_callback on_prepare,
             simulith_log("Client %s failed phase %u for tick %lu; completion withheld\n",
                          client_id, (unsigned)phase,
                          (unsigned long)sequence);
-            return;
+            return -1;
         }
         if (simulith_client_complete_tick(sequence, phase) != 0)
         {
             simulith_log("Client %s failed phase %u for tick %lu\n", client_id,
                          (unsigned)phase, (unsigned long)sequence);
-            return;
+            return -1;
         }
     }
+    return 0;
 }
 
 void simulith_client_request_stop(void)
@@ -346,10 +354,12 @@ int simulith_client_receive_phase(uint64_t *tick_time_ns, uint64_t *sequence,
         *phase = SIMULITH_PHASE_STOP;
         return 1;
     }
+    pthread_mutex_lock(&phase_state_mutex);
     if (last_received_sequence != UINT64_MAX &&
         (tick.sequence < last_received_sequence ||
          (tick.sequence == last_received_sequence && tick.phase <= (uint16_t)last_received_phase)))
     {
+        pthread_mutex_unlock(&phase_state_mutex);
         simulith_log("Client %s rejected stale/duplicate tick %lu\n", client_id,
                      (unsigned long)tick.sequence);
         return -1;
@@ -362,6 +372,7 @@ int simulith_client_receive_phase(uint64_t *tick_time_ns, uint64_t *sequence,
            tick.time_ns <= last_received_time_ns ||
            tick.time_ns - last_received_time_ns != update_rate_ns))))
     {
+        pthread_mutex_unlock(&phase_state_mutex);
         simulith_log("Client %s rejected non-monotonic time %lu for tick %lu\n",
                      client_id, (unsigned long)tick.time_ns,
                      (unsigned long)tick.sequence);
@@ -372,6 +383,7 @@ int simulith_client_receive_phase(uint64_t *tick_time_ns, uint64_t *sequence,
     last_received_time_ns = tick.time_ns;
     last_received_phase = (simulith_phase_t)tick.phase;
     last_received_phase_completed = 0;
+    pthread_mutex_unlock(&phase_state_mutex);
     *tick_time_ns = tick.time_ns;
     *sequence = tick.sequence;
     *phase = last_received_phase;
@@ -380,37 +392,53 @@ int simulith_client_receive_phase(uint64_t *tick_time_ns, uint64_t *sequence,
 
 int simulith_client_complete_tick(uint64_t sequence, simulith_phase_t phase)
 {
+    pthread_mutex_lock(&phase_state_mutex);
     if (phase < SIMULITH_PHASE_PREPARE || phase > SIMULITH_PHASE_COMMIT ||
         (!requester && !use_shared_barrier) || sequence != last_received_sequence || phase != last_received_phase ||
         last_received_phase_completed ||
         (client_phase_mask & SIMULITH_PHASE_BIT(phase)) == 0)
-        return -1;
-
-    if (use_shared_barrier)
     {
-        int status = simulith_shared_barrier_complete(&shared_barrier, sequence,
-                                                      (uint32_t)phase);
-        if (status == 0)
-            last_received_phase_completed = 1;
-        return status;
+        pthread_mutex_unlock(&phase_state_mutex);
+        return -1;
     }
 
-    char completion[128];
-    int length = snprintf(completion, sizeof(completion), "COMPLETE %lu %u %s",
-                          (unsigned long)sequence, (unsigned)phase, client_id);
-    if (length <= 0 || (size_t)length >= sizeof(completion) ||
-        zmq_send(requester, completion, (size_t)length, 0) == -1)
-        return -1;
-
-    char reply[32] = {0};
-    int reply_size = zmq_recv(requester, reply, sizeof(reply) - 1, 0);
-    if (reply_size < 0)
-        return -1;
-    reply[reply_size] = '\0';
-    if (strcmp(reply, "ACK") != 0)
-        return -1;
+    /* Claim this phase before publishing completion: the server can release
+     * the next phase before the barrier call returns on this thread. */
     last_received_phase_completed = 1;
-    return 0;
+    pthread_mutex_unlock(&phase_state_mutex);
+
+    int status;
+    if (use_shared_barrier)
+    {
+        status = simulith_shared_barrier_complete(&shared_barrier, sequence,
+                                                  (uint32_t)phase);
+    }
+    else
+    {
+        char completion[128];
+        int length = snprintf(completion, sizeof(completion), "COMPLETE %lu %u %s",
+                              (unsigned long)sequence, (unsigned)phase, client_id);
+        status = -1;
+        if (length > 0 && (size_t)length < sizeof(completion) &&
+            zmq_send(requester, completion, (size_t)length, 0) != -1)
+        {
+            char reply[32] = {0};
+            int reply_size = zmq_recv(requester, reply, sizeof(reply) - 1, 0);
+            if (reply_size >= 0)
+            {
+                reply[reply_size] = '\0';
+                status = strcmp(reply, "ACK") == 0 ? 0 : -1;
+            }
+        }
+    }
+    if (status != 0)
+    {
+        pthread_mutex_lock(&phase_state_mutex);
+        if (sequence == last_received_sequence && phase == last_received_phase)
+            last_received_phase_completed = 0;
+        pthread_mutex_unlock(&phase_state_mutex);
+    }
+    return status;
 }
 
 void simulith_client_shutdown(void)

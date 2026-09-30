@@ -306,6 +306,9 @@ def build_fsw(config):
         "SPACECRAFT": spacecraft,
         "MISSION": mission,
     }
+    # Production images use optimized cFS binaries; cfs/Makefile's standalone
+    # test and coverage targets retain their debug default.
+    env_vars["BUILDTYPE"] = os.environ.get("BUILDTYPE", "release")
 
     # Build FSW using internal target
     print(f"[build] Building FSW binaries...")

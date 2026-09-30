@@ -21,7 +21,9 @@ services:
     mem_limit: 2g
     environment:
       - MESA_NO_SHM=1
-      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
+      - SHIRE_42_PROFILE=${SHIRE_42_PROFILE:-0}
+      - SHIRE_42_REPORT_MODE=${SHIRE_42_REPORT_MODE:-control}
       - FORTYTWO_GRAPHICS_HZ=${FORTYTWO_GRAPHICS_HZ:-1}
     volumes:
       - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
@@ -42,7 +44,7 @@ services:
     volumes:
       - gsw-data_{{ mission | default('default') }}{{ inst }}:/app/yamcs-data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8090"]
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/"]
       interval: 30s
       timeout: 5s
       retries: 10
@@ -68,6 +70,7 @@ services:
       - SIMULITH_DURATION=${SIMULITH_DURATION:-}
       - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
       - SIMULITH_WATCHDOG_SECONDS=${SIMULITH_WATCHDOG_SECONDS:-5}
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
     command: ["/bin/sh", "-c", "/app/simulith_server_standalone $${NUM_CLIENTS}"]
     cpus: "4.0"
     mem_limit: 2g
@@ -89,14 +92,22 @@ services:
     stdin_open: true
     tty: true
     depends_on:
-      - shire-42
-      - shire-cryptolib
-      - shire-gsw
-      - shire-server
+      shire-42:
+        condition: service_started
+      shire-cryptolib:
+        condition: service_started
+      shire-gsw:
+        condition: service_healthy
+      shire-server:
+        condition: service_started
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
+      - SIMULITH_DURATION=${SIMULITH_DURATION:-}
+      - SHIRE_CONTROL_TRACE_DIR=/run/shire-traces
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
       - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
-      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
       - SIMULITH_SCENARIO_ENABLED=${SIMULITH_SCENARIO_ENABLED:-0}
     command: ["/bin/sh", "-c", "if [ \"$${SIMULITH_SCENARIO_ENABLED}\" = 1 ]; then exec /app/simulith_director_standalone --scenario /run/shire-scenario.json; else exec /app/simulith_director_standalone; fi"]
     cpus: "4.0"
@@ -104,6 +115,7 @@ services:
     volumes:
       - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
       - ${SIMULITH_SCENARIO_FILE:-/dev/null}:/run/shire-scenario.json:ro
+      - ${SHIRE_CONTROL_TRACE_DIR:-{{ trace_dir }}}:/run/shire-traces
     tmpfs:
       - /dev/shm:noexec,nosuid,size=100m
 {%- if instance %}
@@ -145,6 +157,7 @@ services:
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
       - SHIRE_GROUND_OUTPUT_HZ=${SHIRE_GROUND_OUTPUT_HZ:-20}
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
     sysctls:
       - fs.mqueue.msg_max=10000
     ulimits:

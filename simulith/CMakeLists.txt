@@ -78,7 +78,7 @@ target_link_libraries(simulith PUBLIC ${ZeroMQ_LIBRARIES})
 
 # Director orchestration is a library so it can be tested independently from
 # the process entry point and its long-running client loop.
-add_library(simulith_director_core STATIC src/simulith_director.c)
+add_library(simulith_director_core STATIC src/simulith_director.c src/simulith_control_trace.c)
 set_target_properties(simulith_director_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(simulith_director_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(simulith_director_core PUBLIC simulith ${ZeroMQ_LIBRARIES} dl m pthread)

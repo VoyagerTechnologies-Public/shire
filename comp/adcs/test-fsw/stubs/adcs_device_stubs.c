@@ -51,3 +51,27 @@ int32_t ADCS_RequestData(uart_info_t *device, ADCS_Device_Data_tlm_t *data, uint
 
     return UT_GenStub_GetReturnValue(ADCS_RequestData, int32_t);
 }
+
+int32_t ADCS_SendGainsCmd(uart_info_t *device, const ADCS_Device_GainsCmd_t *gains)
+{
+    UT_GenStub_SetupReturnBuffer(ADCS_SendGainsCmd, int32_t);
+
+    UT_GenStub_AddParam(ADCS_SendGainsCmd, uart_info_t *, device);
+    UT_GenStub_AddParam(ADCS_SendGainsCmd, const ADCS_Device_GainsCmd_t *, gains);
+
+    UT_GenStub_Execute(ADCS_SendGainsCmd, Basic, NULL);
+
+    return UT_GenStub_GetReturnValue(ADCS_SendGainsCmd, int32_t);
+}
+
+int32_t ADCS_SendTargetVectorCmd(uart_info_t *device, const ADCS_Device_TargetVectorCmd_t *target)
+{
+    UT_GenStub_SetupReturnBuffer(ADCS_SendTargetVectorCmd, int32_t);
+
+    UT_GenStub_AddParam(ADCS_SendTargetVectorCmd, uart_info_t *, device);
+    UT_GenStub_AddParam(ADCS_SendTargetVectorCmd, const ADCS_Device_TargetVectorCmd_t *, target);
+
+    UT_GenStub_Execute(ADCS_SendTargetVectorCmd, Basic, NULL);
+
+    return UT_GenStub_GetReturnValue(ADCS_SendTargetVectorCmd, int32_t);
+}
