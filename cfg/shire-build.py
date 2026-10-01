@@ -201,6 +201,7 @@ def build_42(config, builddirs):
         "-f", dockerfile,
         "-t", image_name,
         "--build-arg", f"MISSION={mission}",
+        "--build-arg", f"BASE_IMAGE={BUILD_IMAGE}",
         ROOT_DIR
     ]
 
@@ -338,6 +339,7 @@ def build_fsw(config):
         "-f", f"{FSW_DIR}/tools/Dockerfile.fsw",
         "--build-arg", f"SPACECRAFT={spacecraft}",
         "--build-arg", f"MISSION={mission}",
+        "--build-arg", f"BASE_IMAGE={BUILD_IMAGE}",
         "."
     ]
     result = subprocess.run(cmd, cwd=ROOT_DIR, env=DOCKER_ENV)

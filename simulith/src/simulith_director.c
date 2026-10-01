@@ -38,6 +38,58 @@ static int g_backdoor_sock = -1;
 static uint64_t g_prepare_count = 0;
 static uint64_t g_commit_count = 0;
 static uint64_t g_telemetry_count = 0;
+static uint64_t g_visual_count = 0;
+static uint64_t g_visual_errors = 0;
+static unsigned int g_visual_interval = 5; /* 20 samples per simulated second */
+static uint8_t g_visual_run_id[16];
+
+/* Version 1 packet, little-endian like the existing 42 truth packet. */
+typedef struct __attribute__((packed)) {
+    uint32_t magic;             /* SHV1 */
+    uint16_t version;
+    uint16_t reserved;
+    uint8_t run_id[16];
+    uint32_t spacecraft_id;
+    uint64_t sequence;
+    double sim_time;
+    double utc_time;
+    double pos_n[3];
+    double vel_n[3];
+    double qn[4];
+    double sun_body[3];
+    double wn[3];
+    double cwn[3][3];
+    uint32_t eclipse;
+} visual_packet_t;
+_Static_assert(sizeof(visual_packet_t) == 256, "visual packet size");
+
+static int configure_visual_telemetry(void)
+{
+    const char *rate_text = getenv("SHIRE_VISUAL_HZ");
+    if (rate_text && *rate_text) {
+        char *end = NULL;
+        long rate = strtol(rate_text, &end, 10);
+        if (*end || rate < 1 || rate > 100 || 100 % rate != 0) {
+            fprintf(stderr, "SHIRE_VISUAL_HZ must divide 100 and be 1..100\n");
+            return -1;
+        }
+        g_visual_interval = 100U / (unsigned int)rate;
+    }
+    const char *run_id = getenv("SHIRE_RUN_ID");
+    memset(g_visual_run_id, 0, sizeof(g_visual_run_id));
+    if (run_id && strlen(run_id) == 32) {
+        for (int i = 0; i < 16; ++i) {
+            unsigned int byte = 0;
+            if (sscanf(run_id + 2*i, "%2x", &byte) != 1) return -1;
+            g_visual_run_id[i] = (uint8_t)byte;
+        }
+    } else if (run_id && *run_id) {
+        fprintf(stderr, "SHIRE_RUN_ID must be 32 hex digits\n");
+        return -1;
+    }
+    return 0;
+}
+
 static uint64_t g_telemetry_errors = 0;
 static uint64_t g_fortytwo_errors = 0;
 static uint64_t g_trace_final_time_ns = UINT64_MAX;
@@ -452,6 +504,9 @@ int initialize_components(director_config_t* config)
     g_commit_count = 0;
     g_telemetry_count = 0;
     g_telemetry_errors = 0;
+    g_visual_count = 0;
+    g_visual_errors = 0;
+    if (configure_visual_telemetry() != 0) return -1;
     g_fortytwo_errors = 0;
     director_reset_timing();
     config->component_phase_errors = 0;
@@ -1370,6 +1425,31 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
     process_backdoor_once(&g_director_config);
 
     // Publish telemetry
+    if (g_udp_sock >= 0 && g_director_config.shared_context_42.valid &&
+        sequence % g_visual_interval == 0) {
+        const simulith_42_context_t *state = &g_director_config.shared_context_42;
+        visual_packet_t packet = {0};
+        packet.magic = UINT32_C(0x31564853);
+        packet.version = 1;
+        memcpy(packet.run_id, g_visual_run_id, sizeof(packet.run_id));
+        packet.spacecraft_id = (uint32_t)state->spacecraft_id;
+        packet.sequence = sequence;
+        packet.sim_time = state->sim_time;
+        packet.utc_time = state->dyn_time; /* 42 UTC civil time */
+        memcpy(packet.pos_n, state->pos_n, sizeof(packet.pos_n));
+        memcpy(packet.vel_n, state->vel_n, sizeof(packet.vel_n));
+        memcpy(packet.qn, state->qn, sizeof(packet.qn));
+        memcpy(packet.sun_body, state->sun_vector_body, sizeof(packet.sun_body));
+        memcpy(packet.wn, state->wn, sizeof(packet.wn));
+        memcpy(packet.cwn, state->cwn, sizeof(packet.cwn));
+        packet.eclipse = (uint32_t)state->eclipse;
+        struct sockaddr_in visual_addr = g_udp_addr;
+        visual_addr.sin_port = htons(50044);
+        g_visual_count++;
+        if (sendto(g_udp_sock, &packet, sizeof(packet), MSG_DONTWAIT,
+                   (struct sockaddr *)&visual_addr, sizeof(visual_addr)) != sizeof(packet))
+            g_visual_errors++;
+    }
     g_udp_publish_counter = (g_udp_publish_counter + 1) % UDP_PUBLISH_INTERVAL_TICKS;
     const simulith_42_context_t *context_42 = &g_director_config.shared_context_42;
     if (g_udp_sock >= 0 && context_42->valid && g_udp_publish_counter == 0)
@@ -1437,7 +1517,7 @@ void director_write_terminal_metrics(void)
     }
 
     printf("SIMULITH_DIRECTOR_TERMINAL {\"prepare_count\":%lu,\"commit_count\":%lu,"
-           "\"telemetry_count\":%lu,\"queue\":{\"enqueued\":%lu,\"dequeued\":%lu,"
+           "\"telemetry_count\":%lu,\"visual_count\":%lu,\"visual_errors\":%lu,\"queue\":{\"enqueued\":%lu,\"dequeued\":%lu,"
            "\"overflows\":%lu,\"high_watermark\":%lu,"
            "\"by_type\":[%lu,%lu,%lu,%lu,%lu],"
            "\"nonzero_actuator_commands\":%lu},"
@@ -1454,6 +1534,7 @@ void director_write_terminal_metrics(void)
            "\"pos_n\":[%.17g,%.17g,%.17g],\"vel_n\":[%.17g,%.17g,%.17g]}}\n",
            (unsigned long)g_prepare_count, (unsigned long)g_commit_count,
            (unsigned long)g_telemetry_count,
+           (unsigned long)g_visual_count, (unsigned long)g_visual_errors,
            (unsigned long)queue_stats.enqueued, (unsigned long)queue_stats.dequeued,
            (unsigned long)queue_stats.overflows, (unsigned long)queue_stats.high_watermark,
            (unsigned long)queue_stats.by_type[SIMULITH_42_CMD_NONE],

@@ -1,6 +1,6 @@
 # Configuration
 
-SHIRE configuration selects a mission, spacecraft, scenario, CLI component, logging mode, and graphics setting.
+SHIRE configuration selects a mission, spacecraft, scenario, CLI component and logging mode.
 The checked in YAML files are inputs.
 The orchestrator writes derived state under `build/` and renders component headers in place.
 
@@ -15,7 +15,7 @@ The orchestrator then resolves the device settings for every selected component.
 | Source | Current location | Purpose |
 | --- | --- | --- |
 | Repository catalog | `cfg/shire-config.yaml` | Lists missions and supplies repository defaults for spacecraft, FSW, GSW, and the fallback component set. |
-| Active selection | `build/active.yaml` | Chooses the mission, spacecraft, scenario, CLI component, logging mode, graphics setting, and FSW and GSW directories for the next generated configuration. |
+| Active selection | `build/active.yaml` | Chooses the mission, spacecraft, scenario, CLI component, logging mode, and FSW and GSW directories for the next generated configuration. |
 | Selected mission | `cfg/drm/drm.yaml` | Identifies the spacecraft and scenario files available to the DRM. |
 | Selected spacecraft | `cfg/drm/spacecraft/*.yaml` | Selects the component set and supplies spacecraft specific device values. |
 | Selected scenario | `cfg/drm/scenarios/*.yaml` | Supplies scenario specific component values and values applied to every selected component. |
@@ -58,7 +58,7 @@ make cfg
 
 This runs `cfg/shire-orchestrator.py` inside the configured SHIRE build image.
 The current default image reference uses the `0.0.0` tag rather than an immutable digest.
-On the first run, the orchestrator creates `build/active.yaml` with DRM, `sat-1`, the nominal scenario, the Demo CLI, logging disabled, and graphics enabled.
+On the first run, the orchestrator creates `build/active.yaml` with DRM, `sat-1`, the nominal scenario, the Demo CLI, logging disabled, and headless 42 enabled.
 
 The orchestrator currently produces:
 
@@ -86,7 +86,6 @@ spacecraft: sat-1
 scenario: nominal
 cli: demo
 log_mode: none
-graphics: true
 fsw_dir: cfs
 gsw_dir: yamcs
 ```

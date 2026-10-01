@@ -14,6 +14,7 @@ import re
 import statistics
 import struct
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -25,6 +26,7 @@ import yaml
 from shire_provenance import ROOT, run, git_metadata, host_metadata
 from shire_runner_lib import container_names, parse_marker, try_parse_marker
 from shire_perf_topology import SERVICE_CPU_REQUESTS, detect_physical_topology, plan_placement
+from shire_archive_check import coverage as archive_coverage
 
 
 def active_value(key: str) -> str:
@@ -404,9 +406,18 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
     compose_cmd = ["docker", "compose", "-f", str(compose)]
     for extra in extra_compose_files:
         compose_cmd += ["-f", str(extra)]
-    run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+    run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"], check=False)
 
+    archive_cmd = [sys.executable, str(ROOT / "cfg" / "shire-archives.py"), "create",
+                   "--mission", str(active_value("mission")),
+                   "--spacecraft", str(active_value("spacecraft")),
+                   "--scenario", f"perf-{label}",
+                   "--image", f"shire-gsw-{active_value('mission')}:{active_value('spacecraft')}"]
+    archive_info = json.loads(subprocess.run(archive_cmd, check=True, capture_output=True,
+                                             text=True).stdout)
     trial_env = os.environ.copy()
+    trial_env["SHIRE_YAMCS_VOLUME"] = archive_info["volume"]
+    trial_env["SHIRE_RUN_ID"] = archive_info["run_id"]
     trial_env["SIMULITH_SPEED"] = speed
     trial_env["SIMULITH_DURATION"] = str(duration)
     trial_env["SIMULITH_WARMUP"] = str(warmup)
@@ -423,7 +434,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
                      env=trial_env, check=False)
     (trial_dir / "compose-gsw.log").write_text(gsw_output.stdout, encoding="utf-8")
     if gsw_output.returncode != 0:
-        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"], check=False)
         raise RuntimeError(f"Yamcs startup failed; see {trial_dir / 'compose-gsw.log'}")
     health_deadline = time.monotonic() + 120.0
     while time.monotonic() < health_deadline:
@@ -436,7 +447,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
         (trial_dir / f"{names['gsw']}.log").write_text(
             run(["docker", "logs", names["gsw"]], check=False).stdout,
             encoding="utf-8")
-        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"], check=False)
         raise RuntimeError(f"Yamcs did not become healthy in trial {label}")
     observer = threading.Thread(target=observe_yamcs_truth,
                                 args=(observer_stop, yamcs_samples), daemon=True)
@@ -446,7 +457,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
     if output.returncode != 0:
         observer_stop.set()
         observer.join(timeout=2)
-        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"], check=False)
         raise RuntimeError(f"compose up failed; see {trial_dir / 'compose-up.log'}")
 
     waiter: subprocess.Popen[str] | None = None
@@ -541,14 +552,15 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
             "scenario-declared cFE EVS application success events"
         metrics["scenario"]["accepted"] = sum(
             int(item["count"]) for item in acceptance_observed)
-        graphics_result = run(
-            ["docker", "exec", names["42"], "od", "-An", "-tu8",
-             "-N24", "/tmp/fortytwo-output-metrics.bin"], check=False)
-        graphics_values = graphics_result.stdout.split()
-        if graphics_result.returncode == 0 and len(graphics_values) == 3:
-            metrics["graphics"] = dict(zip(
-                ("graphics_due", "graphics_sent", "graphics_throttled"),
-                (int(value) for value in graphics_values)))
+        try:
+            visual_hz = int(trial_env.get("SHIRE_VISUAL_HZ", "20"))
+            metrics["archive"] = archive_coverage(
+                "http://localhost:8090", archive_info["run_id"],
+                int(metrics["terminal"].get("visual_count", 0)),
+                int(metrics["terminal"].get("visual_errors", 0)),
+                100 // visual_hz)
+        except (OSError, ValueError, KeyError) as exc:
+            metrics["archive"] = {"replay_ready": False, "error": str(exc)}
     finally:
         observer_stop.set()
         if observer is not None:
@@ -571,12 +583,12 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
                 value = run(["docker", "logs", container], check=False).stdout
                 (trial_dir / f"{container}.log").write_text(value, encoding="utf-8")
         fortytwo_output = run(
-            ["docker", "exec", names["42"], "cat", "/tmp/fortytwo-run.log"],
+            ["docker", "logs", names["42"]],
             check=False)
         if fortytwo_output.returncode == 0:
             (trial_dir / "fortytwo-run.log").write_text(
                 fortytwo_output.stdout, encoding="utf-8")
-        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2"], check=False)
+        run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"], check=False)
     trace_path = trace_dir / "control-trace.v1"
     if not trace_path.exists():
         raise RuntimeError(f"complete control trace missing: {trace_path}")
@@ -610,7 +622,8 @@ def fidelity(left: dict[str, object], right: dict[str, object]) -> dict[str, obj
                     "duplicate_completions", "stale_completions", "future_completions")
     differences = {field: [left.get(field), right.get(field)]
                    for field in exact_fields if left.get(field) != right.get(field)}
-    for field in ("prepare_count", "commit_count", "telemetry_count", "digest",
+    for field in ("prepare_count", "commit_count", "telemetry_count",
+                  "visual_count", "visual_errors", "digest",
                   "component_phase_errors", "component_service_errors",
                   "telemetry_errors", "fortytwo_errors", "queue"):
         left_value = left.get("terminal", {}).get(field)
@@ -795,12 +808,6 @@ def evaluate(report: dict[str, object], baseline: dict[str, object] | None,
         if ground_mid <= 0 or wall_clock_sent != int(fsw.get("ground_output_sent", -1)):
             failures.append(
                 f"trial {trial['speed']} ground-output delivery count mismatch")
-        graphics = trial.get("graphics", {})
-        graphics_due = int(graphics.get("graphics_due", -1))
-        graphics_accounted = int(graphics.get("graphics_sent", -2)) + \
-            int(graphics.get("graphics_throttled", -3))
-        if graphics_due < 0 or graphics_due != graphics_accounted:
-            failures.append(f"trial {trial['speed']} graphics-output accounting mismatch")
     if enforce_performance and not report["fidelity"]["passed"]:
         failures.append("1x/25x exact-count fidelity failed")
     # Repeatability is a correctness check, not a performance threshold --
@@ -933,6 +940,14 @@ def print_summary(report: dict[str, object], report_path: pathlib.Path,
         all(trial.get("yamcs_truth", {}).get("matched_to_trace", []))
         for trial in truth_trials)
     print(f"Yamcs decoded truth: {'PASS' if truth_ok else 'FAIL'}")
+    ready = sum(bool(trial.get("archive", {}).get("replay_ready"))
+                for trial in truth_trials)
+    archived = sum(int(trial.get("archive", {}).get("archived", 0))
+                   for trial in truth_trials)
+    published = sum(int(trial.get("archive", {}).get("published", 0))
+                    for trial in truth_trials)
+    print(f"Yamcs archive coverage: {ready}/{len(truth_trials)} replay-ready, "
+          f"{archived}/{published} packets retained")
 
     scenario_ok = all(
         int(trial.get("scenario", {}).get("errors", -1)) == 0 and
@@ -1084,7 +1099,7 @@ def main() -> int:
             "device_transaction_resolution_us": 5,
             "histogram_max_us": 10240,
         },
-        "output_configuration": {"graphics_hz": os.environ.get("FORTYTWO_GRAPHICS_HZ", "1"),
+        "output_configuration": {"visual_hz": os.environ.get("SHIRE_VISUAL_HZ", "20"),
                                  "ground_output_hz": os.environ.get("SHIRE_GROUND_OUTPUT_HZ", "20"),
                                  "42_report_mode": "control",
                                  "barrier_profile": os.environ.get("SHIRE_BARRIER_PROFILE", "0"),

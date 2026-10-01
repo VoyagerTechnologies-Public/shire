@@ -79,17 +79,16 @@ def main():
         else:
             gsw_dir = mission_cfg.get("gsw", DEFAULT_GSW_DIR)
         
-        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "graphics": True, "fsw_dir": fsw_dir, "gsw_dir": gsw_dir}
+        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir}
         with open(ACTIVE_PATH, "w") as f:
             yaml.safe_dump(active, f)
-        print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}, graphics=True")
+        print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}")
 
     mission = active.get("mission", "drm")
     spacecraft = active.get("spacecraft", "sat-1")
     scenario = active.get("scenario", "nominal")
     cli_component = active.get("cli", "demo")
     log_mode = active.get("log_mode", active.get("log", "none"))
-    graphics = active.get("graphics", True)  # Default to graphics enabled
     fsw_dir = active.get("fsw_dir", DEFAULT_FSW_DIR)
     gsw_dir = active.get("gsw_dir", DEFAULT_GSW_DIR)
 
@@ -301,13 +300,13 @@ def main():
     # with different content over these same paths.
     if not args.compose_only:
         # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt from Jinja2
-        # templates using the graphics setting and the scenario's resolved IC.
+        # templates using the scenario's resolved IC.
         sim_template_path = os.path.abspath(os.path.join(CFG_DIR, '42_shire_config'))
         build_42_config_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/42_config'))
         os.makedirs(build_42_config_dir, exist_ok=True)
 
         for template_file, output_name, extra_context in (
-            ("Inp_Sim.j2", "Inp_Sim.txt", {"graphics": graphics, "ground_stations": ground_stations}),
+            ("Inp_Sim.j2", "Inp_Sim.txt", {"ground_stations": ground_stations}),
             ("Orb_SHIRE.j2", "Orb_SHIRE.txt", {}),
             ("SC_SHIRE.j2", "SC_SHIRE.txt", {}),
         ):

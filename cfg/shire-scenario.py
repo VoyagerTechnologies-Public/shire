@@ -4,15 +4,12 @@
 Usage:
     python3 cfg/shire-scenario.py --scenario <name> [--mission drm] [--spacecraft sat-1]
 
-Brings up the full stack (director, 42, FSW, GSW, cryptolib, server) exactly
-as `make start` would -- the 42 container still starts its VNC/xterm/noVNC
-internals unchanged -- but nothing opens a GUI and nothing waits for a
-human. This script waits for the run to finish, checks for a clean
+Brings up the full stack (director, headless 42, FSW, GSW, cryptolib,
+server) without opening a GUI or waiting for a human. This script waits for the run to finish, checks for a clean
 completion (FSW + Director terminal markers present, no watchdog timeout),
 tears everything down, and exits 0 (pass) / 1 (fail). This is the path
 `make scenario SCENARIO=<name>` and CI use to confirm a scenario passes;
-`make start` remains the manual path for a developer who wants the 42 GUI +
-YAMCS open to investigate.
+`make start` remains the manual path for a developer using the Yamcs viewer.
 
 Pass/fail is "clean completion only". This script
 does not assert anything about telemetry values, only that every
@@ -37,6 +34,7 @@ import yaml
 
 from shire_provenance import ROOT, run, git_head_sha
 from shire_runner_lib import container_names, run_streaming, try_parse_marker
+from shire_archive_check import coverage as archive_coverage
 
 SIMULATED_TIME_RE = re.compile(r"Simulation time:\s*([0-9.]+)\s*seconds")
 
@@ -337,6 +335,12 @@ def finish(result: dict[str, object], passed: bool, reason: str,
     result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print(f"[scenario] {'PASS' if passed else 'FAIL'}: {reason}")
+    archive = result.get("archive", {})
+    if archive:
+        print(f"[scenario] Yamcs archive: {archive.get('archived', 0)}/"
+              f"{archive.get('published', '?')} packets; "
+              f"replay_ready={archive.get('replay_ready', False)}; "
+              f"missing={archive.get('missing_count', 'unknown')}")
     print(f"[scenario] Report written to {result_path}")
     return 0 if passed else 1
 
@@ -360,7 +364,7 @@ def main() -> int:
                              "so it can run concurrently with other instances. Must match "
                              "^[a-z0-9]{1,8}$ (also used as a DNS hostname on the bridge network).")
     parser.add_argument("--port-offset", type=int, default=None,
-                        help="Added to this run's published host ports (8090 YAMCS, 5801 42 VNC) "
+                        help="Added to this run's published Yamcs host port (8090) "
                              "so concurrent instances don't collide. Default: 0.")
     parser.add_argument("--image-tag", help="Explicit image tag to run (e.g. a campaign build-key "
                                             "tag) instead of the bare spacecraft tag.")
@@ -459,7 +463,19 @@ def main() -> int:
     compose = compose_dir / "shire-compose.yaml"
     compose_cmd = ["docker", "compose", "-f", str(compose)]
 
+    image_tag = args.image_tag or spacecraft
+    archive = subprocess.run(
+        [sys.executable, str(ROOT / "cfg" / "shire-archives.py"), "create",
+         "--mission", mission, "--spacecraft", spacecraft, "--scenario", args.scenario,
+         "--image", f"shire-gsw-{mission}:{image_tag}"],
+        capture_output=True, text=True, check=True)
+    archive_info = json.loads(archive.stdout)
+    result["run_id"] = archive_info["run_id"]
+    result["yamcs_volume"] = archive_info["volume"]
+    print(f"[scenario] Yamcs archive: run={result['run_id']} volume={result['yamcs_volume']}")
     trial_env = os.environ.copy()
+    trial_env["SHIRE_YAMCS_VOLUME"] = archive_info["volume"]
+    trial_env["SHIRE_RUN_ID"] = archive_info["run_id"]
     trial_env["SIMULITH_DURATION"] = str(run_duration_s)
     if simulith_speed is not None:
         # Only safe to raise unconditionally for scenarios with no
@@ -475,14 +491,9 @@ def main() -> int:
         trial_env["SIMULITH_SCENARIO_ENABLED"] = "1"
         trial_env["SIMULITH_SCENARIO_FILE"] = str(ROOT / director_command_scenario)
 
-    # Instance-scoped volumes (simulith_ipc_*/gsw-data_* with an -<instance>
-    # suffix) are 100% ephemeral per trial, unlike the plain single-run
-    # path where they may deliberately persist across successive manual
-    # `make scenario` calls -- so campaign trials also drop them with -v,
-    # or a long campaign leaks one set of named volumes per trial.
-    down_cmd = compose_cmd + ["down", "--remove-orphans", "--timeout", "2"]
-    if args.instance_id:
-        down_cmd = down_cmd + ["-v"]
+    # -v removes only transient Compose volumes. The Yamcs archive is an
+    # external, separately labeled volume and survives every normal teardown.
+    down_cmd = compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"]
     run(down_cmd, check=False)
 
     passed = False
@@ -511,9 +522,7 @@ def main() -> int:
             value = run(["docker", "logs", container], check=False).stdout
             logs[role] = value
             (report_dir / f"{container}.log").write_text(value, encoding="utf-8")
-        fortytwo_output = run(
-            ["docker", "exec", names["42"], "cat", "/tmp/fortytwo-run.log"],
-            check=False)
+        fortytwo_output = run(["docker", "logs", names["42"]], check=False)
         if fortytwo_output.returncode == 0:
             (report_dir / "fortytwo-run.log").write_text(
                 fortytwo_output.stdout, encoding="utf-8")
@@ -536,6 +545,16 @@ def main() -> int:
             "director_terminal_present": director_terminal is not None,
             "fsw_terminal_present": fsw_terminal is not None,
         }
+        if director_terminal is not None:
+            try:
+                visual_hz = int(trial_env.get("SHIRE_VISUAL_HZ", "20"))
+                result["archive"] = archive_coverage(
+                    f"http://localhost:{8090 + port_offset}", result["run_id"],
+                    int(director_terminal.get("visual_count", 0)),
+                    int(director_terminal.get("visual_errors", 0)),
+                    100 // visual_hz)
+            except (OSError, ValueError, KeyError) as exc:
+                result["archive"] = {"replay_ready": False, "error": str(exc)}
 
         fault_lines = [line for log in logs.values() for line in log.splitlines()
                        if " ERROR" in line or " CRITICAL" in line]

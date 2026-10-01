@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" name="SHIRE_VISUAL">
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+      <xtce:IntegerParameterType name="MAGIC_Type" sizeInBits="32">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="VERSION_Type" sizeInBits="16">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RESERVED_Type" sizeInBits="16">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_00_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_01_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_02_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_03_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_04_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_05_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_06_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_07_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_08_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_09_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_10_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_11_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_12_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_13_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_14_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="RUN_ID_15_Type" sizeInBits="8">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="SPACECRAFT_ID_Type" sizeInBits="32">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:IntegerParameterType name="SEQUENCE_Type" sizeInBits="64">
+        <xtce:IntegerDataEncoding sizeInBits="64" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+      <xtce:FloatParameterType name="SIM_TIME_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="UTC_TIME_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="POSITION_N_1_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="POSITION_N_2_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="POSITION_N_3_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="VELOCITY_N_1_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="VELOCITY_N_2_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="VELOCITY_N_3_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_1_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_2_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_3_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="QN_4_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SUN_BODY_1_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SUN_BODY_2_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SUN_BODY_3_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WN_1_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WN_2_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WN_3_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_1_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_2_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_3_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_4_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_5_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_6_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_7_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_8_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="CWN_9_Type" sizeInBits="64">
+        <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
+      </xtce:FloatParameterType>
+      <xtce:IntegerParameterType name="ECLIPSE_Type" sizeInBits="32">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="leastSignificantByteFirst"/>
+      </xtce:IntegerParameterType>
+    </xtce:ParameterTypeSet>
+    <xtce:ParameterSet>
+      <xtce:Parameter name="MAGIC" parameterTypeRef="MAGIC_Type"/>
+      <xtce:Parameter name="VERSION" parameterTypeRef="VERSION_Type"/>
+      <xtce:Parameter name="RESERVED" parameterTypeRef="RESERVED_Type"/>
+      <xtce:Parameter name="RUN_ID_00" parameterTypeRef="RUN_ID_00_Type"/>
+      <xtce:Parameter name="RUN_ID_01" parameterTypeRef="RUN_ID_01_Type"/>
+      <xtce:Parameter name="RUN_ID_02" parameterTypeRef="RUN_ID_02_Type"/>
+      <xtce:Parameter name="RUN_ID_03" parameterTypeRef="RUN_ID_03_Type"/>
+      <xtce:Parameter name="RUN_ID_04" parameterTypeRef="RUN_ID_04_Type"/>
+      <xtce:Parameter name="RUN_ID_05" parameterTypeRef="RUN_ID_05_Type"/>
+      <xtce:Parameter name="RUN_ID_06" parameterTypeRef="RUN_ID_06_Type"/>
+      <xtce:Parameter name="RUN_ID_07" parameterTypeRef="RUN_ID_07_Type"/>
+      <xtce:Parameter name="RUN_ID_08" parameterTypeRef="RUN_ID_08_Type"/>
+      <xtce:Parameter name="RUN_ID_09" parameterTypeRef="RUN_ID_09_Type"/>
+      <xtce:Parameter name="RUN_ID_10" parameterTypeRef="RUN_ID_10_Type"/>
+      <xtce:Parameter name="RUN_ID_11" parameterTypeRef="RUN_ID_11_Type"/>
+      <xtce:Parameter name="RUN_ID_12" parameterTypeRef="RUN_ID_12_Type"/>
+      <xtce:Parameter name="RUN_ID_13" parameterTypeRef="RUN_ID_13_Type"/>
+      <xtce:Parameter name="RUN_ID_14" parameterTypeRef="RUN_ID_14_Type"/>
+      <xtce:Parameter name="RUN_ID_15" parameterTypeRef="RUN_ID_15_Type"/>
+      <xtce:Parameter name="SPACECRAFT_ID" parameterTypeRef="SPACECRAFT_ID_Type"/>
+      <xtce:Parameter name="SEQUENCE" parameterTypeRef="SEQUENCE_Type"/>
+      <xtce:Parameter name="SIM_TIME" parameterTypeRef="SIM_TIME_Type"/>
+      <xtce:Parameter name="UTC_TIME" parameterTypeRef="UTC_TIME_Type"/>
+      <xtce:Parameter name="POSITION_N_1" parameterTypeRef="POSITION_N_1_Type"/>
+      <xtce:Parameter name="POSITION_N_2" parameterTypeRef="POSITION_N_2_Type"/>
+      <xtce:Parameter name="POSITION_N_3" parameterTypeRef="POSITION_N_3_Type"/>
+      <xtce:Parameter name="VELOCITY_N_1" parameterTypeRef="VELOCITY_N_1_Type"/>
+      <xtce:Parameter name="VELOCITY_N_2" parameterTypeRef="VELOCITY_N_2_Type"/>
+      <xtce:Parameter name="VELOCITY_N_3" parameterTypeRef="VELOCITY_N_3_Type"/>
+      <xtce:Parameter name="QN_1" parameterTypeRef="QN_1_Type"/>
+      <xtce:Parameter name="QN_2" parameterTypeRef="QN_2_Type"/>
+      <xtce:Parameter name="QN_3" parameterTypeRef="QN_3_Type"/>
+      <xtce:Parameter name="QN_4" parameterTypeRef="QN_4_Type"/>
+      <xtce:Parameter name="SUN_BODY_1" parameterTypeRef="SUN_BODY_1_Type"/>
+      <xtce:Parameter name="SUN_BODY_2" parameterTypeRef="SUN_BODY_2_Type"/>
+      <xtce:Parameter name="SUN_BODY_3" parameterTypeRef="SUN_BODY_3_Type"/>
+      <xtce:Parameter name="WN_1" parameterTypeRef="WN_1_Type"/>
+      <xtce:Parameter name="WN_2" parameterTypeRef="WN_2_Type"/>
+      <xtce:Parameter name="WN_3" parameterTypeRef="WN_3_Type"/>
+      <xtce:Parameter name="CWN_1" parameterTypeRef="CWN_1_Type"/>
+      <xtce:Parameter name="CWN_2" parameterTypeRef="CWN_2_Type"/>
+      <xtce:Parameter name="CWN_3" parameterTypeRef="CWN_3_Type"/>
+      <xtce:Parameter name="CWN_4" parameterTypeRef="CWN_4_Type"/>
+      <xtce:Parameter name="CWN_5" parameterTypeRef="CWN_5_Type"/>
+      <xtce:Parameter name="CWN_6" parameterTypeRef="CWN_6_Type"/>
+      <xtce:Parameter name="CWN_7" parameterTypeRef="CWN_7_Type"/>
+      <xtce:Parameter name="CWN_8" parameterTypeRef="CWN_8_Type"/>
+      <xtce:Parameter name="CWN_9" parameterTypeRef="CWN_9_Type"/>
+      <xtce:Parameter name="ECLIPSE" parameterTypeRef="ECLIPSE_Type"/>
+    </xtce:ParameterSet>
+    <xtce:ContainerSet>
+      <xtce:SequenceContainer name="SHIRE_VISUAL_DATA">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="MAGIC"/>
+          <xtce:ParameterRefEntry parameterRef="VERSION"/>
+          <xtce:ParameterRefEntry parameterRef="RESERVED"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_00"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_01"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_02"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_03"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_04"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_05"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_06"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_07"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_08"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_09"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_10"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_11"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_12"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_13"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_14"/>
+          <xtce:ParameterRefEntry parameterRef="RUN_ID_15"/>
+          <xtce:ParameterRefEntry parameterRef="SPACECRAFT_ID"/>
+          <xtce:ParameterRefEntry parameterRef="SEQUENCE"/>
+          <xtce:ParameterRefEntry parameterRef="SIM_TIME"/>
+          <xtce:ParameterRefEntry parameterRef="UTC_TIME"/>
+          <xtce:ParameterRefEntry parameterRef="POSITION_N_1"/>
+          <xtce:ParameterRefEntry parameterRef="POSITION_N_2"/>
+          <xtce:ParameterRefEntry parameterRef="POSITION_N_3"/>
+          <xtce:ParameterRefEntry parameterRef="VELOCITY_N_1"/>
+          <xtce:ParameterRefEntry parameterRef="VELOCITY_N_2"/>
+          <xtce:ParameterRefEntry parameterRef="VELOCITY_N_3"/>
+          <xtce:ParameterRefEntry parameterRef="QN_1"/>
+          <xtce:ParameterRefEntry parameterRef="QN_2"/>
+          <xtce:ParameterRefEntry parameterRef="QN_3"/>
+          <xtce:ParameterRefEntry parameterRef="QN_4"/>
+          <xtce:ParameterRefEntry parameterRef="SUN_BODY_1"/>
+          <xtce:ParameterRefEntry parameterRef="SUN_BODY_2"/>
+          <xtce:ParameterRefEntry parameterRef="SUN_BODY_3"/>
+          <xtce:ParameterRefEntry parameterRef="WN_1"/>
+          <xtce:ParameterRefEntry parameterRef="WN_2"/>
+          <xtce:ParameterRefEntry parameterRef="WN_3"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_1"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_2"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_3"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_4"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_5"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_6"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_7"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_8"/>
+          <xtce:ParameterRefEntry parameterRef="CWN_9"/>
+          <xtce:ParameterRefEntry parameterRef="ECLIPSE"/>
+        </xtce:EntryList>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+</xtce:SpaceSystem>

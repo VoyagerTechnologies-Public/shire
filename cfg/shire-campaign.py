@@ -55,7 +55,7 @@ ACTIVE_PATH = ROOT / "build" / "active.yaml"
 # either script's active.yaml write + `make` call could cause.
 ACTIVE_LOCK_PATH = ROOT / "build" / ".shire-active.lock"
 
-BASE_PORTS = [8090, 5801]
+BASE_PORTS = [8090]
 PORT_STRIDE = 10
 DEFAULT_MAX_PARALLEL = 2
 # Rough per-trial compose-stack footprint (server 4 + director 4 +
@@ -440,6 +440,8 @@ def cleanup_by_label(label_value: str | None) -> None:
     net_ids = run(["docker", "network", "ls", "-q", "--filter", label_filter], check=False).stdout.split()
     if net_ids:
         run(["docker", "network", "rm", *net_ids], check=False)
+    # Yamcs archives use a separate shire.archive label and are never part
+    # of this transient trial cleanup.
     vol_names = run(["docker", "volume", "ls", "-q", "--filter", label_filter], check=False).stdout.split()
     if vol_names:
         run(["docker", "volume", "rm", "-f", *vol_names], check=False)

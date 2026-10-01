@@ -32,7 +32,9 @@ full-output reference.
 The Director sends one 42 truth packet per simulated second to Yamcs.
 The gate requires all 75 sends to succeed and verifies that Yamcs decodes at
 least two increasing `/SIM_42_TRUTH/DYN_TIME` values that match the trace.
-UDP delivery is not required for every packet.
+Visualization truth is also published at 20 Hz by default.
+Each trial reports
+native Yamcs archive sequence coverage separately from the simulation result.
 
 `make perf` writes the report and trial logs under
 `build/performance/shire-perf-<UTC timestamp>/`.
@@ -44,8 +46,8 @@ A smoke result is not a performance acceptance result.
 ## 42 output modes
 
 SHIRE runs 42 in control mode by default.
-Control mode retains physics, graphics, state and command IPC, and Yamcs
-truth packets while omitting synchronous legacy 42 report files.
+Control mode retains physics, state and command IPC, and Yamcs truth
+packets while omitting synchronous legacy 42 report files.
 Set `SHIRE_42_REPORT_MODE=full` when a run needs those files:
 
 ```sh

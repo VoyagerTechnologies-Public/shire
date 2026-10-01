@@ -2,7 +2,7 @@
 <xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="SIM_42_TRUTH" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
   <xtce:TelemetryMetaData>
     <xtce:ParameterTypeSet>
-      <xtce:FloatParameterType name="DYN_TIME_Type" sizeInBits="64" shortDescription="Dynamic Time (s since J2000)">
+      <xtce:FloatParameterType name="DYN_TIME_Type" sizeInBits="64" shortDescription="42 UTC civil seconds since J2000 (2000-01-01 12:00:00 UTC)">
         <xtce:FloatDataEncoding sizeInBits="64" encoding="IEEE754_1985" byteOrder="leastSignificantByteFirst"/>
       </xtce:FloatParameterType>
       <xtce:FloatParameterType name="POSITION_N_1_Type" sizeInBits="64" shortDescription="Inertial Position (m) Byte 1">

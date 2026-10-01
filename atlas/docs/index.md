@@ -32,7 +32,7 @@ make start
 ```
 
 The first build can take time because it prepares several container images and compiles the flight, ground, dynamics, and simulation software.
-When startup completes, open YAMCS at [http://localhost:8090](http://localhost:8090) and the 42 VNC interface at [http://localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html).
+When startup completes, open YAMCS at [http://localhost:8090](http://localhost:8090) and the [Earth-orbit visualization](http://localhost:8090/visualization/).
 
 Read [Getting Started](manual/handbook/getting-started.md) before commanding the DRM or changing simulation time.
 

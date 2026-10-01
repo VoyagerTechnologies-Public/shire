@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -63,7 +63,6 @@ clean:
 		$(MAKE) clean-42; \
 		rm -rf $(BUILDDIR_MISSION); \
 		$(MAKE) clean-gsw; \
-		docker volume ls -q --filter "name=gsw-data" | xargs -r docker volume rm; \
 		docker volume ls -q --filter "name=simulith_ipc" | xargs -r docker volume rm; \
 	else \
 		echo "Docker image $(BUILD_IMAGE) does not exist. Skipping clean subcommands."; \
@@ -73,8 +72,9 @@ clean-42:
 	python3 cfg/shire-build.py clean-42
 
 clean-cache:
+	python3 cfg/shire-archives.py purge
 	docker builder prune -f
-	docker volume rm -f gsw-data simulith_ipc || true
+	docker volume rm -f simulith_ipc || true
 
 clean-cli:
 	python3 cfg/shire-build.py clean-cli
@@ -138,7 +138,7 @@ help:
 	@echo "  cli-start     - Start CLI compose"
 	@echo "  clean         - Remove build artifacts and stop compose"
 	@echo "  clean-42      - Clean 42 simulator container"
-	@echo "  clean-cache   - Clean Docker build cache (frees significant disk space)"
+	@echo "  clean-cache   - Delete retained SHIRE replay archives and prune Docker build cache"
 	@echo "  clean-cli     - Clean CLI components"
 	@echo "  clean-fsw     - Clean FSW components"
 	@echo "  clean-gsw     - Clean GSW components"
@@ -155,6 +155,9 @@ help:
 	@echo "  perf          - Run full-output reference, 1x/25x/50x fidelity, and three >50x trials"
 	@echo "  perf-compare  - Run perf and compare with BASELINE=<report.json>"
 	@echo "  perf-smoke    - Build and run one short synchronized diagnostic trial"
+	@echo "  replay-list   - List retained Yamcs run archives"
+	@echo "  replay        - Serve RUN=<run-id> from its native Yamcs archive"
+	@echo "  replay-delete - Explicitly remove RUN=<run-id> archive"
 	@echo "  scenario      - Run SCENARIO=<name> headlessly and confirm a clean pass (no GUI)"
 	@echo "  scenario-smoke - Run the active scenario + IC twice and confirm exact repeat"
 	@echo "  sim           - Build Simulith and component simulators (includes Docker images)"
@@ -202,23 +205,32 @@ sim: cfg
 	python3 cfg/shire-build.py sim
 
 start:
-	docker compose -f $(BUILDDIR_MISSION)/shire-compose.yaml up
+	python3 cfg/shire-archives.py start --mission $(MISSION) --spacecraft $(SPACECRAFT) --scenario manual --image shire-gsw-$(MISSION):$(SPACECRAFT) --compose $(BUILDDIR_MISSION)/shire-compose.yaml
+
+replay-list:
+	python3 cfg/shire-archives.py list
+
+replay:
+	@test -n "$(RUN)" || { echo "RUN=<run-id> is required"; exit 2; }
+	python3 cfg/shire-archives.py replay $(RUN) --port $(if $(PORT),$(PORT),8090)
+
+replay-delete:
+	@test -n "$(RUN)" || { echo "RUN=<run-id> is required"; exit 2; }
+	python3 cfg/shire-archives.py delete $(RUN)
 
 stop:
 	@if [ -f "$(BUILDDIR_MISSION)/cli-compose.yaml" ]; then \
-		docker compose -f "$(BUILDDIR_MISSION)/cli-compose.yaml" down --remove-orphans; \
+		docker compose -f "$(BUILDDIR_MISSION)/cli-compose.yaml" down --remove-orphans -v; \
 	else \
 		echo "Skipping missing compose file: $(BUILDDIR_MISSION)/cli-compose.yaml"; \
 	fi
 	@if [ -f "$(BUILDDIR_MISSION)/shire-compose.yaml" ]; then \
-		docker compose -f "$(BUILDDIR_MISSION)/shire-compose.yaml" down --remove-orphans; \
+		docker compose -f "$(BUILDDIR_MISSION)/shire-compose.yaml" down --remove-orphans -v; \
 	else \
 		echo "Skipping missing compose file: $(BUILDDIR_MISSION)/shire-compose.yaml"; \
 	fi
-	@docker images -f "dangling=true" -q | xargs -r docker rmi
 	@echo ""
 	@echo "To cleanup Docker build cache, run: make clean-cache"
-	@echo "To cleanup everything Docker, run: docker system prune -a"
 
 test-fsw: clean-fsw cfg
 	docker run --rm -v $(CURDIR):$(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -w $(CURDIR)/$(FSW_DIR) $(BUILD_IMAGE) make build-test
@@ -232,12 +244,11 @@ test-simulith: container
 uninstall: clean clean-cache
 	rm -rf $(BUILD_DIR) .container.stamp
 	docker ps -a --filter "name=shire-" -q | xargs -r docker rm -f
-	docker images "shire-*" -q | xargs -r docker rmi -f
-	docker volume ls -q --filter "name=gsw-data" | xargs -r docker volume rm -f 
+	@docker images --format '{{.Repository}}:{{.Tag}}' | \
+		awk '/^shire-/ && !/^shire-gsw-archive:/ && !/:<none>$$/ {print}' | \
+		xargs -r docker rmi
 	docker volume ls -q --filter "name=simulith_ipc" | xargs -r docker volume rm
 	docker network ls -q --filter "name=shire-net" | xargs -r docker network rm
 	docker network ls -q --filter "name=cfg_shire-net" | xargs -r docker network rm
 	@echo ""
-	@echo "To cleanup everything docker even unrelated to SHIRE: "
-	@echo "  docker system prune -a"
 	@echo ""

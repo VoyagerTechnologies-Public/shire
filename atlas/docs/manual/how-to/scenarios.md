@@ -155,8 +155,7 @@ You will need to determine it yourself by doing the following:
    elapsed time, and `orbit.true_anomaly_deg` to the converted value.
    Record how you derived it in a `notes:` field.
 6. Reference the new bin from a scenario's `initial_conditions:` field,
-   `make cfg`, and inspect the written snapshot, or `make start` to visually
-   confirm in the 42 GUI that the run begins where you expect.
+   `make cfg`, and inspect the written snapshot, or `make start` to inspect the run in the Yamcs visualization viewer.
 
 Ground-pass acquisition/loss bins follow the same pattern, using
 `cfg/drm/ground_stations.yaml`'s station position and an elevation-mask test
@@ -173,11 +172,11 @@ Five scenarios ship today: `nominal` and `debug` (both use
 this page).
 Use `<name>` below to try any of them.
 
-### Manually, with the GUI and YAMCS
+### Manually, with Yamcs visualization
 
-Unchanged from before: set `scenario: <name>` in `build/active.yaml`, `make`
+Set `scenario: <name>` in `build/active.yaml`, `make`
 (renders the IC into the 42 config files), then `make start` (brings up the
-full VNC/noVNC + YAMCS stack with that IC already baked in).
+headless 42 + Yamcs stack with that IC already baked in).
 This is the path for investigating an issue or exploring the system by hand.
 
 ### Autonomously, to confirm a pass (no GUI, CI/Monte-Carlo friendly)
@@ -189,8 +188,7 @@ make scenario SCENARIO=<name>
 
 This selects the scenario, builds, and brings up the exact same compose
 stack `make start` would.
-The 42 container still starts its VNC/xterm/noVNC internals internally.
-This script just never opens them, and nothing waits for a human.
+42 runs headlessly, and nothing waits for a human.
 It waits for the run to finish, bounded by a watchdog, checks that both the
 Director and FSW reached their terminal marker with no crash or timeout,
 tears everything down, and exits 0 (pass) or 1 (fail).
