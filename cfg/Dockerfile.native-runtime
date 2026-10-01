@@ -1,0 +1,26 @@
+# Shared native runtime dependencies for 42, Simulith, FSW, and CryptoLib.
+# Build once with make container; mission images only copy local artifacts.
+# Published to: ghcr.io/voyagertechnologies-public/shire-native-runtime
+#
+# Manual multi-platform GHCR publish (from repo root):
+#   1. Create a classic GitHub token with write:packages and permission to
+#      publish to VoyagerTechnologies-Public. Authorize SSO if required.
+#   2. Set CR_PAT in your shell, then log in:
+#        printf '%s' "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
+#   3. Create and bootstrap a multi-platform builder (one time):
+#        docker buildx create --name shire-multiarch --driver docker-container --use
+#        docker buildx inspect --bootstrap
+#   4. Build and push the image plus its multi-platform manifest:
+#        export IMAGE=ghcr.io/voyagertechnologies-public/shire-native-runtime
+#        docker buildx build --platform linux/amd64,linux/arm64 \
+#          --tag "${IMAGE}:0.0.0" --push -f cfg/Dockerfile.native-runtime cfg
+#   5. Verify the published platforms:
+#        docker buildx imagetools inspect "${IMAGE}:0.0.0"
+#
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libzmq5 libgcrypt20 && rm -rf /var/lib/apt/lists/*
+LABEL org.opencontainers.image.title="shire-native-runtime" \
+      org.opencontainers.image.description="Shared native runtime dependencies for SHIRE" \
+      org.opencontainers.image.source="https://github.com/VoyagerTechnologies-Public/shire" \
+      org.opencontainers.image.vendor="Voyager Technologies"

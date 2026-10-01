@@ -18,7 +18,7 @@
 #        docker buildx imagetools inspect "${IMAGE}:0.0.0"
 #
 
-FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -33,16 +33,14 @@ RUN apt-get update && \
     build-essential \
     cmake \
     curl \
-    gcovr \
     gdb \
     git \
-    gpg \
     lcov \
     libcurl4-openssl-dev \
     libgcrypt20-dev \
+    libjson-xs-perl \
     libsocketcan-dev \
     libzmq3-dev \
-    libjson-xs-perl \
     pmccabe \
     pkg-config \
     python3 \
@@ -66,7 +64,7 @@ RUN printf '%s\n' \
 
 # Install orchestrator requirements
 COPY requirements.txt /requirements.txt
-RUN pip3 install --break-system-packages --no-cache-dir --upgrade -r /requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r /requirements.txt
 
 # Create developer user (UID/GID 1000 by default; override with --build-arg for local dev)
 ARG USER_ID=1000

@@ -19,7 +19,7 @@ JOBS := $(shell if [ $(NPROC) -le 1 ]; then echo 1; else expr $(NPROC) - 1; fi)
 
 # Commands
 build:
-	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) -e BUILDDIR=$(BUILDDIR) $(BUILD_IMAGE) make -j$(JOBS) build-sim
+	docker run --rm --network none -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) -e BUILDDIR=$(BUILDDIR) $(BUILD_IMAGE) make -j$(JOBS) build-sim
 
 build-director: 
 	mkdir -p $(BUILDDIR)
@@ -67,8 +67,6 @@ copy-sims:
 			fi; \
 		done; \
 	fi
-	cp -r $(TOPDIR)/42/InOut $(BUILDDIR)/ 2>/dev/null || true
-	cp -r $(TOPDIR)/42/Model $(BUILDDIR)/ 2>/dev/null || true
 
 clean:
 	rm -rf $(BUILDDIR)
@@ -85,12 +83,10 @@ director: copy-sims
 	@if [ "$(BUILDDIR)" != "$(CURDIR)/build" ]; then \
 		rm -rf build; \
 		mkdir -p build; \
-		cp -L $(BUILDDIR)/* build/ 2>/dev/null || true; \
-		cp -rL $(BUILDDIR)/components build/ 2>/dev/null || true; \
-		cp -rL $(BUILDDIR)/InOut build/ 2>/dev/null || true; \
-		cp -rL $(BUILDDIR)/Model build/ 2>/dev/null || true; \
+		cp -L $(BUILDDIR)/libsimulith.so $(BUILDDIR)/simulith_director_standalone $(BUILDDIR)/simulith_server_standalone build/; \
+		cp -rL $(BUILDDIR)/components build/; \
 	fi
-	docker build -t $(RUNTIME_DIRECTOR_NAME):$(IMAGE_TAG) -f docker/Dockerfile.director .
+	docker build --pull=false --network=none -t $(RUNTIME_DIRECTOR_NAME):$(IMAGE_TAG) -f docker/Dockerfile.director .
 
 server:
 	@if [ ! -d "$(BUILDDIR)" ]; then \
@@ -101,18 +97,15 @@ server:
 	@if [ "$(BUILDDIR)" != "$(CURDIR)/build" ]; then \
 		rm -rf build; \
 		mkdir -p build; \
-		cp -L $(BUILDDIR)/* build/ 2>/dev/null || true; \
-		cp -rL $(BUILDDIR)/components build/ 2>/dev/null || true; \
-		cp -rL $(BUILDDIR)/InOut build/ 2>/dev/null || true; \
-		cp -rL $(BUILDDIR)/Model build/ 2>/dev/null || true; \
+		cp -L $(BUILDDIR)/libsimulith.so $(BUILDDIR)/simulith_server_standalone build/; \
 	fi
-	docker build -t $(RUNTIME_SERVER_NAME):$(IMAGE_TAG) -f docker/Dockerfile.server .
+	docker build --pull=false --network=none -t $(RUNTIME_SERVER_NAME):$(IMAGE_TAG) -f docker/Dockerfile.server .
 
 stop:
 	docker ps --filter name=shire-* | xargs docker stop
 
 test:
-	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make clean build-test
+	docker run --rm --network none -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make clean build-test
 
 # Discover testable components by reading build/build.yaml.
 # Falls back to "demo" if build.yaml is absent.
@@ -153,4 +146,4 @@ build-comp-test:
 	echo ""
 
 test-comp:
-	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j$(JOBS) build-comp-test
+	docker run --rm --network none -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j$(JOBS) build-comp-test

@@ -9,8 +9,9 @@ The default build image is `ghcr.io/voyagertechnologies-public/shire-base:0.0.0`
 It contains GCC 14 and LCOV with branch and MC/DC support.
 The Base image workflow publishes this multi-architecture tag from `dev` and
 `main`, and also publishes immutable commit tags from `dev`.
-When `.container.stamp` needs rebuilding, `make container` first attempts to pull the image and builds `cfg/Dockerfile.base` locally if the pull fails.
-The stamp avoids repeating that work until the Dockerfile or `cfg/requirements.txt` changes.
+When `.container.stamp` needs rebuilding, `make container` builds the SHIRE development image and four package-only dependency images from this checkout.
+Set `BUILD_IMAGE` to a different tag to keep the local build separate from the published tag.
+The stamp avoids repeating that work until a dependency Dockerfile, `cfg/requirements.txt`, the Yamcs POM, or the viewer package manifest changes.
 Changing `BUILD_IMAGE` alone does not invalidate the stamp.
 Remove `.container.stamp` or run `make -B container` when the selected image must be resolved again.
 
@@ -22,6 +23,28 @@ make debug
 
 The repository is mounted at the same absolute path and the container runs with the host UID/GID.
 The debug container also receives the message queue, real time priority, and `SYS_NICE` settings used by the FSW build.
+
+## Offline source builds
+
+Run `make container` once while connected to prepare five local images: the SHIRE compiler/orchestrator, shared native runtime libraries, lockfile-matched viewer build environment, pre-resolved Yamcs Maven build environment, and Yamcs JRE runtime dependencies.
+After that, `make` builds the mission-specific images with Docker networking disabled.
+The viewer uses installed packages from its locked base, Maven runs in offline mode, and no runtime Dockerfile installs packages.
+A source change can therefore be rebuilt without network access as long as the dependency manifests and base Dockerfiles have not changed.
+If one of those inputs changes, refresh the images with `make container` while connected.
+
+To transfer the minimum dependency-image set to another machine of the same architecture, use:
+
+```bash
+make container-export FILE=/tmp/shire-dependencies.tar
+# Copy the tarball and the full source checkout, including submodules, to the offline machine.
+make container-import FILE=/tmp/shire-dependencies.tar
+make
+```
+
+`container-import` verifies all five images, checks the Python requirements, viewer package manifest, and Yamcs POM against their embedded baselines, then records the local container stamp.
+The bundle contains build dependencies only and contains no mission-specific images or Yamcs archive data.
+The image archive can be large, so keep it outside the repository.
+
 
 ## Generated compose files
 
@@ -92,11 +115,24 @@ Use service health, logs, and application status when diagnosing startup timing.
 
 The build creates mission and spacecraft tagged runtime images for 42, Director, Server, FSW, GSW, and CryptoLib.
 Component CLI images use the component name.
+The SHIRE development base compiles native programs but is not carried into those DRM runtime images.
+42, Director, Server, FSW, and CryptoLib share a Debian slim dependency base with ZeroMQ and libgcrypt, avoiding package installs during mission image builds.
+Yamcs uses a pinned Java 17 JRE dependency base with Python and curl for timeline setup and health checks.
+The viewer build uses Node 24 LTS.
+The Yamcs build uses Maven 3.9 and Java 17.
+Both build tools stay out of the GSW runtime image.
+The runtime build uses the prepared local dependency images and the Dockerfiles in this checkout.
+
+Build-stage base images are pinned by digest and the viewer dependency tree is locked and the Python top-level dependencies are pinned.
+To refresh them, update the pins and lockfile, build the images locally, then run the Simulith, Yamcs, and full-stack checks before publishing new image tags.
+`make container` does not automatically pull newer packages into an unchanged image.
+Update its Dockerfile or dependency pins to trigger a rebuild.
+42 model data stays in the 42 image, while Simulith images contain only their own binaries and selected component libraries.
 
 The generated DRM Compose file defines:
 
 * `simulith_ipc_<spacecraft>` is mounted at `/tmp` in 42, Server, Director, CryptoLib, and FSW for Simulith and 42 IPC files.
-* `gsw-data_<mission>` is mounted at `/app/yamcs-data` in GSW for archives, buckets, timelines, displays, stacks, CFDP files, and other YAMCS state.
+* A per-run `shire-yamcs-archive-<run-id>` volume is mounted at `/app/yamcs-data` in GSW for telemetry archives, buckets, timelines, displays, stacks, CFDP files, and other Yamcs state.
 
 The focused CLI Compose file defines only the Simulith IPC volume.
 Docker Compose can prefix the physical volume name with its project name, so inspect the resolved volumes rather than assuming the logical key is the Docker volume name:

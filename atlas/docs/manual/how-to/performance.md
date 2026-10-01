@@ -43,6 +43,14 @@ output mode, and reasons for any failure.
 Use `make perf-smoke` for one short diagnostic trial.
 A smoke result is not a performance acceptance result.
 
+## Build and startup cost
+
+The 42 compiler stage copies source and headers separately from runtime model data, so an imagery or model change does not trigger C recompilation.
+The Simulith build stages only its executables, shared library, and selected component modules instead of copying 42 model data into the Server image.
+Runtime images omit compiler and Maven toolchains, reducing image transfer and unpacking work during startup.
+These packaging changes do not remove physics or control-loop work from a simulation tick.
+Use the full `make perf` gate to measure steady-state throughput and verify fidelity after changing runtime packaging.
+
 ## 42 output modes
 
 SHIRE runs 42 in control mode by default.

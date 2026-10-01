@@ -1,7 +1,7 @@
 # Visualization and replay
 
 The SHIRE 42 container runs headlessly.
-Yamcs records visualization truth in its native packet and parameter archives, and the offline Cesium viewer renders frames from those data at 5 FPS by default.
+Yamcs records visualization truth in its native packet and parameter archives, and the offline Cesium viewer renders frames from those data at 30 FPS by default.
 Rendering FPS is independent of the 20 Hz default recording cadence and the Simulith tick rate.
 The viewer keeps a bounded sample window in memory and does not write images or video.
 It reads atomic pose windows from Yamcs's native packet archive so position, attitude, and Earth transform come from one recorded sample.
@@ -19,13 +19,13 @@ SHIRE and Yamcs continue running and recording.
 **Play** then replays from the paused timestamp at the selected playback speed.
 When playback catches the archive head on a live run, the viewer automatically rejoins incoming telemetry at SHIRE's current simulation pace.
 Select a playback speed above the simulation pace to catch up, or choose **Live** to jump immediately.
-Drag the timeline, enter a positive playback-speed multiplier and rendering FPS, and choose spacecraft follow (the default), Earth overview, or attitude inspection.
+Drag the timeline, enter a positive playback-speed multiplier and rendering FPS, and choose attitude inspection (the default), spacecraft follow, or Earth overview.
 Camera orbit and zoom stay relative to the spacecraft when telemetry advances or the viewer switches between Live and Replay.
 The top-right ground-track map shows the recorded path in cyan, a one-orbit two-body expected path in dashed orange, eclipse portions in outlined violet, and the current position in yellow.
 Solid violet marks archived eclipse truth.
 Dotted violet is an approximate Earth-shadow forecast.
 The forecast is a diagnostic overlay and does not replace 42 truth.
-The scene includes Cesium's offline star map and Moon, a dashed amber orbit trail, solid body axes, a translucent Sun vector, eclipse state, and angular rates.
+The scene includes Cesium's offline star map and Moon, a dashed grey orbit trail, solid body axes, a translucent Sun vector, eclipse state, and angular rates.
 The body axes and Sun vector start at the same spacecraft truth position used by the orbit trail.
 The credits under the controls show the configured spacecraft model filename.
 Previously saved bookmarks remain available.
@@ -34,7 +34,7 @@ The button for creating new bookmarks is hidden.
 `SHIRE_VISUAL_HZ=20 make start` selects the visualization truth rate in samples per simulated second.
 It must divide the 100 Hz simulation tick rate and can range from 1 to 100.
 The legacy truth stream remains at 1 Hz.
-The viewer's **Render FPS** control starts at 5 and changes only the rate at which the browser draws frames.
+The viewer's **Render FPS** control starts at 30 and changes only the rate at which the browser draws frames.
 
 The selected spacecraft's `visualization` settings in `cfg/<mission>/spacecraft/<spacecraft>.yaml` choose `earth_imagery` and `model` source paths.
 Paths are relative to the SHIRE checkout or absolute.

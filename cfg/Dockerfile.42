@@ -2,14 +2,17 @@
 ARG BASE_IMAGE=ghcr.io/voyagertechnologies-public/shire-base:0.0.0
 FROM ${BASE_IMAGE} AS builder
 WORKDIR /42
-COPY 42/ /42/
-# Ignore any host objects: the image controls architecture and release flags.
-RUN find /42 -type f \( -name '*.o' -o -name '*.a' \) -delete && \
-    rm -f /42/42 && mkdir -p /42/Object /42/Kit/Object && \
+# Model data is copied only into the runtime stage. Changes to textures or
+# ephemeris files must not invalidate the small compiler-input layer.
+COPY 42/Makefile /42/Makefile
+COPY 42/Source/ /42/Source/
+COPY 42/Include/ /42/Include/
+COPY 42/Kit/ /42/Kit/
+RUN mkdir -p /42/Object /42/Kit/Object && \
     make BUILD_TYPE=release GUIFLAG= SHADERFLAG= -j"$(nproc)"
 
-# Keep the runtime image limited to the dynamics binary and model data.
-FROM ${BASE_IMAGE}
+# Use the shared native runtime dependencies without the development toolchain.
+FROM ghcr.io/voyagertechnologies-public/shire-native-runtime:0.0.0
 WORKDIR /42
 COPY --from=builder /42/42 /42/42
 COPY 42/Model/ /42/Model/

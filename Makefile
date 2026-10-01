@@ -1,9 +1,14 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
 export BUILD_IMAGE ?= ghcr.io/voyagertechnologies-public/shire-base:0.0.0
+NATIVE_RUNTIME_IMAGE := ghcr.io/voyagertechnologies-public/shire-native-runtime:0.0.0
+VIEWER_BASE_IMAGE := ghcr.io/voyagertechnologies-public/shire-viewer-base:0.0.0
+YAMCS_BUILD_IMAGE := ghcr.io/voyagertechnologies-public/shire-yamcs:0.0.0
+YAMCS_RUNTIME_IMAGE := ghcr.io/voyagertechnologies-public/shire-yamcs-runtime:0.0.0
+OFFLINE_IMAGES := $(BUILD_IMAGE) $(NATIVE_RUNTIME_IMAGE) $(VIEWER_BASE_IMAGE) $(YAMCS_BUILD_IMAGE) $(YAMCS_RUNTIME_IMAGE)
 
 # Common paths
 CFG_DIR := $(CURDIR)/cfg
@@ -47,13 +52,13 @@ campaign:
 	python3 cfg/shire-campaign.py --campaign "$(CAMPAIGN)" $(if $(MAX_PARALLEL),--max-parallel "$(MAX_PARALLEL)",)
 
 cfg: container
-	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py
+	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py
 
 cfg-cli: container
-	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
+	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
 
 cfg-compose-only: container
-	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --compose-only
+	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --compose-only
 
 clean:
 	$(MAKE) stop
@@ -98,17 +103,45 @@ complexity: container
 	docker run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) make build-complexity
 
 container: .container.stamp
+	@for image in $(OFFLINE_IMAGES); do \
+		docker image inspect "$$image" >/dev/null || { echo "Missing dependency image $$image; run make -B container while online"; exit 1; }; \
+	done
 
-.container.stamp: cfg/Dockerfile.base cfg/requirements.txt
+.container.stamp: cfg/Dockerfile.base cfg/requirements.txt cfg/Dockerfile.native-runtime \
+                yamcs/Dockerfile.viewer-base yamcs/Dockerfile.yamcs yamcs/Dockerfile.runtime-base \
+                yamcs/pom.xml yamcs/visualization/package.json yamcs/visualization/package-lock.json
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker is not installed or not in PATH."; exit 1; }
-	@if docker pull $(BUILD_IMAGE) 2>/dev/null; then \
-		echo "[container] Pulled $(BUILD_IMAGE) from GHCR"; \
-	else \
-		echo "[container] Building $(BUILD_IMAGE) locally..."; \
-		docker build -t $(BUILD_IMAGE) -f cfg/Dockerfile.base \
-			--build-arg USER_ID=$(shell id -u) --build-arg GROUP_ID=$(shell id -g) cfg; \
-	fi
+	@docker build -t $(BUILD_IMAGE) -f cfg/Dockerfile.base \
+		--build-arg USER_ID=$(shell id -u) --build-arg GROUP_ID=$(shell id -g) cfg
+	@docker build -t $(NATIVE_RUNTIME_IMAGE) -f cfg/Dockerfile.native-runtime cfg
+	@docker build -t $(VIEWER_BASE_IMAGE) -f yamcs/Dockerfile.viewer-base yamcs
+	@docker build -t $(YAMCS_BUILD_IMAGE) -f yamcs/Dockerfile.yamcs yamcs
+	@docker build -t $(YAMCS_RUNTIME_IMAGE) -f yamcs/Dockerfile.runtime-base yamcs
 	@touch .container.stamp
+
+# Use an image bundle on a disconnected host without re-running package installs.
+container-use-local:
+	@for image in $(OFFLINE_IMAGES); do \
+		docker image inspect "$$image" >/dev/null || { echo "Missing dependency image $$image"; exit 1; }; \
+	done
+	@docker run --rm --network none -v $(CURDIR)/cfg/requirements.txt:/local/requirements.txt:ro $(BUILD_IMAGE) \
+		sh -c 'cmp /requirements.txt /local/requirements.txt && python3 -c "import yaml, jinja2"'
+	@docker run --rm --network none $(NATIVE_RUNTIME_IMAGE) sh -c 'dpkg-query -W libzmq5 libgcrypt20 >/dev/null'
+	@docker run --rm --network none -v $(CURDIR)/yamcs/visualization:/local:ro $(VIEWER_BASE_IMAGE) \
+		sh -c 'cmp /baseline/package.json /local/package.json && cmp /baseline/package-lock.json /local/package-lock.json'
+	@docker run --rm --network none -v $(CURDIR)/yamcs/pom.xml:/local/pom.xml:ro $(YAMCS_BUILD_IMAGE) \
+		cmp /baseline-pom.xml /local/pom.xml
+	@docker run --rm --network none $(YAMCS_RUNTIME_IMAGE) sh -c 'curl --version >/dev/null && python3 -c "import requests"'
+	@touch .container.stamp
+
+container-export: container
+	@test -n "$(FILE)" || { echo "FILE=<bundle.tar> is required"; exit 2; }
+	docker image save -o "$(FILE)" $(OFFLINE_IMAGES)
+
+container-import:
+	@test -n "$(FILE)" || { echo "FILE=<bundle.tar> is required"; exit 2; }
+	docker image load -i "$(FILE)"
+	@$(MAKE) container-use-local
 
 debug: cfg
 	docker run --rm -it -v $(CURDIR):$(CURDIR) --name "shire_fsw_debug" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice $(BUILD_IMAGE) /bin/bash

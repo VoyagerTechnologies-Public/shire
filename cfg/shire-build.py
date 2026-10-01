@@ -104,7 +104,7 @@ def run_make(target, cwd=None, env_vars=None, make_vars=None, capture=False, job
     if in_docker:
         # Run make inside Docker container
         cmd = [
-            "docker", "run", "--rm",
+            "docker", "run", "--rm", "--network", "none",
             "-v", f"{ROOT_DIR}:{ROOT_DIR}",
             "-w", cwd,
             "--user", f"{os.getuid()}:{os.getgid()}",
@@ -197,7 +197,7 @@ def build_42(config, builddirs):
     # Build 42 container with our custom Dockerfile
     # Use ROOT_DIR as context so we can COPY the 42/ directory
     cmd = [
-        "docker", "build",
+        "docker", "build", "--pull=false", "--network=none",
         "-f", dockerfile,
         "-t", image_name,
         "--build-arg", f"MISSION={mission}",
@@ -334,7 +334,7 @@ def build_fsw(config):
     print(f"[build] Building FSW runtime image...")
     runtime_image = f"shire-fsw-{mission}:{config.get('image_tag', spacecraft)}"
     cmd = [
-        "docker", "build",
+        "docker", "build", "--pull=false", "--network=none",
         "-t", runtime_image,
         "-f", f"{FSW_DIR}/tools/Dockerfile.fsw",
         "--build-arg", f"SPACECRAFT={spacecraft}",
@@ -344,7 +344,7 @@ def build_fsw(config):
     ]
     result = subprocess.run(cmd, cwd=ROOT_DIR, env=DOCKER_ENV)
     if result.returncode != 0:
-        print(f"[build] WARNING: Failed to build FSW runtime image")
+        fail(f"Failed to build FSW runtime image {runtime_image}")
     
     print(f"[build] Flight software build complete")
 
