@@ -44,7 +44,9 @@ static unsigned int g_visual_interval = 5; /* 20 samples per simulated second */
 static uint8_t g_visual_run_id[16];
 
 /* Version 1 packet, little-endian like the existing 42 truth packet. */
-typedef struct __attribute__((packed)) {
+/* Scoped packing also lets pmccabe parse this declaration correctly. */
+#pragma pack(push, 1)
+typedef struct {
     uint32_t magic;             /* SHV1 */
     uint16_t version;
     uint16_t reserved;
@@ -61,6 +63,7 @@ typedef struct __attribute__((packed)) {
     double cwn[3][3];
     uint32_t eclipse;
 } visual_packet_t;
+#pragma pack(pop)
 _Static_assert(sizeof(visual_packet_t) == 256, "visual packet size");
 
 static int configure_visual_telemetry(void)

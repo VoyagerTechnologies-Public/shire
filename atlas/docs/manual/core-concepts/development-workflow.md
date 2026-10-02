@@ -152,6 +152,11 @@ Changed lines must meet the blocking 80% patch target.
 MC/DC and the sorted cyclomatic-complexity report are review artifacts rather
 than gates.
 
+FSW CI compiles with one Make job per available runner CPU and sets
+`SHIRE_COVERAGE_JOBS` to the same count for LCOV capture, trace processing, and HTML generation.
+Coverage processing defaults to one worker outside CI.
+The FSW tests still run sequentially, preserving their existing filesystem and IPC behavior.
+
 ## What stays and what changes
 
 | Layer | Expected transition |

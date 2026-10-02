@@ -82,7 +82,8 @@ jobs:
           MISSION=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['mission'])")
           SPACECRAFT=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['spacecraft'])")
           FSW_DIR=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml')).get('fsw_dir', 'cfs'))")
-          make -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-fsw
+          JOBS=$(nproc)
+          make -j"$JOBS" -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-fsw
 
       - name: Upload flight software artifacts
         uses: actions/upload-artifact@v7
@@ -124,7 +125,9 @@ jobs:
           MISSION=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['mission'])")
           SPACECRAFT=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml'))['spacecraft'])")
           FSW_DIR=$(python3 -c "import yaml; print(yaml.safe_load(open('build/active.yaml')).get('fsw_dir', 'cfs'))")
-          make -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-test
+          JOBS=$(nproc)
+          SHIRE_COVERAGE_JOBS="$JOBS" \
+            make -j"$JOBS" -C "$FSW_DIR" MISSION="$MISSION" SPACECRAFT="$SPACECRAFT" build-test
 
       - name: Analyze cyclomatic complexity
         run: make build-complexity
@@ -140,6 +143,13 @@ jobs:
             build/coverage-complexity.txt
           retention-days: 7
           if-no-files-found: error
+
+      - name: Install Codecov prerequisites
+        run: |
+          if ! command -v gpg >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends gpg
+          fi
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
@@ -187,6 +197,13 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Install Codecov prerequisites
+        run: |
+          if ! command -v gpg >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends gpg
+          fi
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
@@ -228,6 +245,13 @@ jobs:
             simulith/build/ctest.log
           retention-days: 7
           if-no-files-found: error
+
+      - name: Install Codecov prerequisites
+        run: |
+          if ! command -v gpg >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends gpg
+          fi
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7

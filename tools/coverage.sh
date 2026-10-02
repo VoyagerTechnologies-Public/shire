@@ -16,6 +16,13 @@ output_dir=$(realpath -m "$4")
 supplement_dir=${5:-}
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
+# CI can use its allocated CPUs without changing the local memory footprint.
+coverage_jobs=${SHIRE_COVERAGE_JOBS:-1}
+if [[ ! "$coverage_jobs" =~ ^[1-9][0-9]*$ ]]; then
+    echo "SHIRE_COVERAGE_JOBS must be a positive integer" >&2
+    exit 2
+fi
+
 mkdir -p "$output_dir"
 
 scope_patterns=()
@@ -81,7 +88,7 @@ esac
 # executes (notably the FD_ZERO macro). LCOV reports that compiler-generated
 # shape as an "inconsistent" branch/line count. Ignore only that diagnostic;
 # profile corruption, negative counters, and every other error remain fatal.
-coverage_common=(--branch-coverage --mcdc-coverage
+coverage_common=(--parallel "$coverage_jobs" --branch-coverage --mcdc-coverage
                  --ignore-errors inconsistent,inconsistent)
 lcov_common=("${coverage_common[@]}" --rc geninfo_unexecuted_blocks=1)
 
