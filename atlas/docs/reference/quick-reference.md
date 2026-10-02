@@ -17,7 +17,10 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make fsw` | Configure SHIRE and build the selected cFS target and FSW runtime image. |
 | `make gsw` | Configure SHIRE and build CryptoLib and the YAMCS runtime image. |
 | `make start` | Start the existing generated DRM Compose environment attached to the terminal without rebuilding or regenerating it. |
-| `make stop` | Stop the generated DRM and CLI environments for the active mission and remove dangling Docker images. |
+| `make stop` | Stop the generated DRM and CLI environments and remove transient Compose volumes. |
+| `make replay-list` | List retained native Yamcs run databases. |
+| `make replay RUN=<run-id> PORT=<port>` | Open one retained database without starting the simulation. |
+| `make replay-delete RUN=<run-id>` | Explicitly delete one retained Yamcs archive. |
 | `make cli` | Regenerate with CLI debugging enabled and build 42, Simulith, the selected simulator, Director, Server, and focused CLI image. |
 | `make cli-start` | Regenerate normal configuration and start the focused CLI Compose environment attached to the terminal. |
 | `make mold COMP=<name>` | Create a component scaffold from the Demo component. |
@@ -32,8 +35,8 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make docs-serve` | Start the local Atlas preview server. |
 | `make debug` | Open an interactive shell in the SHIRE build image with the repository mounted. |
 | `make clean` | Stop the environments and remove the active mission build tree, selected runtime artifacts, and matching SHIRE volumes when the build image exists locally. |
-| `make clean-cache` | Prune the Docker builder cache and attempt to remove two legacy unsuffixed volumes. |
-| `make uninstall` | Remove SHIRE build artifacts, containers, images, networks, and volumes. |
+| `make clean-cache` | Delete all labeled SHIRE replay archives and pinned run images, prune Docker builder cache, and retain unlabeled legacy GSW volumes. |
+| `make uninstall` | Remove SHIRE build artifacts, containers, images, networks, and labeled replay archives through `clean-cache`. |
 
 Run `make cfg` before `make test-sim` when the active selection has changed.
 Review [Docker](../manual/how-to/docker.md) before using cleanup commands that remove persisted state.
@@ -43,15 +46,15 @@ Review [Docker](../manual/how-to/docker.md) before using cleanup commands that r
 | Interface | Address |
 | --- | --- |
 | YAMCS | [http://localhost:8090](http://localhost:8090) |
-| 42 VNC | [http://localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html) |
+| Visualization | [http://localhost:8090/visualization/](http://localhost:8090/visualization/) |
 
-The generated Compose files publish both browser ports using Docker's short port syntax rather than a loopback only binding.
+The generated DRM Compose file publishes Yamcs on port 8090.
 
 ## DRM services
 
 | Compose service | Current responsibility |
 | --- | --- |
-| `shire-42` | Runs 42 dynamics and the browser accessible graphics display. |
+| `shire-42` | Runs headless 42 dynamics and the environment model. |
 | `shire-gsw` | Runs the included YAMCS instance. |
 | `shire-server` | Owns Simulith time and coordinates the registered Director and FSW clients. |
 | `shire-director` | Loads selected component simulator libraries, exchanges state with 42, and publishes simulator telemetry. |
@@ -72,6 +75,7 @@ Component simulators run as shared libraries inside `shire-director` rather than
 | Server pause/play/speed backdoor | YAMCS to Server on UDP 50061 |
 | Server status telemetry | Server to YAMCS on UDP 50043 |
 | 42 truth | Director to YAMCS on UDP 50042 |
+| Visualization truth | Director to YAMCS on UDP 50044 |
 | 42 IPC | Director and 42 exchange data through the Unix socket at `/tmp/42_ipc.sock` |
 
 The UDP endpoints remain inside the Compose bridge because the templates do not publish them to the host.
@@ -167,17 +171,19 @@ Use a reviewed report as `BASELINE` rather than copying only its median speed.
 | Which components are on a spacecraft? | `cfg/<mission>/spacecraft/<spacecraft>.yaml` |
 | Which values does a scenario override? | `cfg/<mission>/scenarios/<scenario>.yaml` |
 | Which services will start? | The generated `build/<mission>/shire-compose.yaml` or `build/<mission>/cli-compose.yaml` |
-| How are Compose files generated? | `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
+| How are Compose files generated? | `tools/shire-orchestrator.py` renders `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
 | Which applications compile and start? | `cfg/shire_defs/targets.cmake` and the generated CPU startup script |
 | Which ground links exist? | `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`, `comp/cryptolib/support/standalone/standalone.h`, `comp/radio/support/device_config.yaml`, `simulith/include/simulith_director.h`, and `simulith/src/simulith_director.c` |
 | Which procedures exist? | `cfg/<mission>/gsw/procedures/` (DRM-level) and `comp/<name>/gsw/procedures/` (component-level), both staged into the `yamcs/` submodule at build time |
 | Which developer commands are supported? | The root `Makefile` and subsystem Makefiles |
+| Where do shared executable utilities live? | `tools/`, including Python helpers and tests, shell utilities, requirements, and Docker build recipes |
+| Where do the cFS mission coverage tests live? | `cfg/shire_defs/coverage-tests/` |
 | Which performance workload is injected? | `cfg/perf-scenario.json` |
-| How is a performance report produced and evaluated? | `cfg/shire-perf.py` |
-| How is a Monte Carlo campaign defined and run? | `cfg/drm/campaigns/<name>.yaml` and `cfg/shire-campaign.py` |
+| How is a performance report produced and evaluated? | `tools/shire-perf.py` |
+| How is a Monte Carlo campaign defined and run? | `cfg/drm/campaigns/<name>.yaml` and `tools/shire-campaign.py` |
 
 Treat this page as a convenience index.
 When it disagrees with a generated file or source listed above, inspect the current checkout and report the documentation mismatch.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261002

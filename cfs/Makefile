@@ -39,7 +39,7 @@ endif
 all: build
 
 build:
-	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-fsw
+	docker run --rm --network none -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-fsw
 
 build-fsw:
 	mkdir -p $(BUILDDIR) && \
@@ -55,9 +55,9 @@ build-test:
 		cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=false -DSHIRE_COVERAGE=ON $(CURDIR)/cfe && \
 	SHIRE_COVERAGE=1 ENABLE_UNIT_TESTS=false \
 		$(MAKE) --no-print-directory -C $(COVBUILDDIR) mission-install
-	$(SHIRE_DIR)/cfg/coverage.sh initial fsw $(COVDIR) $(COVDIR) $(COVMISSIONDIR)
+	$(SHIRE_DIR)/tools/coverage.sh initial fsw $(COVDIR) $(COVDIR) $(COVMISSIONDIR)
 	cd $(COVDIR) && ctest --output-on-failure -O ctest.log
-	$(SHIRE_DIR)/cfg/coverage.sh report fsw $(COVDIR) $(COVDIR)
+	$(SHIRE_DIR)/tools/coverage.sh report fsw $(COVDIR) $(COVDIR)
 
 clean:
 	rm -rf $(BUILDDIR) $(COVBUILDDIR)
@@ -73,7 +73,7 @@ runtime:
 	elif [ -f "../build/$(MISSION)/$(SPACECRAFT)/sim/libsimulith.so" ]; then \
 		cp "../build/$(MISSION)/$(SPACECRAFT)/sim/libsimulith.so" "../build/$(MISSION)/$(SPACECRAFT)/lib/libsimulith.so"; \
 	fi
-	cd .. && docker build -t $(RUNTIME_FSW_IMAGE_NAME):$(SPACECRAFT) -f ${CURDIR}/tools/Dockerfile.fsw --build-arg SPACECRAFT=$(SPACECRAFT) --build-arg MISSION=$(MISSION) .
+	cd .. && docker build --pull=false --network=none -t $(RUNTIME_FSW_IMAGE_NAME):$(SPACECRAFT) -f ${CURDIR}/tools/Dockerfile.fsw --build-arg SPACECRAFT=$(SPACECRAFT) --build-arg MISSION=$(MISSION) .
 
 start:
 	docker run --rm -it --name "shire_fsw_runtime" --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice $(RUNTIME_FSW_IMAGE_NAME):$(SPACECRAFT)
@@ -82,4 +82,4 @@ stop:
 	docker ps --filter name=shire-* --filter status=running -aq | xargs docker stop
 
 test:
-	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-test
+	docker run --rm --network none -v $(SHIRE_DIR):$(SHIRE_DIR) --name "shire_fsw_build" -w $(CURDIR) --user $(shell id -u):$(shell id -g) --sysctl fs.mqueue.msg_max=10000 --ulimit rtprio=99 --cap-add=sys_nice -e BUILDDIR=$(BUILDDIR) -e SPACECRAFT=$(SPACECRAFT) $(BUILD_IMAGE) make -j$(JOBS) build-test

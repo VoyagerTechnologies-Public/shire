@@ -5,7 +5,7 @@ Motivation: a sister port of SHIRE found that pinning its per-tick
 participants to separate physical cores raised its unbounded `make perf`
 throughput and cut run-to-run variance dramatically. This repo's own
 `scheduler.json`/`docker-stats.json` captures (already collected by every
-`make perf` trial -- see `cfg/shire-perf.py`) show the same symptom here:
+`make perf` trial -- see `tools/shire-perf.py`) show the same symptom here:
 `shire-director`'s CPU-migration count varies by more than 10x between an
 otherwise-identical fast run and a slow one, and `shire-gsw` (not itself a
 Simulith tick-barrier participant, but a heavy, independently-scheduled
@@ -20,7 +20,7 @@ data, so they're fully unit-testable with synthetic topologies and never
 touch `/sys`, docker, or the network themselves. Only `detect_physical_topology`
 touches the filesystem, and it does nothing but read and return data.
 
-`SHIRE_PERF_CPU_PLACEMENT` controls the mode (read by `cfg/shire-perf.py`):
+`SHIRE_PERF_CPU_PLACEMENT` controls the mode (read by `tools/shire-perf.py`):
   - unset or "auto" (default): detect this host's physical-core topology and
     place automatically; falls back to unplaced (no cpuset at all) on any
     non-Linux host, unreadable topology, or too few physical cores to

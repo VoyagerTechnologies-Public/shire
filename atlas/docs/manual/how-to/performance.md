@@ -32,7 +32,9 @@ full-output reference.
 The Director sends one 42 truth packet per simulated second to Yamcs.
 The gate requires all 75 sends to succeed and verifies that Yamcs decodes at
 least two increasing `/SIM_42_TRUTH/DYN_TIME` values that match the trace.
-UDP delivery is not required for every packet.
+Visualization truth is also published at 20 Hz by default.
+Each trial reports
+native Yamcs archive sequence coverage separately from the simulation result.
 
 `make perf` writes the report and trial logs under
 `build/performance/shire-perf-<UTC timestamp>/`.
@@ -41,11 +43,19 @@ output mode, and reasons for any failure.
 Use `make perf-smoke` for one short diagnostic trial.
 A smoke result is not a performance acceptance result.
 
+## Build and startup cost
+
+The 42 compiler stage copies source and headers separately from runtime model data, so an imagery or model change does not trigger C recompilation.
+The Simulith build stages only its executables, shared library, and selected component modules instead of copying 42 model data into the Server image.
+Runtime images omit compiler and Maven toolchains, reducing image transfer and unpacking work during startup.
+These packaging changes do not remove physics or control-loop work from a simulation tick.
+Use the full `make perf` gate to measure steady-state throughput and verify fidelity after changing runtime packaging.
+
 ## 42 output modes
 
 SHIRE runs 42 in control mode by default.
-Control mode retains physics, graphics, state and command IPC, and Yamcs
-truth packets while omitting synchronous legacy 42 report files.
+Control mode retains physics, state and command IPC, and Yamcs truth
+packets while omitting synchronous legacy 42 report files.
 Set `SHIRE_42_REPORT_MODE=full` when a run needs those files:
 
 ```sh
@@ -61,7 +71,7 @@ A failed run retains its partial trace for diagnosis.
 To inspect a trace, run:
 
 ```sh
-python3 cfg/shire-control-trace.py build/drm/traces/sat-1/RUN_ID/control-trace.v1
+python3 tools/shire-control-trace.py build/drm/traces/sat-1/RUN_ID/control-trace.v1
 ```
 
 Replace `RUN_ID` with the directory for the run.

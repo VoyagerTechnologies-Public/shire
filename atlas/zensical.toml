@@ -31,6 +31,7 @@ nav = [
       { "Docker" = "manual/how-to/docker.md" },
       { "Monte Carlo Campaigns" = "manual/how-to/monte-carlo-campaigns.md" },
       { "Performance" = "manual/how-to/performance.md" },
+      { "Visualization and Replay" = "manual/how-to/visualization-replay.md" },
       { "Scenarios and Initial Conditions" = "manual/how-to/scenarios.md" },
     ] },
   ] },

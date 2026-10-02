@@ -15,7 +15,7 @@ updates:
     multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: docker
-    directory: /cfg
+    directory: /tools
     patterns:
       - "*"
     multi-ecosystem-group: all-dependencies
@@ -33,7 +33,7 @@ updates:
     multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: pip
-    directory: /cfg
+    directory: /tools
     patterns:
       - "*"
     multi-ecosystem-group: all-dependencies

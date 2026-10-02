@@ -1,6 +1,6 @@
 # Automated PR-verification scenario. Runs YAMCS's CheckoutTest.ycs smoke
 # stack (see atlas/docs/manual/core-concepts/ground-software.md's
-# "Checkout stack" section) through cfg/shire-scenario.py's verify_stacks
+# "Checkout stack" section) through tools/shire-scenario.py's verify_stacks
 # mechanism, instead of a human opening it in Procedures / Stacks and
 # clicking through it in the YAMCS web UI.
 #

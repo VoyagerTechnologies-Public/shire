@@ -84,6 +84,10 @@
           "value": "cfg/"
         },
         {
+          "name": "shire:directory",
+          "value": "tools/"
+        },
+        {
           "name": "shire:license:exception",
           "value": "NASA-derived files listed as a separate component are not covered by this declaration"
         }

@@ -9,7 +9,7 @@ The host needs only the orchestration tools because compilers and most project d
 * Docker Engine with the Docker Compose v2 plugin
 * GNU Make
 * Git with submodule support
-* Python 3 with the PyYAML package used by `cfg/shire-build.py`
+* Python 3 with the PyYAML package used by `tools/shire-build.py`
 * Enough memory and disk space for multiple runtime/build images and the generated mission tree
 
 Linux is the primary execution environment.
@@ -53,4 +53,4 @@ Corporate proxies, registry authentication, DNS filtering, or rate limits can pr
 After the host checks pass, continue to [Getting Started](getting-started.md).
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261002

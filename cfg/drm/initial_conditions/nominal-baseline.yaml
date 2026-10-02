@@ -38,7 +38,7 @@ attitude:
 # Optional per-component state overrides (EPS state-of-charge, ADCS starting
 # mode, fault-injection flags, etc). Merged into the same per-component
 # override chain shire-orchestrator.py already uses for scenario overrides
-# (cfg/shire-orchestrator.py, "Full cascading merge" comment), applied before
+# (tools/shire-orchestrator.py, "Full cascading merge" comment), applied before
 # a scenario's own component/overrides so a scenario can still take
 # precedence over an IC's component state if it needs to.
 component_overrides: {}

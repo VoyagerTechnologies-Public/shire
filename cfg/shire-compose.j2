@@ -15,16 +15,12 @@ services:
     networks:
       - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     attach: false
-    ports:
-      - "{{ 5801 + voff }}:80"  # VNC web interface for 42 graphics visualization
     cpus: "2.0"
     mem_limit: 2g
     environment:
-      - MESA_NO_SHM=1
       - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
       - SHIRE_42_PROFILE=${SHIRE_42_PROFILE:-0}
       - SHIRE_42_REPORT_MODE=${SHIRE_42_REPORT_MODE:-control}
-      - FORTYTWO_GRAPHICS_HZ=${FORTYTWO_GRAPHICS_HZ:-1}
     volumes:
       - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     shm_size: '2gb'
@@ -41,8 +37,13 @@ services:
     attach: false
     ports:
       - "{{ 8090 + voff }}:8090"
+    environment:
+      - SHIRE_RUN_ID=${SHIRE_RUN_ID:-}
+      - SHIRE_MISSION={{ mission | default('default') }}
+      - SHIRE_SPACECRAFT={{ spacecraft | default('default') }}
+      - SHIRE_VISUAL_HZ=${SHIRE_VISUAL_HZ:-20}
     volumes:
-      - gsw-data_{{ mission | default('default') }}{{ inst }}:/app/yamcs-data
+      - shire_yamcs_archive:/app/yamcs-data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8090/api/"]
       interval: 30s
@@ -108,7 +109,10 @@ services:
       - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
       - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
       - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
+      - SIMULITH_42_RECONNECT_ATTEMPTS=${SIMULITH_42_RECONNECT_ATTEMPTS:-90}
       - SIMULITH_SCENARIO_ENABLED=${SIMULITH_SCENARIO_ENABLED:-0}
+      - SHIRE_RUN_ID=${SHIRE_RUN_ID:-}
+      - SHIRE_VISUAL_HZ=${SHIRE_VISUAL_HZ:-20}
     command: ["/bin/sh", "-c", "if [ \"$${SIMULITH_SCENARIO_ENABLED}\" = 1 ]; then exec /app/simulith_director_standalone --scenario /run/shire-scenario.json; else exec /app/simulith_director_standalone; fi"]
     cpus: "4.0"
     mem_limit: 512m
@@ -191,9 +195,6 @@ volumes:
     labels:
       shire.instance: "{{ instance }}"
 {%- endif %}
-  gsw-data_{{ mission | default('default') }}{{ inst }}:
-    driver: local
-{%- if instance %}
-    labels:
-      shire.instance: "{{ instance }}"
-{%- endif %}
+  shire_yamcs_archive:
+    external: true
+    name: ${SHIRE_YAMCS_VOLUME:-shire-unallocated-archive}

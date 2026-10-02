@@ -37,7 +37,8 @@ third-party material copied into or referenced by those paths.
 
 | Component | Path | Language | Description |
 |---|---|---|---|
-| Build and mission integration | `cfg/` | Python, C configuration | Mission rendering, build orchestration, and SHIRE integration; NASA-derived files are separately identified below |
+| Mission configuration and integration | `cfg/` | YAML, templates, C configuration | User configuration and cFS mission integration; NASA-derived files are separately identified below |
+| Shared build and runtime tooling | `tools/` | Python, shell, Docker recipes | Mission rendering, build orchestration, scenario and campaign runners, archives, and analysis utilities |
 | Simulith | `simulith/` | C/C++ | Synchronized server, director, transport, and integration; vendored Unity is separately identified below |
 | ADCS component | `comp/adcs/` excluding submodules | C | Flight application integration, simulator, CLI, and ground definitions |
 | EPS component | `comp/eps/` | C | Flight application integration, simulator, CLI, and ground definitions |
@@ -98,12 +99,19 @@ graph. A final SBOM must record the actual resolved versions and hashes.
 The project targets Java 17. The Maven wrapper and build image select Maven
 3.9.9. Maven transitive dependencies are not enumerated in this curated SBOM.
 
+### Visualization JavaScript
+
+| Artifact | Declared version | Scope | License evidence |
+|---|---|---|---|
+| `cesium` | 1.145.0 | Offline viewer runtime | Apache-2.0 in `yamcs/visualization/package-lock.json` |
+| `typescript` and `vite` | Lockfile-resolved | Viewer build | Inspect resolved lockfile licenses before release |
+
 ### Python
 
 | Manifest | Requirement | Constraint | License status |
 |---|---|---|---|
-| `cfg/requirements.txt` | `pyyaml` | Unpinned | MIT; resolved version/hash unresolved for release |
-| `cfg/requirements.txt` | `jinja2` | Unpinned | BSD-3-Clause; resolved version/hash unresolved for release |
+| `tools/requirements.txt` | `pyyaml` | Unpinned | MIT; resolved version/hash unresolved for release |
+| `tools/requirements.txt` | `jinja2` | Unpinned | BSD-3-Clause; resolved version/hash unresolved for release |
 | `yamcs/requirements-commander.txt` | `yamcs-client` | `>=1.9.0` | LGPL-3.0; resolved version/hash unresolved for release |
 | `yamcs/requirements-commander.txt` | `requests` | `>=2.31.0` | Apache-2.0; resolved version/hash unresolved for release |
 | `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx` | `>=8.0` | BSD-2-Clause; documentation-only, resolved version/hash unresolved |
@@ -129,10 +137,10 @@ the release process must lock, hash, and inventory the artifacts actually used.
 
 | Image | Pinning | Used by | Release status |
 |---|---|---|---|
-| `debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132` | Digest | `cfg/Dockerfile.base` | Base is pinned; resolved OS-package SBOM and licenses still required |
+| `debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132` | Digest | `tools/Dockerfile.base` | Base is pinned; resolved OS-package SBOM and licenses still required |
 | `maven:3.9.9-eclipse-temurin-17` | Mutable tag | `yamcs/Dockerfile.yamcs` | Must be digest-pinned and scanned before release |
 | `ubuntu:noble-20250127` | Date tag, no digest | CryptoLib support image | Must be digest-pinned if distributed |
-| `ghcr.io/haisamido/x-vnc:latest` | Mutable tag | Default 42 graphical image base | pin, inventory, and license-review before release |
+| `node:22-bookworm-slim` | Mutable tag | Offline Cesium viewer build stage | Pin digest and inventory resolved packages before release |
 | `ghcr.io/voyagertechnologies-public/shire-base:0.0.0` | SHIRE tag | Build/runtime base | Generate SPDX and CycloneDX image SBOMs for final digest |
 | `ghcr.io/voyagertechnologies-public/shire-yamcs:0.0.0` | SHIRE tag | YAMCS image | Generate SPDX and CycloneDX image SBOMs and include AGPL/source compliance material |
 
