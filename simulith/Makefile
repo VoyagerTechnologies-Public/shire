@@ -39,9 +39,9 @@ build-test:
 	mkdir -p $(BUILDDIR)
 	cd $(BUILDDIR) && cmake $(CURDIR) -DBUILD_SIMULITH_TESTS=ON -DENABLE_UNIT_TESTS=true
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
-	$(TOPDIR)/cfg/coverage.sh initial simulith $(BUILDDIR) $(BUILDDIR)
+	$(TOPDIR)/tools/coverage.sh initial simulith $(BUILDDIR) $(BUILDDIR)
 	cd $(BUILDDIR) && ctest --output-on-failure -O ctest.log
-	$(TOPDIR)/cfg/coverage.sh report simulith $(BUILDDIR) $(BUILDDIR)
+	$(TOPDIR)/tools/coverage.sh report simulith $(BUILDDIR) $(BUILDDIR)
 
 copy-sims:
 	@if [ ! -d "$(BUILDDIR)" ]; then \
@@ -123,9 +123,9 @@ build-comp-test:
 	    mkdir -p $(TOPDIR)/comp/$$comp/sim/build; \
 	    cd $(TOPDIR)/comp/$$comp/sim/build && cmake .. -DBUILD_SIM_TESTS=ON -DENABLE_UNIT_TESTS=true || exit 1; \
 	    $(MAKE) --no-print-directory -C $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
-	    $(TOPDIR)/cfg/coverage.sh initial component-sim:$$comp $(TOPDIR)/comp/$$comp/sim/build $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
+	    $(TOPDIR)/tools/coverage.sh initial component-sim:$$comp $(TOPDIR)/comp/$$comp/sim/build $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
 	    cd $(TOPDIR)/comp/$$comp/sim/build && ctest --output-on-failure -O ctest.log || exit 1; \
-	    $(TOPDIR)/cfg/coverage.sh report component-sim:$$comp $(TOPDIR)/comp/$$comp/sim/build $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
+	    $(TOPDIR)/tools/coverage.sh report component-sim:$$comp $(TOPDIR)/comp/$$comp/sim/build $(TOPDIR)/comp/$$comp/sim/build || exit 1; \
 	done
 	@# Merge all per-component filtered traces into one combined report.
 	@COMBINED_DIR=$(abspath $(TOPDIR)/build/sim-coverage); \

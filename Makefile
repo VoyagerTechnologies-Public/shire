@@ -11,7 +11,7 @@ YAMCS_RUNTIME_IMAGE := ghcr.io/voyagertechnologies-public/shire-yamcs-runtime:0.
 OFFLINE_IMAGES := $(BUILD_IMAGE) $(NATIVE_RUNTIME_IMAGE) $(VIEWER_BASE_IMAGE) $(YAMCS_BUILD_IMAGE) $(YAMCS_RUNTIME_IMAGE)
 
 # Common paths
-CFG_DIR := $(CURDIR)/cfg
+TOOLS_DIR := $(CURDIR)/tools
 
 # Read spacecraft, mission, fsw, and gsw from active.yaml for unified build directory structure
 BUILD_DIR := $(CURDIR)/build
@@ -35,30 +35,30 @@ endif
 
 # Commands
 42: cfg
-	python3 cfg/shire-build.py 42
+	python3 tools/shire-build.py 42
 
 build: cfg
-	python3 cfg/shire-build.py build
+	python3 tools/shire-build.py build
 
 build-complexity:
-	./cfg/complexity-report.sh build/coverage-complexity.txt
+	./tools/complexity-report.sh build/coverage-complexity.txt
 
 campaign:
 	@if [ -z "$(CAMPAIGN)" ]; then \
 		echo "CAMPAIGN=<name> is required. Available campaigns:"; \
-		python3 cfg/shire-campaign.py --list-campaigns; \
+		python3 tools/shire-campaign.py --list-campaigns; \
 		exit 2; \
 	fi
-	python3 cfg/shire-campaign.py --campaign "$(CAMPAIGN)" $(if $(MAX_PARALLEL),--max-parallel "$(MAX_PARALLEL)",)
+	python3 tools/shire-campaign.py --campaign "$(CAMPAIGN)" $(if $(MAX_PARALLEL),--max-parallel "$(MAX_PARALLEL)",)
 
 cfg: container
-	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py
+	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/tools --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py
 
 cfg-cli: container
-	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
+	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/tools --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
 
 cfg-compose-only: container
-	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/cfg --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --compose-only
+	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/tools --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --compose-only
 
 clean:
 	$(MAKE) stop
@@ -74,15 +74,15 @@ clean:
 	fi
 
 clean-42:
-	python3 cfg/shire-build.py clean-42
+	python3 tools/shire-build.py clean-42
 
 clean-cache:
-	python3 cfg/shire-archives.py purge
+	python3 tools/shire-archives.py purge
 	docker builder prune -f
 	docker volume rm -f simulith_ipc || true
 
 clean-cli:
-	python3 cfg/shire-build.py clean-cli
+	python3 tools/shire-build.py clean-cli
 
 clean-fsw:
 	cd $(FSW_DIR) && $(MAKE) clean
@@ -91,10 +91,10 @@ clean-gsw:
 	cd $(GSW_DIR) && $(MAKE) clean
 
 clean-sim:
-	python3 cfg/shire-build.py clean-sim
+	python3 tools/shire-build.py clean-sim
 
 cli: cfg-cli
-	python3 cfg/shire-build.py cli
+	python3 tools/shire-build.py cli
 
 cli-start: cfg
 	docker compose -f $(BUILDDIR_MISSION)/cli-compose.yaml up
@@ -107,13 +107,13 @@ container: .container.stamp
 		docker image inspect "$$image" >/dev/null || { echo "Missing dependency image $$image; run make -B container while online"; exit 1; }; \
 	done
 
-.container.stamp: cfg/Dockerfile.base cfg/requirements.txt cfg/Dockerfile.native-runtime \
+.container.stamp: tools/Dockerfile.base tools/requirements.txt tools/Dockerfile.native-runtime \
                 yamcs/Dockerfile.viewer-base yamcs/Dockerfile.yamcs yamcs/Dockerfile.runtime-base \
                 yamcs/pom.xml yamcs/visualization/package.json yamcs/visualization/package-lock.json
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker is not installed or not in PATH."; exit 1; }
-	@docker build -t $(BUILD_IMAGE) -f cfg/Dockerfile.base \
-		--build-arg USER_ID=$(shell id -u) --build-arg GROUP_ID=$(shell id -g) cfg
-	@docker build -t $(NATIVE_RUNTIME_IMAGE) -f cfg/Dockerfile.native-runtime cfg
+	@docker build -t $(BUILD_IMAGE) -f tools/Dockerfile.base \
+		--build-arg USER_ID=$(shell id -u) --build-arg GROUP_ID=$(shell id -g) tools
+	@docker build -t $(NATIVE_RUNTIME_IMAGE) -f tools/Dockerfile.native-runtime tools
 	@docker build -t $(VIEWER_BASE_IMAGE) -f yamcs/Dockerfile.viewer-base yamcs
 	@docker build -t $(YAMCS_BUILD_IMAGE) -f yamcs/Dockerfile.yamcs yamcs
 	@docker build -t $(YAMCS_RUNTIME_IMAGE) -f yamcs/Dockerfile.runtime-base yamcs
@@ -124,7 +124,7 @@ container-use-local:
 	@for image in $(OFFLINE_IMAGES); do \
 		docker image inspect "$$image" >/dev/null || { echo "Missing dependency image $$image"; exit 1; }; \
 	done
-	@docker run --rm --network none -v $(CURDIR)/cfg/requirements.txt:/local/requirements.txt:ro $(BUILD_IMAGE) \
+	@docker run --rm --network none -v $(CURDIR)/tools/requirements.txt:/local/requirements.txt:ro $(BUILD_IMAGE) \
 		sh -c 'cmp /requirements.txt /local/requirements.txt && python3 -c "import yaml, jinja2"'
 	@docker run --rm --network none $(NATIVE_RUNTIME_IMAGE) sh -c 'dpkg-query -W libzmq5 libgcrypt20 >/dev/null'
 	@docker run --rm --network none -v $(CURDIR)/yamcs/visualization:/local:ro $(VIEWER_BASE_IMAGE) \
@@ -154,10 +154,10 @@ docs-serve:
 	cd atlas && python3 -m zensical serve
 
 fsw: cfg
-	python3 cfg/shire-build.py fsw
+	python3 tools/shire-build.py fsw
 
 gsw: cfg
-	python3 cfg/shire-build.py gsw
+	python3 tools/shire-build.py gsw
 
 help:
 	@echo "Usage: make <target>"
@@ -202,7 +202,7 @@ help:
 	@echo "  uninstall     - Remove containers, images, volumes, and networks"
 
 list: cfg
-	python3 cfg/shire-build.py list
+	python3 tools/shire-build.py list
 
 mold:
 	@if [ "$(COMP)" = "" ]; then \
@@ -211,45 +211,45 @@ mold:
 		echo "Example: make mold COMP=my_sensor"; \
 		exit 1; \
 	fi
-	python3 $(CFG_DIR)/shire-comp-mold.py "$(COMP)"
+	python3 $(TOOLS_DIR)/shire-comp-mold.py "$(COMP)"
 
 perf: build
-	python3 cfg/shire-perf.py --mode perf
+	python3 tools/shire-perf.py --mode perf
 
 perf-compare: build
 	@if [ -z "$(BASELINE)" ]; then echo "BASELINE=<report.json> is required"; exit 2; fi
-	python3 cfg/shire-perf.py --mode compare --baseline "$(BASELINE)"
+	python3 tools/shire-perf.py --mode compare --baseline "$(BASELINE)"
 
 perf-smoke: build
-	python3 cfg/shire-perf.py --mode smoke
+	python3 tools/shire-perf.py --mode smoke
 
 scenario:
 	@if [ -z "$(SCENARIO)" ]; then \
 		echo "SCENARIO=<name> is required. Available scenarios:"; \
-		python3 cfg/shire-scenario.py --list-scenarios; \
+		python3 tools/shire-scenario.py --list-scenarios; \
 		exit 2; \
 	fi
-	python3 cfg/shire-scenario.py --scenario "$(SCENARIO)"
+	python3 tools/shire-scenario.py --scenario "$(SCENARIO)"
 
 scenario-smoke: build
-	python3 cfg/shire-perf.py --mode determinism
+	python3 tools/shire-perf.py --mode determinism
 
 sim: cfg
-	python3 cfg/shire-build.py sim
+	python3 tools/shire-build.py sim
 
 start:
-	python3 cfg/shire-archives.py start --mission $(MISSION) --spacecraft $(SPACECRAFT) --scenario manual --image shire-gsw-$(MISSION):$(SPACECRAFT) --compose $(BUILDDIR_MISSION)/shire-compose.yaml
+	python3 tools/shire-archives.py start --mission $(MISSION) --spacecraft $(SPACECRAFT) --scenario manual --image shire-gsw-$(MISSION):$(SPACECRAFT) --compose $(BUILDDIR_MISSION)/shire-compose.yaml
 
 replay-list:
-	python3 cfg/shire-archives.py list
+	python3 tools/shire-archives.py list
 
 replay:
 	@test -n "$(RUN)" || { echo "RUN=<run-id> is required"; exit 2; }
-	python3 cfg/shire-archives.py replay $(RUN) --port $(if $(PORT),$(PORT),8090)
+	python3 tools/shire-archives.py replay $(RUN) --port $(if $(PORT),$(PORT),8090)
 
 replay-delete:
 	@test -n "$(RUN)" || { echo "RUN=<run-id> is required"; exit 2; }
-	python3 cfg/shire-archives.py delete $(RUN)
+	python3 tools/shire-archives.py delete $(RUN)
 
 stop:
 	@if [ -f "$(BUILDDIR_MISSION)/cli-compose.yaml" ]; then \

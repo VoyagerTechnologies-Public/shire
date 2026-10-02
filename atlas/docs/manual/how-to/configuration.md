@@ -4,6 +4,18 @@ SHIRE configuration selects a mission, spacecraft, scenario, CLI component and l
 The checked in YAML files are inputs.
 The orchestrator writes derived state under `build/` and renders component headers in place.
 
+## Configuration and tooling directories
+
+`cfg/` holds the user configuration inputs and editable templates.
+This includes mission and spacecraft YAML, scenarios, campaigns, initial conditions, ground software definitions, Compose templates, and 42 defaults.
+Flight tables, headers, startup files, toolchain settings, and mission build hooks stay in `cfg/shire_defs/`.
+The cFS coverage tests remain in `cfg/shire_defs/coverage-tests/` because they are registered through the mission build.
+
+`tools/` holds shared executable utilities, their Python helpers and tests, shell scripts, Python requirements, and Docker build recipes.
+Component-specific and Yamcs utilities stay with their owning subsystems.
+Use the existing `make` commands for normal configuration, builds, scenarios, campaigns, performance checks, and replay.
+Direct utility invocations use `python3 tools/<script>.py` from the repository root.
+
 ## Configuration hierarchy
 
 Configuration performs two related jobs.
@@ -56,7 +68,7 @@ From the repository root:
 make cfg
 ```
 
-This runs `cfg/shire-orchestrator.py` inside the configured SHIRE build image.
+This runs `tools/shire-orchestrator.py` inside the configured SHIRE build image.
 The current default image reference uses the `0.0.0` tag rather than an immutable digest.
 On the first run, the orchestrator creates `build/active.yaml` with DRM, `sat-1`, the nominal scenario, the Demo CLI, logging disabled, and headless 42 enabled.
 
@@ -104,7 +116,7 @@ The current spacecraft component sets are:
 `build/active.yaml` can also carry four additional fields a human should not
 hand-edit: `instance`, `port_offset`, `image_tag`, and
 `initial_conditions_file`.
-`cfg/shire-scenario.py` and `cfg/shire-campaign.py` set and clear these
+`tools/shire-scenario.py` and `tools/shire-campaign.py` set and clear these
 themselves to namespace a Monte Carlo campaign trial's containers, ports,
 image tag, and generated Initial Condition bin, clearing them again on
 normal completion or an interrupt.
@@ -172,4 +184,4 @@ Before a long build, verify:
 6. The generated compose files reference the intended mission and image tag, ordinarily the spacecraft name unless a Monte Carlo campaign trial set an explicit build-key tag.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261002

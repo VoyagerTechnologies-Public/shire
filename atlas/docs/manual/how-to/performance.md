@@ -71,7 +71,7 @@ A failed run retains its partial trace for diagnosis.
 To inspect a trace, run:
 
 ```sh
-python3 cfg/shire-control-trace.py build/drm/traces/sat-1/RUN_ID/control-trace.v1
+python3 tools/shire-control-trace.py build/drm/traces/sat-1/RUN_ID/control-trace.v1
 ```
 
 Replace `RUN_ID` with the directory for the run.

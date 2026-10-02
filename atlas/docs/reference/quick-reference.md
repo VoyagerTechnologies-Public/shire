@@ -171,17 +171,19 @@ Use a reviewed report as `BASELINE` rather than copying only its median speed.
 | Which components are on a spacecraft? | `cfg/<mission>/spacecraft/<spacecraft>.yaml` |
 | Which values does a scenario override? | `cfg/<mission>/scenarios/<scenario>.yaml` |
 | Which services will start? | The generated `build/<mission>/shire-compose.yaml` or `build/<mission>/cli-compose.yaml` |
-| How are Compose files generated? | `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
+| How are Compose files generated? | `tools/shire-orchestrator.py` renders `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
 | Which applications compile and start? | `cfg/shire_defs/targets.cmake` and the generated CPU startup script |
 | Which ground links exist? | `yamcs/src/main/yamcs/etc/yamcs.shire.yaml`, `comp/cryptolib/support/standalone/standalone.h`, `comp/radio/support/device_config.yaml`, `simulith/include/simulith_director.h`, and `simulith/src/simulith_director.c` |
 | Which procedures exist? | `cfg/<mission>/gsw/procedures/` (DRM-level) and `comp/<name>/gsw/procedures/` (component-level), both staged into the `yamcs/` submodule at build time |
 | Which developer commands are supported? | The root `Makefile` and subsystem Makefiles |
+| Where do shared executable utilities live? | `tools/`, including Python helpers and tests, shell utilities, requirements, and Docker build recipes |
+| Where do the cFS mission coverage tests live? | `cfg/shire_defs/coverage-tests/` |
 | Which performance workload is injected? | `cfg/perf-scenario.json` |
-| How is a performance report produced and evaluated? | `cfg/shire-perf.py` |
-| How is a Monte Carlo campaign defined and run? | `cfg/drm/campaigns/<name>.yaml` and `cfg/shire-campaign.py` |
+| How is a performance report produced and evaluated? | `tools/shire-perf.py` |
+| How is a Monte Carlo campaign defined and run? | `cfg/drm/campaigns/<name>.yaml` and `tools/shire-campaign.py` |
 
 Treat this page as a convenience index.
 When it disagrees with a generated file or source listed above, inspect the current checkout and report the documentation mismatch.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261002

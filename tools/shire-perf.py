@@ -291,8 +291,8 @@ def build_metadata(mission: str, spacecraft: str,
     compile_databases = [path for path in (
         base / "sim" / "compile_commands.json",
         base / "fsw" / "compile_commands.json") if path.exists()]
-    recipe_paths = (ROOT / "cfg" / "shire-build.py",
-                    ROOT / "cfg" / "Dockerfile.42", ROOT / "42" / "Makefile")
+    recipe_paths = (ROOT / "tools" / "shire-build.py",
+                    ROOT / "tools" / "Dockerfile.42", ROOT / "42" / "Makefile")
     return {
         "cmake_caches": [cmake_cache_metadata(path) for path in caches],
         "compile_commands": [compile_commands_metadata(path)
@@ -408,7 +408,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
         compose_cmd += ["-f", str(extra)]
     run(compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"], check=False)
 
-    archive_cmd = [sys.executable, str(ROOT / "cfg" / "shire-archives.py"), "create",
+    archive_cmd = [sys.executable, str(ROOT / "tools" / "shire-archives.py"), "create",
                    "--mission", str(active_value("mission")),
                    "--spacecraft", str(active_value("spacecraft")),
                    "--scenario", f"perf-{label}",

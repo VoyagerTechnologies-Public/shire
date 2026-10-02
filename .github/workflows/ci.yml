@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 1
 
       - name: Configure SHIRE
-        working-directory: cfg
+        working-directory: tools
         run: python3 shire-orchestrator.py
 
       - name: Build component simulators
@@ -73,7 +73,7 @@ jobs:
           fetch-depth: 1
 
       - name: Configure SHIRE
-        working-directory: cfg
+        working-directory: tools
         run: python3 shire-orchestrator.py
 
       - name: Build flight software
@@ -115,7 +115,7 @@ jobs:
           fetch-depth: 0
 
       - name: Configure SHIRE
-        working-directory: cfg
+        working-directory: tools
         run: python3 shire-orchestrator.py
 
       - name: Build and test flight software
@@ -170,7 +170,7 @@ jobs:
           fetch-depth: 0
 
       - name: Configure SHIRE
-        working-directory: cfg
+        working-directory: tools
         run: python3 shire-orchestrator.py
 
       - name: Build and test component simulators
@@ -254,7 +254,7 @@ jobs:
           fetch-depth: 1
 
       - name: Configure SHIRE
-        working-directory: cfg
+        working-directory: tools
         run: python3 shire-orchestrator.py
 
       - name: Build command-line interfaces

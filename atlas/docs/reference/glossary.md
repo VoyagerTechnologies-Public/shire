@@ -45,7 +45,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | IPC | Interprocess communication used for simulated device and 42 connections through endpoints in the shared `/tmp` volume. |
 | LC | cFS Limit Checker application used to evaluate watchpoints and trigger configured actions. |
 | MDB | YAMCS mission database assembled from the checked in XTCE command and telemetry definitions. |
-| Monte Carlo Campaign | Many trials of one DRM scenario run against varied Initial Condition bins and aggregated by `cfg/shire-campaign.py`. |
+| Monte Carlo Campaign | Many trials of one DRM scenario run against varied Initial Condition bins and aggregated by `tools/shire-campaign.py`. |
 | NOOP | No Operation command used to confirm command acceptance and counters without requesting mission behavior. |
 | OSAL | Operating System Abstraction Layer used by cFS. |
 | Procedure stack | YAMCS `.ycs` artifact that contains ordered commands, checks, and operator instructions. |
@@ -77,4 +77,4 @@ This glossary defines terms as they are used in the current SHIRE repository and
 When a term in the Atlas is ambiguous, use the source or configuration described in [Quick Reference](quick-reference.md) to confirm its meaning in the current checkout.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261002

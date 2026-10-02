@@ -3,7 +3,7 @@
 A Monte Carlo campaign runs many trials of one fixed scenario, each against its own
 perturbed Initial Condition (IC) bin, and aggregates the results.
 It builds on the scenario/IC-bin split described in
-[Scenarios and initial conditions](scenarios.md), reusing `cfg/shire-scenario.py`'s tested
+[Scenarios and initial conditions](scenarios.md), reusing `tools/shire-scenario.py`'s tested
 single-run pipeline unmodified for every trial.
 This page assumes you have already read that page, especially the IC bin schema.
 
@@ -145,7 +145,7 @@ A campaign run has four phases, printed as it goes.
    Each trial's compose stack reserves roughly 17 CPU-units and 8.5GB across its six services, so
    raising `max_parallel` is a real resource commitment, not a free lunch.
    The campaign prints its estimated concurrent footprint at startup.
-   Every trial reuses `cfg/shire-scenario.py`'s own `--instance-id`/`--port-offset`/`--image-tag`/
+   Every trial reuses `tools/shire-scenario.py`'s own `--instance-id`/`--port-offset`/`--image-tag`/
    `--no-build`/`--initial-conditions-file` flags to run with unique container names, networks,
    volumes, and published ports, so concurrent trials never collide.
 4. **Aggregate.** Once every trial has finished (or errored), results are read back in
@@ -169,17 +169,17 @@ resources left behind by a prior crashed run before it begins.
 A campaign run writes its report directory under `build/monte-carlo-runs/<campaign>-<UTC
 timestamp>/` by default, or `--report-dir`.
 It contains `ic/` (each trial's generated IC bin and resolved parameters), `trials/` (each
-trial's full `cfg/shire-scenario.py` artifacts, identical in shape to a plain `make scenario`
+trial's full `tools/shire-scenario.py` artifacts, identical in shape to a plain `make scenario`
 run's report directory), `campaign_report.json`, and `campaign_dataset.jsonl`.
 
-`campaign_report.json` extends `cfg/shire-perf.py`'s provenance-plus-trials report pattern.
+`campaign_report.json` extends `tools/shire-perf.py`'s provenance-plus-trials report pattern.
 
 ```json
 {
   "schema_version": 1,
   "created_utc": "...",
-  "git": { "...": "cfg/shire_provenance.py's git_metadata()" },
-  "host": { "...": "cfg/shire_provenance.py's host_metadata()" },
+  "git": { "...": "tools/shire_provenance.py's git_metadata()" },
+  "host": { "...": "tools/shire_provenance.py's host_metadata()" },
   "campaign": {"name": "...", "scenario": "...", "base_initial_conditions": "...",
                "trial_count": 200, "seed": 20260921, "parameters": []},
   "trials": [
@@ -211,7 +211,7 @@ Every trial gets exactly one line, including errored ones.
 To regenerate the dataset from an existing report without running anything:
 
 ```bash
-python3 cfg/shire-campaign.py --from-report <path to campaign_report.json> --jsonl-out <path>
+python3 tools/shire-campaign.py --from-report <path to campaign_report.json> --jsonl-out <path>
 ```
 
 ## Looking ahead to constellations

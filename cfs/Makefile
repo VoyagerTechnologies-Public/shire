@@ -55,9 +55,9 @@ build-test:
 		cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=false -DSHIRE_COVERAGE=ON $(CURDIR)/cfe && \
 	SHIRE_COVERAGE=1 ENABLE_UNIT_TESTS=false \
 		$(MAKE) --no-print-directory -C $(COVBUILDDIR) mission-install
-	$(SHIRE_DIR)/cfg/coverage.sh initial fsw $(COVDIR) $(COVDIR) $(COVMISSIONDIR)
+	$(SHIRE_DIR)/tools/coverage.sh initial fsw $(COVDIR) $(COVDIR) $(COVMISSIONDIR)
 	cd $(COVDIR) && ctest --output-on-failure -O ctest.log
-	$(SHIRE_DIR)/cfg/coverage.sh report fsw $(COVDIR) $(COVDIR)
+	$(SHIRE_DIR)/tools/coverage.sh report fsw $(COVDIR) $(COVDIR)
 
 clean:
 	rm -rf $(BUILDDIR) $(COVBUILDDIR)

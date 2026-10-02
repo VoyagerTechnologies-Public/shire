@@ -7,13 +7,18 @@ The top level Makefile is the supported entry point for normal development.
 
 The default build image is `ghcr.io/voyagertechnologies-public/shire-base:0.0.0`.
 It contains GCC 14 and LCOV with branch and MC/DC support.
-The Base image workflow publishes this multi-architecture tag from `dev` and
-`main`, and also publishes immutable commit tags from `dev`.
+The build image recipe is `tools/Dockerfile.base`.
 When `.container.stamp` needs rebuilding, `make container` builds the SHIRE development image and four package-only dependency images from this checkout.
 Set `BUILD_IMAGE` to a different tag to keep the local build separate from the published tag.
-The stamp avoids repeating that work until a dependency Dockerfile, `cfg/requirements.txt`, the Yamcs POM, or the viewer package manifest changes.
+The stamp avoids repeating that work until a dependency Dockerfile, `tools/requirements.txt`, the Yamcs POM, or the viewer package manifest changes.
 Changing `BUILD_IMAGE` alone does not invalidate the stamp.
 Remove `.container.stamp` or run `make -B container` when the selected image must be resolved again.
+
+The base and native-runtime recipes use `tools/` as their build context.
+The base recipe reads `tools/requirements.txt` for the build image's Python dependencies.
+The 42 recipe is `tools/Dockerfile.42`, with its matching `tools/Dockerfile.42.dockerignore`.
+Its build context remains the repository root so it can copy 42 sources, defaults from `cfg/42_shire_config/`, and rendered inputs from `build/<mission>/42_config/`.
+Yamcs and component Docker recipes remain with their subsystems.
 
 Use the same image interactively with:
 
@@ -192,7 +197,7 @@ docker network ls -q --filter label=shire.instance=<token> | xargs -r docker net
 docker volume ls -q --filter label=shire.instance=<token> | xargs -r docker volume rm
 ```
 
-Omit `=<token>` on any of the three filters above to match every instance-labeled resource regardless of token, the same sweep `cfg/shire-campaign.py` itself runs unconditionally at the start of every campaign, to clear a prior crashed run's orphans before it begins.
+Omit `=<token>` on any of the three filters above to match every instance-labeled resource regardless of token, the same sweep `tools/shire-campaign.py` itself runs unconditionally at the start of every campaign, to clear a prior crashed run's orphans before it begins.
 A campaign run also performs this sweep, scoped to only its own trials, on `SIGINT`/`SIGTERM`.
 See [Monte Carlo campaigns](monte-carlo-campaigns.md) for the full campaign mechanism.
 
@@ -236,4 +241,4 @@ It publishes browser interfaces, uses internal UDP services, shares a Docker net
 Do not expose it to an untrusted network without reviewing credentials, secrets, ports, privileges, volumes, and application level authentication.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261002

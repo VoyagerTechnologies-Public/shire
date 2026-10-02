@@ -2,7 +2,7 @@
 """Autonomous, no-GUI scenario runner: confirm a scenario completes cleanly.
 
 Usage:
-    python3 cfg/shire-scenario.py --scenario <name> [--mission drm] [--spacecraft sat-1]
+    python3 tools/shire-scenario.py --scenario <name> [--mission drm] [--spacecraft sat-1]
 
 Brings up the full stack (director, headless 42, FSW, GSW, cryptolib,
 server) without opening a GUI or waiting for a human. This script waits for the run to finish, checks for a clean
@@ -373,7 +373,7 @@ def main() -> int:
                              "scenario's named initial_conditions bin.")
     parser.add_argument("--no-build", action="store_true",
                         help="Skip `make build`; run `make cfg-compose-only` instead. Assumes an "
-                             "image matching --image-tag was already built (see cfg/shire-campaign.py).")
+                             "image matching --image-tag was already built (see tools/shire-campaign.py).")
     args = parser.parse_args()
 
     if args.list_scenarios:
@@ -439,7 +439,7 @@ def main() -> int:
                   f"mission={mission} spacecraft={spacecraft}"
                   + (f" instance={args.instance_id} port_offset={port_offset}" if args.instance_id else ""))
             # --no-build assumes a Monte Carlo campaign trial
-            # (cfg/shire-campaign.py) already ran a full `make build` for
+            # (tools/shire-campaign.py) already ran a full `make build` for
             # this trial's --image-tag; only the per-instance compose file
             # needs (re-)rendering here.
             build_target = "cfg-compose-only" if args.no_build else "build"
@@ -465,7 +465,7 @@ def main() -> int:
 
     image_tag = args.image_tag or spacecraft
     archive = subprocess.run(
-        [sys.executable, str(ROOT / "cfg" / "shire-archives.py"), "create",
+        [sys.executable, str(ROOT / "tools" / "shire-archives.py"), "create",
          "--mission", mission, "--spacecraft", spacecraft, "--scenario", args.scenario,
          "--image", f"shire-gsw-{mission}:{image_tag}"],
         capture_output=True, text=True, check=True)

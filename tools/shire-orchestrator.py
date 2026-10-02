@@ -10,10 +10,10 @@ import uuid
 from jinja2 import Environment, FileSystemLoader
 import yaml
 
-from shire_provenance import git_head_sha
+from shire_provenance import ROOT, git_head_sha
 
-CFG_DIR = os.path.dirname(os.path.abspath(__file__))
-BUILD_DIR = os.path.abspath(os.path.join(CFG_DIR, "../build"))
+CFG_DIR = str(ROOT / "cfg")
+BUILD_DIR = str(ROOT / "build")
 ACTIVE_PATH = os.path.join(BUILD_DIR, "active.yaml")
 BUILD_PATH = os.path.join(BUILD_DIR, "build.yaml")
 GLOBAL_CONFIG = os.path.join(CFG_DIR, "shire-config.yaml")
@@ -55,7 +55,7 @@ def main():
         if not missions:
             fail("No missions defined in global config.")
         mission = missions[0]["name"]
-        mission_cfg_path = os.path.join(CFG_DIR, os.path.relpath(missions[0]["config_file"], CFG_DIR))
+        mission_cfg_path = os.path.join(CFG_DIR, missions[0]["config_file"])
         mission_cfg = load_yaml(mission_cfg_path)
         scenarios = mission_cfg.get("scenarios", [])
         scenario = scenarios[0]["name"] if scenarios else "nominal"
@@ -104,14 +104,14 @@ def main():
     mission_entry = next((m for m in global_cfg["build"]["missions"] if m["name"] == mission), None)
     if not mission_entry:
         fail(f"Mission '{mission}' not found in global config.")
-    mission_cfg_path = os.path.join(CFG_DIR, os.path.relpath(mission_entry["config_file"], CFG_DIR))
+    mission_cfg_path = os.path.join(CFG_DIR, mission_entry["config_file"])
     mission_cfg = load_yaml(mission_cfg_path)
 
     # Find scenario config file
     scenario_entry = next((s for s in mission_cfg["scenarios"] if s["name"] == scenario), None)
     if not scenario_entry:
         fail(f"Scenario '{scenario}' not found in mission config.")
-    scenario_cfg_path = os.path.join(CFG_DIR, os.path.relpath(scenario_entry["config_file"], CFG_DIR))
+    scenario_cfg_path = os.path.join(CFG_DIR, scenario_entry["config_file"])
     scenario_cfg = load_yaml(scenario_cfg_path)
 
     # Load the Initial Condition (IC) bin this scenario references (orbit,
@@ -120,7 +120,7 @@ def main():
     # reproduces today's hardcoded values exactly, so existing scenarios
     # (drm-nominal, drm-debug) render unchanged.
     # A campaign trial's generated, perturbed IC (initial_conditions_file,
-    # an absolute path written by cfg/shire-campaign.py) takes priority
+    # an absolute path written by tools/shire-campaign.py) takes priority
     # over the scenario's named IC bin -- this is the only hook a per-trial
     # IC needs into the orchestrator.
     if initial_conditions_file:
@@ -145,7 +145,7 @@ def main():
         spacecraft_entry = next((sc for sc in spacecraft_list if sc["name"] == spacecraft), None)
         if not spacecraft_entry:
             fail(f"Spacecraft '{spacecraft}' not found in mission config.")
-        spacecraft_cfg_path = os.path.join(CFG_DIR, os.path.relpath(spacecraft_entry["config_file"], CFG_DIR))
+        spacecraft_cfg_path = os.path.join(CFG_DIR, spacecraft_entry["config_file"])
         spacecraft_cfg = load_yaml(spacecraft_cfg_path)
         if not spacecraft_cfg:
             spacecraft_cfg = {}

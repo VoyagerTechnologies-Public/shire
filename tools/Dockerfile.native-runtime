@@ -13,7 +13,7 @@
 #   4. Build and push the image plus its multi-platform manifest:
 #        export IMAGE=ghcr.io/voyagertechnologies-public/shire-native-runtime
 #        docker buildx build --platform linux/amd64,linux/arm64 \
-#          --tag "${IMAGE}:0.0.0" --push -f cfg/Dockerfile.native-runtime cfg
+#          --tag "${IMAGE}:0.0.0" --push -f tools/Dockerfile.native-runtime tools
 #   5. Verify the published platforms:
 #        docker buildx imagetools inspect "${IMAGE}:0.0.0"
 #

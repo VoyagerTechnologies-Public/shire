@@ -273,10 +273,11 @@ It falls back to `debug-out` when the preferred interface is unavailable.
 
 ## Build time architecture
 
-`cfg/shire-orchestrator.py` resolves the active mission, spacecraft, and scenario.
-`cfg/shire-build.py` builds the selected component simulator shared libraries and copies them into the Director image.
+User configuration and editable templates live in `cfg/`, while shared executable infrastructure lives in `tools/`.
+`tools/shire-orchestrator.py` resolves the active mission, spacecraft, and scenario.
+`tools/shire-build.py` builds the selected component simulator shared libraries and copies them into the Director image.
 It also builds the cFS and YAMCS runtime images and assembles the remaining simulation images.
 See [Configuration](../how-to/configuration.md) for the exact inputs and generated outputs.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261002

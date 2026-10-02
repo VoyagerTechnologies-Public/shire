@@ -5,7 +5,7 @@ or takes its filesystem root as an argument, so these tests never touch the
 real host's /sys or docker -- synthetic topologies stand in for both a
 real 11-physical-core/22-thread host and hosts too small to place on.
 
-Run directly: python3 cfg/test_shire_perf_topology.py
+Run directly: python3 tools/test_shire_perf_topology.py
 """
 import pathlib
 import sys

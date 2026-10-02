@@ -9,10 +9,10 @@ import sys
 import yaml
 import subprocess
 
-CFG_DIR = os.path.dirname(os.path.abspath(__file__))
-BUILD_DIR = os.path.abspath(os.path.join(CFG_DIR, "../build"))
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(TOOLS_DIR)
+BUILD_DIR = os.path.join(ROOT_DIR, "build")
 BUILD_YAML = os.path.join(BUILD_DIR, "build.yaml")
-ROOT_DIR = os.path.abspath(os.path.join(CFG_DIR, ".."))
 BUILD_IMAGE = os.environ.get(
     "BUILD_IMAGE", "ghcr.io/voyagertechnologies-public/shire-base:0.0.0"
 )
@@ -182,8 +182,7 @@ def build_42(config, builddirs):
     image_name = f"shire-42-{mission}:{config.get('image_tag', spacecraft)}"
     
     # Use SHIRE's custom Dockerfile for better control over build and configuration
-    cfg_dir = os.path.join(ROOT_DIR, "cfg")
-    dockerfile = os.path.join(cfg_dir, "Dockerfile.42")
+    dockerfile = os.path.join(TOOLS_DIR, "Dockerfile.42")
     
     if not os.path.exists(dockerfile):
         print(f"[build] ERROR: Dockerfile.42 not found at {dockerfile}")

@@ -1,6 +1,6 @@
 """Safe bulk archive cleanup tests; Docker is never called by these tests.
 
-Run directly: python3 cfg/test_shire_archives.py
+Run directly: python3 tools/test_shire_archives.py
 """
 from contextlib import redirect_stdout
 import importlib.util
