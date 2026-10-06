@@ -219,7 +219,11 @@ def main() -> int:
                 except (OSError, urllib.error.URLError):
                     time.sleep(.5)
             else:
-                raise ValueError(f"replay Yamcs did not become ready; inspect docker logs {container}")
+                output = docker("logs", "--tail", "30", container)
+                logs = output.stdout + output.stderr
+                docker("stop", "-t", "20", container)
+                docker("rm", container)
+                raise ValueError(f"replay Yamcs did not become ready:\n{logs}")
             if fallback:
                 try:
                     verify_fallback_snapshot(container, args.port)

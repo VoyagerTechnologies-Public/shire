@@ -22,6 +22,9 @@ Select a playback speed above the simulation pace to catch up, or choose **Live*
 Drag the timeline, enter a positive playback-speed multiplier and rendering FPS, and choose attitude inspection (the default), spacecraft follow, or Earth overview.
 Camera orbit and zoom stay relative to the spacecraft when telemetry advances or the viewer switches between Live and Replay.
 The top-right ground-track map shows the recorded path in cyan, a one-orbit two-body expected path in dashed orange, eclipse portions in outlined violet, and the current position in yellow.
+After a timeline scrub, recorded history loads backward from the displayed time, bounded to 30 minutes or 12,000 raw packets, whichever is shorter.
+At 20 Hz this covers about 10 minutes.
+At 100 Hz it covers about 2 minutes.
 Solid violet marks archived eclipse truth.
 Dotted violet is an approximate Earth-shadow forecast.
 The forecast is a diagnostic overlay and does not replace 42 truth.

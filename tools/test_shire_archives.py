@@ -1,14 +1,14 @@
-"""Safe bulk archive cleanup tests; Docker is never called by these tests.
+"""Archive cleanup and replay startup tests; Docker is mocked by these tests.
 
 Run directly: python3 tools/test_shire_archives.py
 """
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 from pathlib import Path
 import subprocess
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, patch
 
 SOURCE = Path(__file__).with_name("shire-archives.py")
 SPEC = importlib.util.spec_from_file_location("shire_archives", SOURCE)
@@ -108,6 +108,67 @@ class PurgeArchivesTests(unittest.TestCase):
                            return_value=self.rows[0]) as get_archive):
             self.assertEqual(archives.records(), [self.rows[0]])
         get_archive.assert_called_once_with(self.runs[0])
+
+
+class ReplayStartupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.run = "a" * 32
+        self.volume = archives.PREFIX + self.run
+        self.container = f"shire-replay-{self.run[:12]}"
+        self.labels = {"shire.archive_image": f"shire-gsw-archive:{self.run}"}
+
+    def replay(self, docker, times, urlopen):
+        with (patch.object(archives.sys, "argv", [str(SOURCE), "replay", self.run]),
+              patch.object(archives, "get_archive", return_value=(self.volume, self.labels)),
+              patch.object(archives, "in_use", return_value=False),
+              patch.object(archives, "image_exists", return_value=True),
+              patch.object(archives, "docker", side_effect=docker),
+              patch.object(archives.time, "monotonic", side_effect=times),
+              patch.object(archives.time, "sleep"),
+              patch.object(archives.urllib.request, "urlopen", urlopen),
+              redirect_stdout(io.StringIO()) as output,
+              redirect_stderr(io.StringIO()) as errors):
+            code = archives.main()
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_readiness_timeout_logs_and_releases_archive_mount(self) -> None:
+        calls = []
+
+        def docker(*args):
+            calls.append(args)
+            if args[0] == "inspect":
+                return result(args, "true\n")
+            if args[0] == "logs":
+                return subprocess.CompletedProcess(args, 0, "startup stalled\n", "MDB warning\n")
+            return result(args)
+
+        urlopen = Mock(side_effect=OSError("HTTP unavailable"))
+        code, _, errors = self.replay(docker, [0, 1, 46], urlopen)
+        self.assertEqual(code, 1)
+        self.assertIn("did not become ready", errors)
+        self.assertIn("startup stalled", errors)
+        self.assertIn("MDB warning", errors)
+        self.assertEqual(calls[-3:], [
+            ("logs", "--tail", "30", self.container),
+            ("stop", "-t", "20", self.container),
+            ("rm", self.container),
+        ])
+        urlopen.assert_called_once()
+        self.assertFalse(any(call[:2] in (("volume", "rm"), ("image", "rm"))
+                             for call in calls))
+
+    def test_ready_replay_keeps_container_available(self) -> None:
+        calls = []
+
+        def docker(*args):
+            calls.append(args)
+            return result(args, "true\n" if args[0] == "inspect" else "")
+
+        code, output, errors = self.replay(docker, [0, 1], MagicMock())
+        self.assertEqual(code, 0)
+        self.assertIn(f"mode=replay&run={self.run}", output)
+        self.assertEqual(errors, "")
+        self.assertFalse(any(call[0] in ("stop", "rm") for call in calls))
 
 
 if __name__ == "__main__":

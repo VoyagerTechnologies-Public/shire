@@ -96,8 +96,9 @@ graph. A final SBOM must record the actual resolved versions and hashes.
 | `maven-site-plugin` | 3.21.0 | Build | Apache-2.0 | Apache Maven project license; retain the resolved artifact's license/notice |
 | `maven-project-info-reports-plugin` | 3.4.3 | Build/reporting | Apache-2.0 | Apache Maven project license; retain the resolved artifact's license/notice |
 
-The project targets Java 17. The Maven wrapper and build image select Maven
-3.9.9. Maven transitive dependencies are not enumerated in this curated SBOM.
+The project targets Java 17.
+The Maven wrapper selects Maven 3.9.9 and the build image selects Maven 3.9.16.
+Maven transitive dependencies are not enumerated in this curated SBOM.
 
 ### Visualization JavaScript
 
@@ -110,8 +111,8 @@ The project targets Java 17. The Maven wrapper and build image select Maven
 
 | Manifest | Requirement | Constraint | License status |
 |---|---|---|---|
-| `tools/requirements.txt` | `pyyaml` | Unpinned | MIT; resolved version/hash unresolved for release |
-| `tools/requirements.txt` | `jinja2` | Unpinned | BSD-3-Clause; resolved version/hash unresolved for release |
+| `tools/requirements.txt` | `PyYAML` | `==6.0.3` | MIT; artifact hashes and resolved inventory outstanding for release |
+| `tools/requirements.txt` | `Jinja2` | `==3.1.6` | BSD-3-Clause; artifact hashes and resolved inventory outstanding for release |
 | `yamcs/requirements-commander.txt` | `yamcs-client` | `>=1.9.0` | LGPL-3.0; resolved version/hash unresolved for release |
 | `yamcs/requirements-commander.txt` | `requests` | `>=2.31.0` | Apache-2.0; resolved version/hash unresolved for release |
 | `comp/cryptolib/docs/wiki/requirements.txt` | `sphinx` | `>=8.0` | BSD-2-Clause; documentation-only, resolved version/hash unresolved |
@@ -138,9 +139,9 @@ the release process must lock, hash, and inventory the artifacts actually used.
 | Image | Pinning | Used by | Release status |
 |---|---|---|---|
 | `debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132` | Digest | `tools/Dockerfile.base` | Base is pinned; resolved OS-package SBOM and licenses still required |
-| `maven:3.9.9-eclipse-temurin-17` | Mutable tag | `yamcs/Dockerfile.yamcs` | Must be digest-pinned and scanned before release |
+| `maven:3.9.16-eclipse-temurin-17-noble@sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584` | Digest | `yamcs/Dockerfile.yamcs` | Base is pinned; resolved image package inventory and licenses still required |
 | `ubuntu:noble-20250127` | Date tag, no digest | CryptoLib support image | Must be digest-pinned if distributed |
-| `node:22-bookworm-slim` | Mutable tag | Offline Cesium viewer build stage | Pin digest and inventory resolved packages before release |
+| `node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6` | Digest | `yamcs/Dockerfile.viewer-base` | Base is pinned; resolved image package inventory and licenses still required |
 | `ghcr.io/voyagertechnologies-public/shire-base:0.0.0` | SHIRE tag | Build/runtime base | Generate SPDX and CycloneDX image SBOMs for final digest |
 | `ghcr.io/voyagertechnologies-public/shire-yamcs:0.0.0` | SHIRE tag | YAMCS image | Generate SPDX and CycloneDX image SBOMs and include AGPL/source compliance material |
 
@@ -153,7 +154,7 @@ inherited and installed package and its license evidence.
 | Tool | Declared version or source |
 |---|---|
 | GNU Make, CMake, GCC/G++ | Host or container distribution packages |
-| Apache Maven | 3.9.9 selected by wrapper/image |
+| Apache Maven | 3.9.9 selected by wrapper; 3.9.16 selected by build image |
 | Eclipse Temurin JDK | 17 selected by image |
 | Docker Engine and Compose | User prerequisite; version not pinned |
 | SBOM and vulnerability scanners | **UNRESOLVED — select and record organization-approved tools and versions at release** |
