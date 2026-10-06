@@ -13,3 +13,9 @@
 42/Development/
 42/containers/
 42/MetaCode/
+**/*.o
+**/*.a
+42/42
+# Rendering textures are unused with GUIFLAG=; all physics model files remain.
+42/World/
+42/Model/Noise3DTex.raw

@@ -10,10 +10,10 @@ import uuid
 from jinja2 import Environment, FileSystemLoader
 import yaml
 
-from shire_provenance import git_head_sha
+from shire_provenance import ROOT, git_head_sha
 
-CFG_DIR = os.path.dirname(os.path.abspath(__file__))
-BUILD_DIR = os.path.abspath(os.path.join(CFG_DIR, "../build"))
+CFG_DIR = str(ROOT / "cfg")
+BUILD_DIR = str(ROOT / "build")
 ACTIVE_PATH = os.path.join(BUILD_DIR, "active.yaml")
 BUILD_PATH = os.path.join(BUILD_DIR, "build.yaml")
 GLOBAL_CONFIG = os.path.join(CFG_DIR, "shire-config.yaml")
@@ -55,7 +55,7 @@ def main():
         if not missions:
             fail("No missions defined in global config.")
         mission = missions[0]["name"]
-        mission_cfg_path = os.path.join(CFG_DIR, os.path.relpath(missions[0]["config_file"], CFG_DIR))
+        mission_cfg_path = os.path.join(CFG_DIR, missions[0]["config_file"])
         mission_cfg = load_yaml(mission_cfg_path)
         scenarios = mission_cfg.get("scenarios", [])
         scenario = scenarios[0]["name"] if scenarios else "nominal"
@@ -79,17 +79,16 @@ def main():
         else:
             gsw_dir = mission_cfg.get("gsw", DEFAULT_GSW_DIR)
         
-        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "graphics": True, "fsw_dir": fsw_dir, "gsw_dir": gsw_dir}
+        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir}
         with open(ACTIVE_PATH, "w") as f:
             yaml.safe_dump(active, f)
-        print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}, graphics=True")
+        print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}")
 
     mission = active.get("mission", "drm")
     spacecraft = active.get("spacecraft", "sat-1")
     scenario = active.get("scenario", "nominal")
     cli_component = active.get("cli", "demo")
     log_mode = active.get("log_mode", active.get("log", "none"))
-    graphics = active.get("graphics", True)  # Default to graphics enabled
     fsw_dir = active.get("fsw_dir", DEFAULT_FSW_DIR)
     gsw_dir = active.get("gsw_dir", DEFAULT_GSW_DIR)
 
@@ -105,14 +104,14 @@ def main():
     mission_entry = next((m for m in global_cfg["build"]["missions"] if m["name"] == mission), None)
     if not mission_entry:
         fail(f"Mission '{mission}' not found in global config.")
-    mission_cfg_path = os.path.join(CFG_DIR, os.path.relpath(mission_entry["config_file"], CFG_DIR))
+    mission_cfg_path = os.path.join(CFG_DIR, mission_entry["config_file"])
     mission_cfg = load_yaml(mission_cfg_path)
 
     # Find scenario config file
     scenario_entry = next((s for s in mission_cfg["scenarios"] if s["name"] == scenario), None)
     if not scenario_entry:
         fail(f"Scenario '{scenario}' not found in mission config.")
-    scenario_cfg_path = os.path.join(CFG_DIR, os.path.relpath(scenario_entry["config_file"], CFG_DIR))
+    scenario_cfg_path = os.path.join(CFG_DIR, scenario_entry["config_file"])
     scenario_cfg = load_yaml(scenario_cfg_path)
 
     # Load the Initial Condition (IC) bin this scenario references (orbit,
@@ -121,7 +120,7 @@ def main():
     # reproduces today's hardcoded values exactly, so existing scenarios
     # (drm-nominal, drm-debug) render unchanged.
     # A campaign trial's generated, perturbed IC (initial_conditions_file,
-    # an absolute path written by cfg/shire-campaign.py) takes priority
+    # an absolute path written by tools/shire-campaign.py) takes priority
     # over the scenario's named IC bin -- this is the only hook a per-trial
     # IC needs into the orchestrator.
     if initial_conditions_file:
@@ -146,7 +145,7 @@ def main():
         spacecraft_entry = next((sc for sc in spacecraft_list if sc["name"] == spacecraft), None)
         if not spacecraft_entry:
             fail(f"Spacecraft '{spacecraft}' not found in mission config.")
-        spacecraft_cfg_path = os.path.join(CFG_DIR, os.path.relpath(spacecraft_entry["config_file"], CFG_DIR))
+        spacecraft_cfg_path = os.path.join(CFG_DIR, spacecraft_entry["config_file"])
         spacecraft_cfg = load_yaml(spacecraft_cfg_path)
         if not spacecraft_cfg:
             spacecraft_cfg = {}
@@ -301,13 +300,13 @@ def main():
     # with different content over these same paths.
     if not args.compose_only:
         # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt from Jinja2
-        # templates using the graphics setting and the scenario's resolved IC.
+        # templates using the scenario's resolved IC.
         sim_template_path = os.path.abspath(os.path.join(CFG_DIR, '42_shire_config'))
         build_42_config_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/42_config'))
         os.makedirs(build_42_config_dir, exist_ok=True)
 
         for template_file, output_name, extra_context in (
-            ("Inp_Sim.j2", "Inp_Sim.txt", {"graphics": graphics, "ground_stations": ground_stations}),
+            ("Inp_Sim.j2", "Inp_Sim.txt", {"ground_stations": ground_stations}),
             ("Orb_SHIRE.j2", "Orb_SHIRE.txt", {}),
             ("SC_SHIRE.j2", "SC_SHIRE.txt", {}),
         ):

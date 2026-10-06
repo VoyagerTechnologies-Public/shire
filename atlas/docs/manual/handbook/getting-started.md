@@ -44,7 +44,7 @@ The Compose output should show the automatic SC, LC, TO_LAB, Radio, and cFE star
 Then open:
 
 * YAMCS: [http://localhost:8090](http://localhost:8090)
-* 42 VNC: [http://localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html)
+* Visualization: [http://localhost:8090/visualization/](http://localhost:8090/visualization/)
 
 YAMCS opens on the Instances page.
 Select the running `shire` instance.
@@ -58,14 +58,8 @@ The YAMCS Home page should begin showing recently received packets.
 Select **Links** in the left navigation.
 Confirm telemetry is arriving before sending commands.
 
-The 42 page can initially show the noVNC connection screen.
-Select **Connect** to open the dynamics display.
-
-![noVNC connection screen for the 42 dynamics display](../../assets/manual/getting-started/42-novnc-connect.png)
-
-Confirm that the spacecraft view and map appear and that simulation time advances.
-
-![Connected 42 dynamics display showing the spacecraft and ground track](../../assets/manual/getting-started/42-dynamics-display.png)
+The visualization page shows the spacecraft and its Earth orbit from Yamcs truth telemetry.
+Select **Live** to follow the run.
 
 The default Server container is named `shire-server-drm`.
 Attach to its console to control simulation time:
@@ -95,8 +89,9 @@ Run `make` again after source or configuration changes.
 Use cleanup targets deliberately:
 
 * `make clean` removes the active mission build artifacts and stops the stack.
-* `make clean-cache` prunes the Docker builder cache and attempts to remove the legacy unsuffixed `gsw-data` and `simulith_ipc` volumes.
-* `make uninstall` removes SHIRE build artifacts, containers, images, volumes, and networks.
+* `make clean-cache` deletes all labeled SHIRE replay archives and pinned run images, then prunes Docker builder cache.
+  It keeps older unlabeled GSW volumes.
+* `make uninstall` removes SHIRE build artifacts, containers, images, labeled replay archives, and networks through its `clean-cache` dependency.
 
 Continue with the [Commissioning scenario](../../scenarios/commissioning.md), or see [Troubleshooting](faq.md) if startup fails.
 

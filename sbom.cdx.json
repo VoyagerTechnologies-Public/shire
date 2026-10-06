@@ -84,6 +84,10 @@
           "value": "cfg/"
         },
         {
+          "name": "shire:directory",
+          "value": "tools/"
+        },
+        {
           "name": "shire:license:exception",
           "value": "NASA-derived files listed as a separate component are not covered by this declaration"
         }
@@ -1051,7 +1055,7 @@
       "properties": [
         {
           "name": "shire:declared-requirements",
-          "value": "pyyaml; jinja2; yamcs-client>=1.9.0; requests>=2.31.0; sphinx>=8.0; sphinx-rtd-theme; myst-parser"
+          "value": "PyYAML==6.0.3; Jinja2==3.1.6; yamcs-client>=1.9.0; requests>=2.31.0; sphinx>=8.0; sphinx-rtd-theme; myst-parser"
         },
         {
           "name": "shire:declared-project-licenses",
@@ -1096,12 +1100,13 @@
     {
       "type": "container",
       "bom-ref": "shire:image:maven-temurin",
-      "name": "maven:3.9.9-eclipse-temurin-17",
+      "name": "maven:3.9.16-eclipse-temurin-17-noble",
+      "version": "sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584",
       "scope": "required",
       "properties": [
         {
           "name": "shire:pin-status",
-          "value": "UNRESOLVED — mutable tag must be replaced with release digest"
+          "value": "Digest pinned in yamcs/Dockerfile.yamcs; resolved image package inventory and licenses still required"
         }
       ]
     },

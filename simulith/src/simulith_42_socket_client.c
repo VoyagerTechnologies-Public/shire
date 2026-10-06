@@ -233,6 +233,7 @@ static int receive_binary_state(simulith_42_context_t *context)
     memcpy(context->qn, state.qn, sizeof(state.qn));
     memcpy(context->wn, state.wn, sizeof(state.wn));
     memcpy(context->pos_n, state.pos_n, sizeof(state.pos_n));
+    memcpy(context->cwn, state.cwn, sizeof(state.cwn));
     memcpy(context->vel_n, state.vel_n, sizeof(state.vel_n));
     memcpy(context->sun_vector_body, state.sun_vector_body, sizeof(state.sun_vector_body));
     memcpy(context->mag_field_body, state.mag_field_body, sizeof(state.mag_field_body));

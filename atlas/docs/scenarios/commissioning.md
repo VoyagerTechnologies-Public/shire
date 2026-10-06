@@ -54,7 +54,7 @@ Leave this terminal open so you can watch service output and simulation time.
 
 Wait until the initialization of the vehicle is complete and a "Do No Harm" default start state has been reached.
 
-Open the [42 dynamics environment](http://localhost:5801/vnc_auto.html).
+Open the [Earth-orbit visualization](http://localhost:8090/visualization/).
 Click `Connect` and confirm that simulation time is advancing and the spacecraft is visible.
 
 ![Initial 42 display showing the spacecraft and advancing simulation time](../assets/scenarios/commissioning/02-42-initial-spacecraft.png)

@@ -43,6 +43,10 @@ static int                    eventfd_failure;
 static int                    thread_create_calls;
 static int                    thread_create_failure_call;
 static int                    sync_primitive_failure;
+static int                    capture_visual;
+static int                    visual_send_failure;
+static int                    visual_sends;
+static uint8_t                visual_packet[256];
 static pthread_mutex_t        service_test_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t         service_test_condition = PTHREAD_COND_INITIALIZER;
 
@@ -51,6 +55,28 @@ static pthread_cond_t         service_test_condition = PTHREAD_COND_INITIALIZER;
     .struct_size = sizeof(component_interface_t)
 
 int __real_eventfd(unsigned int initial_value, int flags);
+ssize_t __real_sendto(int fd, const void *buffer, size_t length, int flags,
+                      const struct sockaddr *address, socklen_t address_length);
+
+ssize_t __wrap_sendto(int fd, const void *buffer, size_t length, int flags,
+                      const struct sockaddr *address, socklen_t address_length)
+{
+    if (capture_visual && address->sa_family == AF_INET &&
+        ntohs(((const struct sockaddr_in *)address)->sin_port) == 50044) {
+        TEST_ASSERT_EQUAL_size_t(sizeof(visual_packet), length);
+        TEST_ASSERT_EQUAL_INT(MSG_DONTWAIT, flags);
+        TEST_ASSERT_EQUAL_UINT32(htonl(INADDR_LOOPBACK),
+            ((const struct sockaddr_in *)address)->sin_addr.s_addr);
+        memcpy(visual_packet, buffer, length);
+        visual_sends++;
+        if (visual_send_failure == 1) {
+            errno = EAGAIN;
+            return -1;
+        }
+        return (ssize_t)length - (visual_send_failure == 2 ? 1 : 0);
+    }
+    return __real_sendto(fd, buffer, length, flags, address, address_length);
+}
 int __real_pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
                           void *(*start_routine)(void *), void *argument);
 int __real_pthread_mutex_init(pthread_mutex_t *mutex,
@@ -340,6 +366,12 @@ void setUp(void)
     thread_create_calls = 0;
     thread_create_failure_call = 0;
     sync_primitive_failure = 0;
+    capture_visual = 0;
+    visual_send_failure = 0;
+    visual_sends = 0;
+    memset(visual_packet, 0, sizeof(visual_packet));
+    unsetenv("SHIRE_VISUAL_HZ");
+    unsetenv("SHIRE_RUN_ID");
     memset(fake_backdoor_payload, 0, sizeof(fake_backdoor_payload));
     unsetenv("FORTYTWO_SOCKET_PATH");
     unsetenv("FORTYTWO_HOST");
@@ -353,6 +385,8 @@ void setUp(void)
 void tearDown(void)
 {
     unsetenv("FORTYTWO_IPC_MODE");
+    unsetenv("SHIRE_VISUAL_HZ");
+    unsetenv("SHIRE_RUN_ID");
 }
 
 static void test_parse_args(void)
@@ -951,6 +985,163 @@ static void test_telemetry_serialization(void)
     TEST_ASSERT_TRUE(value == context.atmo_density);
 }
 
+static void test_visual_configuration_validation(void)
+{
+    const char *invalid_rates[] = {"abc", "20Hz", "0", "-1", "101", "3"};
+    for (size_t i = 0; i < sizeof(invalid_rates) / sizeof(invalid_rates[0]); ++i) {
+        setenv("SHIRE_VISUAL_HZ", invalid_rates[i], 1);
+        TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+        TEST_ASSERT_EQUAL_INT(0, g_director_config.worker_sync_initialized);
+    }
+    setenv("SHIRE_VISUAL_HZ", "", 1);
+    setenv("SHIRE_RUN_ID", "", 1);
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    cleanup_components(&g_director_config);
+
+    const char *invalid_ids[] = {
+        "abcd", "00112233445566778899aabbccddeeff00",
+        "gg112233445566778899aabbccddeeff",
+        "00112233445566778899aabbccddeegg",
+    };
+    for (size_t i = 0; i < sizeof(invalid_ids) / sizeof(invalid_ids[0]); ++i) {
+        setenv("SHIRE_RUN_ID", invalid_ids[i], 1);
+        TEST_ASSERT_EQUAL_INT(-1, initialize_components(&g_director_config));
+    }
+}
+
+/* COMMIT consumes the state already fetched by PREPARE. Supply distinct values
+ * and decode the wire offsets independently of the production packet struct. */
+static void commit_visual_state(uint64_t sequence)
+{
+    g_director_config.shared_tick_sequence = sequence;
+    g_director_config.shared_tick_time_ns = sequence * UINT64_C(10000000);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+        director_commit_tick(sequence, g_director_config.shared_tick_time_ns));
+}
+
+static void assert_visual_metrics(unsigned int count, unsigned int errors)
+{
+    FILE *output = tmpfile();
+    TEST_ASSERT_NOT_NULL(output);
+    fflush(stdout);
+    int saved_stdout = dup(STDOUT_FILENO);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, saved_stdout);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, dup2(fileno(output), STDOUT_FILENO));
+    director_write_terminal_metrics();
+    fflush(stdout);
+    int restored = dup2(saved_stdout, STDOUT_FILENO);
+    close(saved_stdout);
+    rewind(output);
+    char text[8192] = {0};
+    size_t used = fread(text, 1, sizeof(text) - 1, output);
+    fclose(output);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, restored);
+    TEST_ASSERT_GREATER_THAN(0, used);
+    char expected[100];
+    snprintf(expected, sizeof(expected), "\"visual_count\":%u,\"visual_errors\":%u",
+             count, errors);
+    TEST_ASSERT_NOT_NULL(strstr(text, expected));
+}
+
+static void test_visual_packet_and_publication_guards(void)
+{
+    /* Defaults: no run ID and one packet per five ticks. */
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    capture_visual = 1;
+    g_director_config.shared_context_42.valid = 1;
+    commit_visual_state(0); /* No telemetry socket. */
+    TEST_ASSERT_EQUAL_INT(0, visual_sends);
+    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    g_director_config.shared_context_42.valid = 0;
+    commit_visual_state(0);
+    TEST_ASSERT_EQUAL_INT(0, visual_sends);
+    g_director_config.shared_context_42.valid = 1;
+    commit_visual_state(1);
+    TEST_ASSERT_EQUAL_INT(0, visual_sends);
+    commit_visual_state(5);
+    TEST_ASSERT_EQUAL_INT(1, visual_sends);
+    const uint8_t zero_id[16] = {0};
+    TEST_ASSERT_EQUAL_MEMORY(zero_id, visual_packet + 8, sizeof(zero_id));
+    assert_visual_metrics(1, 0);
+    cleanup_components(&g_director_config);
+
+    setenv("SHIRE_VISUAL_HZ", "100", 1);
+    setenv("SHIRE_RUN_ID", "00112233445566778899aAbBcCdDeEfF", 1);
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    simulith_42_context_t *state = &g_director_config.shared_context_42;
+    state->valid = 1;
+    state->spacecraft_id = 7;
+    state->sim_time = 12.5;
+    state->dyn_time = 1234567890.25;
+    state->eclipse = 1;
+    for (int i = 0; i < 3; ++i) {
+        state->pos_n[i] = 100.0 + i;
+        state->vel_n[i] = -200.0 - i;
+        state->sun_vector_body[i] = 0.25 * i;
+        state->wn[i] = -0.125 * i;
+        for (int j = 0; j < 3; ++j)
+            state->cwn[i][j] = 0.5 * (3 * i + j);
+    }
+    for (int i = 0; i < 4; ++i)
+        state->qn[i] = 0.125 * (i + 1);
+    commit_visual_state(6);
+    TEST_ASSERT_EQUAL_INT(2, visual_sends);
+    const uint8_t header[] = {'S', 'H', 'V', '1', 1, 0, 0, 0};
+    const uint8_t run_id[] = {
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+    };
+    const uint8_t spacecraft_id[] = {7, 0, 0, 0};
+    const uint8_t sequence[] = {6, 0, 0, 0, 0, 0, 0, 0};
+    const uint8_t eclipse[] = {1, 0, 0, 0};
+    TEST_ASSERT_EQUAL_MEMORY(header, visual_packet, sizeof(header));
+    TEST_ASSERT_EQUAL_MEMORY(run_id, visual_packet + 8, sizeof(run_id));
+    TEST_ASSERT_EQUAL_MEMORY(spacecraft_id, visual_packet + 24, sizeof(spacecraft_id));
+    TEST_ASSERT_EQUAL_MEMORY(sequence, visual_packet + 28, sizeof(sequence));
+    TEST_ASSERT_EQUAL_MEMORY(&state->sim_time, visual_packet + 36, sizeof(double));
+    TEST_ASSERT_EQUAL_MEMORY(&state->dyn_time, visual_packet + 44, sizeof(double));
+    TEST_ASSERT_EQUAL_MEMORY(state->pos_n, visual_packet + 52, sizeof(state->pos_n));
+    TEST_ASSERT_EQUAL_MEMORY(state->vel_n, visual_packet + 76, sizeof(state->vel_n));
+    TEST_ASSERT_EQUAL_MEMORY(state->qn, visual_packet + 100, sizeof(state->qn));
+    TEST_ASSERT_EQUAL_MEMORY(state->sun_vector_body, visual_packet + 132,
+                             sizeof(state->sun_vector_body));
+    TEST_ASSERT_EQUAL_MEMORY(state->wn, visual_packet + 156, sizeof(state->wn));
+    TEST_ASSERT_EQUAL_MEMORY(state->cwn, visual_packet + 180, sizeof(state->cwn));
+    TEST_ASSERT_EQUAL_MEMORY(eclipse, visual_packet + 252, sizeof(eclipse));
+    assert_visual_metrics(1, 0); /* Reinitialization resets the counters. */
+    cleanup_components(&g_director_config);
+}
+
+static void test_visual_rate_and_send_failures(void)
+{
+    setenv("SHIRE_VISUAL_HZ", "25", 1);
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0, initialize_telemetry());
+    capture_visual = 1;
+    g_director_config.shared_context_42.valid = 1;
+    commit_visual_state(3);
+    TEST_ASSERT_EQUAL_INT(0, visual_sends);
+    commit_visual_state(4);
+    TEST_ASSERT_EQUAL_INT(1, visual_sends);
+    visual_send_failure = 1;
+    commit_visual_state(8);
+    TEST_ASSERT_EQUAL_INT(2, visual_sends);
+    assert_visual_metrics(2, 1);
+    visual_send_failure = 2;
+    commit_visual_state(12);
+    TEST_ASSERT_EQUAL_INT(3, visual_sends);
+    assert_visual_metrics(3, 2);
+    visual_send_failure = 0;
+    commit_visual_state(16);
+    assert_visual_metrics(4, 2);
+    cleanup_components(&g_director_config);
+    /* Restore the default interval for other tests in this process. */
+    setenv("SHIRE_VISUAL_HZ", "20", 1);
+    TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+    cleanup_components(&g_director_config);
+}
+
 static void test_live_42_tick_and_telemetry(void)
 {
     uint16_t port = 0;
@@ -1241,6 +1432,9 @@ int main(void)
     RUN_TEST(test_backdoor_rejects_malformed_and_dispatches_valid_packet);
     RUN_TEST(test_telemetry_initialization);
     RUN_TEST(test_telemetry_serialization);
+    RUN_TEST(test_visual_configuration_validation);
+    RUN_TEST(test_visual_packet_and_publication_guards);
+    RUN_TEST(test_visual_rate_and_send_failures);
     RUN_TEST(test_live_42_tick_and_telemetry);
     RUN_TEST(test_tick_handles_42_state_failure);
     RUN_TEST(test_tick_command_failure_and_boundary_paths);

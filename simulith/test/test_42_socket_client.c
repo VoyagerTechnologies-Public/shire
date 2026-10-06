@@ -105,6 +105,12 @@ static void *fake_binary_42_server(void *arg)
     state.utc_civil_time = 748177200.0;
     state.qn[0] = 1.0;
     state.pos_n[2] = 6.0;
+    const double cwn[3][3] = {
+        {0.125, -0.25, 0.375},
+        {-0.5, 0.625, -0.75},
+        {0.875, -1.0, 1.125},
+    };
+    memcpy(state.cwn, cwn, sizeof(cwn));
     state.sun_vector_body[2] = 1.0;
     state.mass = 42.25;
     state.cm[1] = 0.125;
@@ -452,6 +458,12 @@ static void test_binary_state_and_command_frames(void)
        regression back to the old dyn_time == sim_time conflation. */
     TEST_ASSERT_TRUE(fabs(context.dyn_time - 748177200.0) < 0.01);
     TEST_ASSERT_FLOAT_WITHIN(0.000001f, 6.0f, (float)context.pos_n[2]);
+    const double expected_cwn[3][3] = {
+        {0.125, -0.25, 0.375},
+        {-0.5, 0.625, -0.75},
+        {0.875, -1.0, 1.125},
+    };
+    TEST_ASSERT_EQUAL_MEMORY(expected_cwn, context.cwn, sizeof(expected_cwn));
     TEST_ASSERT_TRUE(fabs(context.mass - 42.25) < 1.0e-12);
     TEST_ASSERT_TRUE(fabs(context.cm[1] - 0.125) < 1.0e-12);
     TEST_ASSERT_TRUE(fabs(context.inertia[2][2] - 9.5) < 1.0e-12);

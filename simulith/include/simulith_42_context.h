@@ -22,6 +22,7 @@ typedef struct {
     // Position and velocity
     double pos_n[3];         // Position [m] in inertial frame
     double vel_n[3];         // Velocity [m/s] in inertial frame
+    double cwn[3][3];       // 42 Earth-fixed W <- inertial N transform
     
     // Relative position and velocity (wrt reference orbit)
     double pos_r[3];         // Position [m] relative to reference orbit

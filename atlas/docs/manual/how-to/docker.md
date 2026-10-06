@@ -7,12 +7,18 @@ The top level Makefile is the supported entry point for normal development.
 
 The default build image is `ghcr.io/voyagertechnologies-public/shire-base:0.0.0`.
 It contains GCC 14 and LCOV with branch and MC/DC support.
-The Base image workflow publishes this multi-architecture tag from `dev` and
-`main`, and also publishes immutable commit tags from `dev`.
-When `.container.stamp` needs rebuilding, `make container` first attempts to pull the image and builds `cfg/Dockerfile.base` locally if the pull fails.
-The stamp avoids repeating that work until the Dockerfile or `cfg/requirements.txt` changes.
+The build image recipe is `tools/Dockerfile.base`.
+When `.container.stamp` needs rebuilding, `make container` builds the SHIRE development image and four package-only dependency images from this checkout.
+Set `BUILD_IMAGE` to a different tag to keep the local build separate from the published tag.
+The stamp avoids repeating that work until a dependency Dockerfile, `tools/requirements.txt`, the Yamcs POM, or the viewer package manifest changes.
 Changing `BUILD_IMAGE` alone does not invalidate the stamp.
 Remove `.container.stamp` or run `make -B container` when the selected image must be resolved again.
+
+The base and native-runtime recipes use `tools/` as their build context.
+The base recipe reads `tools/requirements.txt` for the build image's Python dependencies.
+The 42 recipe is `tools/Dockerfile.42`, with its matching `tools/Dockerfile.42.dockerignore`.
+Its build context remains the repository root so it can copy 42 sources, defaults from `cfg/42_shire_config/`, and rendered inputs from `build/<mission>/42_config/`.
+Yamcs and component Docker recipes remain with their subsystems.
 
 Use the same image interactively with:
 
@@ -22,6 +28,28 @@ make debug
 
 The repository is mounted at the same absolute path and the container runs with the host UID/GID.
 The debug container also receives the message queue, real time priority, and `SYS_NICE` settings used by the FSW build.
+
+## Offline source builds
+
+Run `make container` once while connected to prepare five local images: the SHIRE compiler/orchestrator, shared native runtime libraries, lockfile-matched viewer build environment, pre-resolved Yamcs Maven build environment, and Yamcs JRE runtime dependencies.
+After that, `make` builds the mission-specific images with Docker networking disabled.
+The viewer uses installed packages from its locked base, Maven runs in offline mode, and no runtime Dockerfile installs packages.
+A source change can therefore be rebuilt without network access as long as the dependency manifests and base Dockerfiles have not changed.
+If one of those inputs changes, refresh the images with `make container` while connected.
+
+To transfer the minimum dependency-image set to another machine of the same architecture, use:
+
+```bash
+make container-export FILE=/tmp/shire-dependencies.tar
+# Copy the tarball and the full source checkout, including submodules, to the offline machine.
+make container-import FILE=/tmp/shire-dependencies.tar
+make
+```
+
+`container-import` verifies all five images, checks the Python requirements, viewer package manifest, and Yamcs POM against their embedded baselines, then records the local container stamp.
+The bundle contains build dependencies only and contains no mission-specific images or Yamcs archive data.
+The image archive can be large, so keep it outside the repository.
+
 
 ## Generated compose files
 
@@ -61,7 +89,7 @@ make stop
 ```
 
 Do not run the DRM and focused CLI environment at the same time for one spacecraft.
-They reuse explicit container names, host port 5801, the spacecraft network, and the Simulith IPC volume.
+They reuse explicit container names, the spacecraft network, and the Simulith IPC volume.
 A Monte Carlo campaign trial is the one deliberate exception to running multiple DRM-shaped stacks for the same mission and spacecraft at once, and it avoids this exact collision by construction rather than by the operator's own care.
 See "Monte Carlo campaign trials" below.
 
@@ -92,11 +120,24 @@ Use service health, logs, and application status when diagnosing startup timing.
 
 The build creates mission and spacecraft tagged runtime images for 42, Director, Server, FSW, GSW, and CryptoLib.
 Component CLI images use the component name.
+The SHIRE development base compiles native programs but is not carried into those DRM runtime images.
+42, Director, Server, FSW, and CryptoLib share a Debian slim dependency base with ZeroMQ and libgcrypt, avoiding package installs during mission image builds.
+Yamcs uses a pinned Java 17 JRE dependency base with Python and curl for timeline setup and health checks.
+The viewer build uses Node 24 LTS.
+The Yamcs build uses Maven 3.9 and Java 17.
+Both build tools stay out of the GSW runtime image.
+The runtime build uses the prepared local dependency images and the Dockerfiles in this checkout.
+
+Build-stage base images are pinned by digest and the viewer dependency tree is locked and the Python top-level dependencies are pinned.
+To refresh them, update the pins and lockfile, build the images locally, then run the Simulith, Yamcs, and full-stack checks before publishing new image tags.
+`make container` does not automatically pull newer packages into an unchanged image.
+Update its Dockerfile or dependency pins to trigger a rebuild.
+42 model data stays in the 42 image, while Simulith images contain only their own binaries and selected component libraries.
 
 The generated DRM Compose file defines:
 
 * `simulith_ipc_<spacecraft>` is mounted at `/tmp` in 42, Server, Director, CryptoLib, and FSW for Simulith and 42 IPC files.
-* `gsw-data_<mission>` is mounted at `/app/yamcs-data` in GSW for archives, buckets, timelines, displays, stacks, CFDP files, and other YAMCS state.
+* A per-run `shire-yamcs-archive-<run-id>` volume is mounted at `/app/yamcs-data` in GSW for telemetry archives, buckets, timelines, displays, stacks, CFDP files, and other Yamcs state.
 
 The focused CLI Compose file defines only the Simulith IPC volume.
 Docker Compose can prefix the physical volume name with its project name, so inspect the resolved volumes rather than assuming the logical key is the Docker volume name:
@@ -107,44 +148,47 @@ docker volume ls --filter label=com.docker.compose.project
 ```
 
 The Simulith volume is runtime coordination state rather than an evidence archive.
-The YAMCS volume is persistent operator state and can contain results that must be retained before cleanup.
+Every new DRM run receives a persistent, labeled Yamcs archive volume.
+See [Visualization and replay](visualization-replay.md) for listing and reopening it.
 
-`make stop` removes containers but does not intentionally remove these volumes.
-It also removes the Compose networks when they are no longer in use.
-A later start reuses the retained volumes.
+`make stop` removes containers, transient IPC volumes, and unused Compose networks.
+The external Yamcs archive remains available for replay.
+A later start allocates a new archive.
 
 ### Cleanup effects
 
 | Command | Generated files and images | Volumes | Host wide effects |
 | --- | --- | --- | --- |
-| `make stop` | Stops both generated Compose environments for the active mission and removes their containers | Retains named volumes | Attempts to remove every dangling Docker image visible to the current Docker daemon |
-| `make clean` | Runs `make stop`, removes the active mission build tree, and cleans the 42 and GSW images | Removes volumes whose names match `gsw-data` or `simulith_ipc` | Also prunes dangling images through the 42 cleanup path |
-| `make clean-cache` | Retains the SHIRE source and generated build tree | Attempts to remove only the literal volumes `gsw-data` and `simulith_ipc` | Runs `docker builder prune -f` for all unused build cache on the current Docker daemon |
-| `make uninstall` | Removes `build/`, `.container.stamp`, and Docker containers and images matching SHIRE names | Removes volumes matching the SHIRE GSW and Simulith names | Removes matching SHIRE networks after running the broader clean and cache actions |
+| `make stop` | Stops both generated Compose environments for the active mission and removes their containers | Retains Yamcs archives, removes transient IPC volumes | Removes the generated Compose networks when unused |
+| `make clean` | Runs `make stop`, removes the active mission build tree, and cleans the 42 and GSW images | Retains Yamcs archives and legacy GSW volumes, removes transient Simulith volumes | Also prunes dangling images through the 42 cleanup path |
+| `make clean-cache` | Retains source and the generated build tree while removing run-specific pinned GSW image tags | Deletes labeled SHIRE run archives containing telemetry, metadata, and bookmarks, keeps unlabeled legacy GSW volumes, and attempts to remove `simulith_ipc` | Refuses active archive mounts before deleting any run and prunes unused Docker builder cache |
+| `make uninstall` | Removes `build/`, `.container.stamp`, and Docker containers and images matching SHIRE names | Deletes labeled SHIRE run archives through `clean-cache`, keeps unlabeled legacy GSW volumes, and removes transient Simulith volumes | Removes matching SHIRE networks after running the broader clean and cache actions |
 
-`make clean-cache` is not a reliable way to reset mission scoped Compose volumes because their physical names can include project and mission text.
-Use `docker volume ls` to identify the exact retained volumes before deciding whether they should be removed.
+`make clean-cache` identifies SHIRE replay databases by their run-ID volume names and `shire.archive=true` label.
+It first refuses cleanup if any such archive is mounted by a running container.
+Stop the live stack or replay server before running it.
+It removes stopped containers still attached to those archives, then the archive volumes and run-specific image tags.
+It does not guess at or delete older unlabeled `gsw-data` volumes or mission-scoped transient Compose volumes.
 The artifact and volume removal inside `make clean` is conditional on the configured build image existing locally.
 
-To stop the default DRM and delete both volumes declared by that Compose project, use:
+To stop the default DRM and remove its transient IPC volume, use:
 
 ```bash
 docker compose -f build/drm/shire-compose.yaml down --volumes --remove-orphans
 ```
 
-This permanently removes the project copies of both Simulith IPC state and YAMCS persistent state.
-Export required timelines, procedures, displays, archives, and CFDP files before deleting the YAMCS volume.
+The separately allocated external Yamcs archive is retained by `make stop` and `make clean`.
+List archives with `make replay-list`, remove one with `make replay-delete RUN=<run-id>`, or remove all labeled SHIRE runs with `make clean-cache`.
 Capture container logs and test evidence before cleanup removes their source containers.
-Do not use volume deletion as an initial troubleshooting step when retained ground state matters.
 
 ## Monte Carlo campaign trials
 
 `make campaign CAMPAIGN=<name>` runs many trials of one scenario concurrently, bounded by `MAX_PARALLEL`.
-Each trial suffixes every container, network, and volume name from the generated Compose file with its own instance token, for example `shire-fsw-sat-1-0007` instead of `shire-fsw-sat-1`.
-Each trial also publishes its own host ports, offset from the defaults (`8090`, `5801`) by a stride the campaign runner assigns.
+Each trial suffixes every container, network, and transient volume name from the generated Compose file with its own instance token, for example `shire-fsw-sat-1-0007` instead of `shire-fsw-sat-1`.
+Each trial publishes a Yamcs host port offset from 8090 by a stride the campaign runner assigns.
 This is what lets concurrent trials for the same mission and spacecraft coexist without the collision the DRM and CLI environments would otherwise hit.
 
-Every trial's containers, networks, and volumes also carry a `shire.instance` Docker label.
+Every trial's containers, networks, and transient volumes also carry a `shire.instance` Docker label.
 Find and remove a specific trial's resources directly:
 
 ```bash
@@ -153,7 +197,7 @@ docker network ls -q --filter label=shire.instance=<token> | xargs -r docker net
 docker volume ls -q --filter label=shire.instance=<token> | xargs -r docker volume rm
 ```
 
-Omit `=<token>` on any of the three filters above to match every instance-labeled resource regardless of token, the same sweep `cfg/shire-campaign.py` itself runs unconditionally at the start of every campaign, to clear a prior crashed run's orphans before it begins.
+Omit `=<token>` on any of the three filters above to match every instance-labeled resource regardless of token, the same sweep `tools/shire-campaign.py` itself runs unconditionally at the start of every campaign, to clear a prior crashed run's orphans before it begins.
 A campaign run also performs this sweep, scoped to only its own trials, on `SIGINT`/`SIGTERM`.
 See [Monte Carlo campaigns](monte-carlo-campaigns.md) for the full campaign mechanism.
 
@@ -177,20 +221,19 @@ Docker service names provide discovery between containers on that network.
 
 | Interface | Current exposure | Purpose |
 | --- | --- | --- |
-| Host TCP 5801 | Published as `5801:80` by the DRM and focused CLI environment | Browser access to the 42 noVNC display |
 | Host TCP 8090 | Published as `8090:8090` by the DRM | Browser and API access to YAMCS |
 | Internal UDP 1234 and 1235 | Not published by Compose | Direct command and telemetry between YAMCS and FSW |
 | Internal UDP 12343 through 12346 | Not published by Compose | Radio and CryptoLib command and telemetry path |
-| Internal UDP 50042 and 50060 | Not published by Compose | Director truth telemetry and simulator backdoor commanding |
+| Internal UDP 50042, 50044, and 50060 | Not published by Compose | Director truth and visualization telemetry plus simulator backdoor commanding |
 | Shared `/tmp` volume | Not a network interface | ZeroMQ IPC and 42 socket exchange among participating services |
 
-The short port mappings for 5801 and 8090 bind through Docker on host interfaces rather than restricting access to localhost.
+The short port mapping for 8090 binds through Docker on host interfaces rather than restricting access to localhost.
 Host firewall rules and Docker daemon configuration can affect reachability, but the checked in Compose templates do not request a loopback only bind.
 
 The UDP links are intended for communication inside the Compose bridge and are not listed under `ports`.
 Do not rely on the bridge network alone as a security boundary because any connected container can attempt to reach those listeners.
 
-For a workstation that can receive untrusted network traffic, consider changing the generated template mappings to `127.0.0.1:5801:80` and `127.0.0.1:8090:8090`.
+For a workstation that can receive untrusted network traffic, consider changing the generated template mappings to `127.0.0.1:8090:8090`.
 Make that change in `cfg/shire-compose.j2` and `cfg/cli-compose.j2`, then run `make cfg` rather than editing generated Compose files.
 
 The runtime is a development environment and not production grade.
@@ -198,4 +241,4 @@ It publishes browser interfaces, uses internal UDP services, shares a Docker net
 Do not expose it to an untrusted network without reviewing credentials, secrets, ports, privileges, volumes, and application level authentication.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261002

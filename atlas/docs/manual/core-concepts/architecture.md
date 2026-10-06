@@ -9,12 +9,12 @@ The generated DRM compose file currently defines six services:
 
 | Service | Current responsibility |
 | --- | --- |
-| `shire-42` | Runs the 42 dynamics and environment model with its VNC web interface exposed on port 5801 by default. |
-| `shire-director` | Loads configured component simulator `.so` libraries, runs ordered sensing and actuation callbacks plus concurrent device service workers, exchanges state and commands with 42, services simulator backdoor commands, and publishes 42 truth data. |
+| `shire-42` | Runs headless 42 dynamics and the environment model without exposing a browser port. |
+| `shire-director` | Loads configured component simulator `.so` libraries, runs ordered sensing and actuation callbacks plus concurrent device service workers, exchanges state and commands with 42, services simulator backdoor commands, and publishes 1 Hz truth and versioned visualization truth to Yamcs. |
 | `shire-server` | Owns Simulith simulation time and advances the 10 ms tick only after all required PREPARE, EXECUTE, and COMMIT completions. |
 | `shire-fsw` | Runs the cFS mission build, including reusable cFS applications and the component applications selected for the spacecraft. |
 | `shire-cryptolib` | Applies security processing in the simulated radio command and telemetry path. |
-| `shire-gsw` | Runs YAMCS for commanding, telemetry, archives, procedures, displays, and CFDP file transfer with its web interface exposed on port 8090. |
+| `shire-gsw` | Runs YAMCS for commanding, telemetry, native archives, replay, procedures, displays, CFDP, and the offline Cesium viewer on port 8090. |
 
 Service and container names include mission or spacecraft values in several places.
 Use the generated compose file and `docker compose ps` rather than assuming a fixed container name.
@@ -273,10 +273,11 @@ It falls back to `debug-out` when the preferred interface is unavailable.
 
 ## Build time architecture
 
-`cfg/shire-orchestrator.py` resolves the active mission, spacecraft, and scenario.
-`cfg/shire-build.py` builds the selected component simulator shared libraries and copies them into the Director image.
+User configuration and editable templates live in `cfg/`, while shared executable infrastructure lives in `tools/`.
+`tools/shire-orchestrator.py` resolves the active mission, spacecraft, and scenario.
+`tools/shire-build.py` builds the selected component simulator shared libraries and copies them into the Director image.
 It also builds the cFS and YAMCS runtime images and assembles the remaining simulation images.
 See [Configuration](../how-to/configuration.md) for the exact inputs and generated outputs.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261002

@@ -99,7 +99,7 @@ component_overrides: {}   # optional, see below
 or `adcs:`).
 Each value is merged into that component's config the same way a scenario's
 own per-component config and `overrides:` dict already are
-(`cfg/shire-orchestrator.py`'s cascading merge: fallback, global, mission,
+(`tools/shire-orchestrator.py`'s cascading merge: fallback, global, mission,
 spacecraft, **IC bin**, scenario, scenario `overrides`, then CLI
 `--cli-debug`).
 It is not a second override mechanism.
@@ -118,8 +118,8 @@ scenario`) writes
 `build/<mission>/scenario/<scenario_name>.snapshot.yaml`: the scenario name,
 the IC bin name, its fully resolved values, and the current git SHA.
 That snapshot is the record of exactly what a given run started from.
-`cfg/shire-scenario.py` copies it into its own report directory, and
-`cfg/shire-perf.py --mode determinism` references it too.
+`tools/shire-scenario.py` copies it into its own report directory, and
+`tools/shire-perf.py --mode determinism` references it too.
 
 ### Authoring a new IC bin
 
@@ -129,7 +129,7 @@ You will need to determine it yourself by doing the following:
 
 1. Copy `cfg/drm/initial_conditions/nominal-baseline.yaml` to a new name.
 2. Run the reference orbit for at least one period (`make start`, or
-   `cfg/shire-scenario.py --scenario nominal`) and read 42's own real
+   `tools/shire-scenario.py --scenario nominal`) and read 42's own real
    output in the `shire-42-<spacecraft>` container's `/42/InOut/`: `svn.42`
    (sun vector) and `PosN.42`/`VelN.42` (position/velocity), both in the
    inertial frame, one row per simulated timestep.
@@ -155,8 +155,7 @@ You will need to determine it yourself by doing the following:
    elapsed time, and `orbit.true_anomaly_deg` to the converted value.
    Record how you derived it in a `notes:` field.
 6. Reference the new bin from a scenario's `initial_conditions:` field,
-   `make cfg`, and inspect the written snapshot, or `make start` to visually
-   confirm in the 42 GUI that the run begins where you expect.
+   `make cfg`, and inspect the written snapshot, or `make start` to inspect the run in the Yamcs visualization viewer.
 
 Ground-pass acquisition/loss bins follow the same pattern, using
 `cfg/drm/ground_stations.yaml`'s station position and an elevation-mask test
@@ -173,11 +172,11 @@ Five scenarios ship today: `nominal` and `debug` (both use
 this page).
 Use `<name>` below to try any of them.
 
-### Manually, with the GUI and YAMCS
+### Manually, with Yamcs visualization
 
-Unchanged from before: set `scenario: <name>` in `build/active.yaml`, `make`
+Set `scenario: <name>` in `build/active.yaml`, `make`
 (renders the IC into the 42 config files), then `make start` (brings up the
-full VNC/noVNC + YAMCS stack with that IC already baked in).
+headless 42 + Yamcs stack with that IC already baked in).
 This is the path for investigating an issue or exploring the system by hand.
 
 ### Autonomously, to confirm a pass (no GUI, CI/Monte-Carlo friendly)
@@ -189,8 +188,7 @@ make scenario SCENARIO=<name>
 
 This selects the scenario, builds, and brings up the exact same compose
 stack `make start` would.
-The 42 container still starts its VNC/xterm/noVNC internals internally.
-This script just never opens them, and nothing waits for a human.
+42 runs headlessly, and nothing waits for a human.
 It waits for the run to finish, bounded by a watchdog, checks that both the
 Director and FSW reached their terminal marker with no crash or timeout,
 tears everything down, and exits 0 (pass) or 1 (fail).
@@ -241,7 +239,7 @@ steps against YAMCS's REST API, lives in `yamcs/yamcs_commander.py
 maintain for both the CLI (`--command`, `--interactive`) and
 headless-stack use cases.
 
-Each entry runs before `cfg/shire-scenario.py` starts waiting for the run
+Each entry runs before `tools/shire-scenario.py` starts waiting for the run
 to finish, and always waits for at least the first simulated-time sample
 before firing.
 Firing at the literal instant containers start can race FSW apps that
@@ -343,7 +341,7 @@ speed.
 Confirmed live: this caused a real failure at `simulith_speed=5` (an
 early `CheckoutTest.ycs` verify step read back a nonzero counter that
 should have been freshly reset), fixed by `FSW_BOOT_SETTLE_S` in
-`cfg/shire-scenario.py`, a real-second floor applied once, before the
+`tools/shire-scenario.py`, a real-second floor applied once, before the
 first scheduled entry, independent of speed.
 
 ### Confirming a scenario is deterministic
@@ -353,7 +351,7 @@ make scenario-smoke
 ```
 
 This runs the currently-configured scenario twice back to back at the same
-speed and reuses `cfg/shire-perf.py`'s existing repeatability/fidelity
+speed and reuses `tools/shire-perf.py`'s existing repeatability/fidelity
 comparison, including its exact (1e-12 tolerance) terminal dynamics-state
 check on `qn`, `wn`, `pos_n`, `vel_n`, and `dyn_time`, to confirm the two
 runs match.

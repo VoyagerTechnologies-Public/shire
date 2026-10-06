@@ -23,7 +23,7 @@ See [Development Workflow](../core-concepts/development-workflow.md) for that pr
 | cFS target | `cfg/shire_defs/targets.cmake` enables only `cpu1`, while the `cpu2` declarations remain commented out. |
 | CPU2 mission files | CPU2 platform configuration and startup files exist under `cfg/shire_defs/`. |
 | ARM toolchain | `cfg/shire_defs/toolchain-armv7l-linux.cmake` selects the `arm-linux-gnueabihf` compiler family and `/usr/arm-linux-gnueabihf` sysroot. |
-| Build image | `cfg/Dockerfile.base` does not install the ARM compiler, ARM sysroot, or target versions of required libraries. |
+| Build image | `tools/Dockerfile.base` does not install the ARM compiler, ARM sysroot, or target versions of required libraries. |
 | cFS abstractions | The ARM toolchain currently selects the generic cFS `pc-linux` PSP and POSIX OSAL rather than board specific support. |
 | Component CLI | Each reference CLI has a `cpu2` branch that selects Linux HWLIB sources for its bus. |
 | CLI toolchain | The current CLI Makefiles pass `TGTNAME=cpu2` but do not select the ARM CMake toolchain or provide packaging and deployment. |
@@ -144,4 +144,4 @@ Record the exact toolchain, sysroot, SHIRE revision, generated configuration, bo
 Keep host simulation regression results with the board evidence so later hardware changes can be compared with a repeatable baseline.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261002
