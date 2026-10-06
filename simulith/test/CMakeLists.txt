@@ -136,6 +136,7 @@ add_dependencies(test_director
     director_fixture_valid director_fixture_duplicate director_fixture_null director_fixture_no_interface
     director_fixture_bad_version director_fixture_bad_size)
 target_link_options(test_director PRIVATE
+    -Wl,--wrap=sendto
     -Wl,--wrap=eventfd
     -Wl,--wrap=pthread_create
     -Wl,--wrap=pthread_mutex_init
