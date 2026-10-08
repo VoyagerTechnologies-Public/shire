@@ -101,10 +101,13 @@ void Test_EPS_RequestHK(void)
     device.isOpen = I2C_OPEN;
     memset(&data, 0, sizeof(data));
     data.crc = 0xFF; /* Invalid CRC */
+    EPS_Device_HK_tlm_t saved = data;
+    UT_SetDataBuffer(UT_KEY(i2c_read_transaction), &data, sizeof(data), false);
     UT_SetDeferredRetcode(UT_KEY(i2c_write_transaction), 1, I2C_SUCCESS);
     UT_SetDeferredRetcode(UT_KEY(i2c_read_transaction), 1, I2C_SUCCESS);
     status = EPS_RequestHK(&device, &data);
     UtAssert_True(status == I2C_ERROR, "RequestHK should return error on CRC failure");
+    UtAssert_True(memcmp(&saved, &data, sizeof(data)) == 0, "Bad CRC preserves last valid HK");
     
     /* Test successful HK request with valid CRC */
     device.isOpen = I2C_OPEN;
@@ -115,6 +118,7 @@ void Test_EPS_RequestHK(void)
     data.solar_temperature = 45;
     /* Calculate correct CRC for this data */
     data.crc = EPS_Calculate_CRC8((const uint8_t*)&data, sizeof(data) - 1);
+    UT_SetDataBuffer(UT_KEY(i2c_read_transaction), &data, sizeof(data), false);
     UT_SetDeferredRetcode(UT_KEY(i2c_write_transaction), 1, I2C_SUCCESS);
     UT_SetDeferredRetcode(UT_KEY(i2c_read_transaction), 1, I2C_SUCCESS);
     status = EPS_RequestHK(&device, &data);

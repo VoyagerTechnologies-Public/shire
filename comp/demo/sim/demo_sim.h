@@ -34,6 +34,12 @@ typedef struct
 {
     // Simulator-side endpoint for the flight UART device API.
     transport_port_t uart_port;
+    /* Consumer supply state, boot deadline and resolved watt configuration.
+     * Zero initialization leaves a standalone DEMO unmanaged and responsive.
+     * The director configures this only when EPS maps demo_sim as a load.
+     * Preserve it across device resets so cycle/request history stays monotonic.
+     * This enabled field is a physical gate, not DEMO_APP's DEVICE_ENABLED. */
+    simulith_power_runtime_t power;
 
     // Simulator behavior and update timing.
     uint64_t next_update_time_ns;

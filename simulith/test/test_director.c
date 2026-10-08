@@ -35,6 +35,7 @@ static int                    fake_wait_ready;
 static int                    fail_wait;
 static int                    fail_tick;
 static int                    fail_actuate;
+static int                    emit_phase;
 static int                    fail_service;
 static int                    block_service;
 static int                    service_entered;
@@ -266,6 +267,10 @@ static int fake_tick(component_state_t *state, uint64_t time_ns,
     value->ticks++;
     fake_tick_time = time_ns;
     fake_context_valid = context->valid;
+    if (emit_phase == 1) {
+        const double torque[4] = {0.25,0,0,0};
+        return simulith_42_send_wheel_command(0,torque,1);
+    }
     return fail_tick ? COMPONENT_ERROR : COMPONENT_SUCCESS;
 }
 
@@ -309,6 +314,10 @@ static int fake_actuate(component_state_t *state, uint64_t time_ns,
     value->actuations++;
     fake_actuate_time = time_ns;
     fake_context_valid = context->valid;
+    if (emit_phase == 3) {
+        const double torque[4] = {0.25,0,0,0};
+        return simulith_42_send_wheel_command(0,torque,1);
+    }
     return fail_actuate ? COMPONENT_ERROR : COMPONENT_SUCCESS;
 }
 
@@ -358,6 +367,7 @@ void setUp(void)
     fail_wait = 0;
     fail_tick = 0;
     fail_actuate = 0;
+    emit_phase = 0;
     fail_service = 0;
     block_service = 0;
     service_entered = 0;
@@ -384,6 +394,9 @@ void setUp(void)
 
 void tearDown(void)
 {
+    unsetenv("SHIRE_CONTROL_TRACE_DIR");
+    simulith_42_command_t command;
+    while (dequeue_command(&command) == 0) {}
     unsetenv("FORTYTWO_IPC_MODE");
     unsetenv("SHIRE_VISUAL_HZ");
     unsetenv("SHIRE_RUN_ID");
@@ -1163,8 +1176,12 @@ static void test_live_42_tick_and_telemetry(void)
     TEST_ASSERT_EQUAL_INT(0, initialize_42(&g_director_config));
     TEST_ASSERT_EQUAL_INT(1, g_director_config.fortytwo_initialized);
 
-    double torque[4] = {0.25, 0.0, 0.0, 0.0};
-    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_wheel_command(0, torque, 1));
+    component_interface_t iface = {VALID_COMPONENT_API, .name="live_actuator",
+        .actuate=fake_actuate};
+    g_director_config.component_count=1;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&iface,
+        .state=(component_state_t *)&fake_state};
+    emit_phase=3;
     for (int i = 0; i < UDP_PUBLISH_INTERVAL_TICKS; i++)
         on_tick((uint64_t)i * 1000000U);
 
@@ -1299,7 +1316,7 @@ static void test_tick_command_failure_and_boundary_paths(void)
     g_director_config.fortytwo_initialized = 0;
     on_tick(1);
 
-    /* A disconnected client makes batch transmission fail deterministically. */
+    /* Out-of-phase commands remain observable when PREPARE rejects them. */
     g_director_config.fortytwo_initialized = 1;
     g_director_config.verbose = 0;
     TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
@@ -1308,8 +1325,8 @@ static void test_tick_command_failure_and_boundary_paths(void)
     TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
     on_tick(3);
 
-    /* Two commands remain queued because failed PREPARE never commits partial
-     * output. Fill the remaining capacity, then verify overflow accounting. */
+    /* Failed PREPARE must not erase commands. Fill the remaining capacity to
+     * verify that the generic queue still accounts for overflow. */
     for (int i = 0; i < SIMULITH_42_CMD_QUEUE_SIZE - 2; ++i)
         TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
     TEST_ASSERT_EQUAL_INT(-1, enqueue_command(&command));
@@ -1321,11 +1338,6 @@ static void test_tick_command_failure_and_boundary_paths(void)
 
 static void test_commit_reports_42_and_scenario_failures(void)
 {
-    simulith_42_command_t command = {
-        .type = SIMULITH_42_CMD_WHEEL_TORQUE,
-        .valid = 1,
-        .cmd.wheel.enable_mask = 1,
-    };
     simulith_42_command_t discarded;
     while (dequeue_command(&discarded) == 0)
         ;
@@ -1336,8 +1348,15 @@ static void test_commit_reports_42_and_scenario_failures(void)
     g_director_config.verbose = 1;
     g_director_config.shared_tick_sequence = 51;
     g_director_config.shared_tick_time_ns = 5100;
-    TEST_ASSERT_EQUAL_INT(0, enqueue_command(&command));
+    component_interface_t iface = {VALID_COMPONENT_API, .name="failing_actuator",
+        .actuate=fake_actuate};
+    g_director_config.component_count=1;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&iface,
+        .state=(component_state_t *)&fake_state};
+    emit_phase=3;
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, director_commit_tick(51, 5100));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_pending_commands());
+    emit_phase=0;
     g_director_config.fortytwo_initialized = 0;
     cleanup_components(&g_director_config);
 
@@ -1413,9 +1432,181 @@ static void test_director_identity_validations_and_terminal_metrics(void)
     cleanup_components(&g_director_config);
 }
 
+
+static simulith_power_supply_t test_supply;
+static simulith_power_supply_t *test_get_supply(component_state_t *state)
+{
+    (void)state; return &test_supply;
+}
+static int test_configure_load(component_state_t *state, const simulith_power_load_config_t *cfg)
+{
+    simulith_power_configure((simulith_power_runtime_t *)state, cfg); return 0;
+}
+static int test_reset_load(component_state_t *state, uint64_t ns) { (void)state; (void)ns; return 0; }
+static int test_set_load(component_state_t *state, int on, uint64_t ns)
+{
+    simulith_power_set((simulith_power_runtime_t *)state, on, ns);
+    if (emit_phase==4) {
+        const double torque[4]={1,0,0,0};
+        return simulith_42_send_wheel_command(0,torque,1);
+    }
+    return 0;
+}
+static int test_snapshot_load(component_state_t *state, uint64_t ns, simulith_power_snapshot_t *snapshot)
+{
+    simulith_power_snapshot((simulith_power_runtime_t *)state, 0, ns, snapshot); return 0;
+}
+static void test_eps_topology_all_switches_shared_rails_and_order(void)
+{
+    static const char *names[] = {"demo_sim", "adcs_sim", "radio_sim"};
+    for (unsigned rail = 0; rail < SIMULITH_POWER_SWITCHES; rail++) {
+        director_config_t config = {0};
+        simulith_power_runtime_t loads[3] = {{0}};
+        component_interface_t consumers[3] = {{0}};
+        component_interface_t provider = {VALID_COMPONENT_API, .name="eps_sim", .power_supply=test_get_supply};
+        memset(&test_supply, 0, sizeof(test_supply));
+        config.component_count = 4;
+        config.components[0].active = 1; config.components[0].interface = &provider;
+        config.components[0].state = (component_state_t *)&test_supply;
+        test_supply.effective[rail] = 1;
+        for (unsigned i=0; i<3; i++) {
+            consumers[i] = (component_interface_t){VALID_COMPONENT_API, .name=names[i],
+                .power_configure=test_configure_load, .power_set=test_set_load, .power_reset=test_reset_load, .power_snapshot=test_snapshot_load};
+            config.components[i+1].active = 1;
+            config.components[i+1].interface = &consumers[i];
+            config.components[i+1].state = (component_state_t *)&loads[i];
+            snprintf(test_supply.loads[i].component, sizeof(test_supply.loads[i].component), "%s", names[i]);
+            test_supply.loads[i].switch_id = rail;
+            test_supply.loads[i].scale = 1;
+            test_supply.loads[i].mode_w[0] = 2;
+            test_supply.loads[i].boot_w = 3;
+            test_supply.loads[i].boot_delay_s = 1;
+        }
+        TEST_ASSERT_EQUAL_INT(0, director_commit_power(&config, 1000000000ULL));
+        TEST_ASSERT_EQUAL_UINT8(0, test_supply.snapshots[0].ready);
+        TEST_ASSERT_EQUAL_FLOAT(3, test_supply.snapshots[0].watts);
+        TEST_ASSERT_EQUAL_INT(0, director_commit_power(&config, 2000000000ULL));
+        TEST_ASSERT_EQUAL_UINT8(1, test_supply.snapshots[0].ready);
+        for (unsigned i=0; i<3; i++) TEST_ASSERT_EQUAL_UINT64(1, loads[i].cycles);
+        /* OFF then ON at one COMMIT must reset every load sharing this rail. */
+        test_supply.transitions[0] = (simulith_power_transition_t){rail, 0, 0};
+        test_supply.transitions[1] = (simulith_power_transition_t){rail, 1, 0};
+        test_supply.transition_count = 2;
+        TEST_ASSERT_EQUAL_INT(0, director_commit_power(&config, 2000000000ULL));
+        for (unsigned i=0; i<3; i++) {
+            TEST_ASSERT_EQUAL_UINT64(2, loads[i].cycles);
+            TEST_ASSERT_EQUAL_UINT64(3000000000ULL, loads[i].boot_ready_ns);
+        }
+        TEST_ASSERT_EQUAL_UINT32(0, test_supply.transition_count);
+        consumers[0].power_set = NULL;
+        TEST_ASSERT_EQUAL_INT(-1, director_commit_power(&config, 3000000000ULL));
+    }
+}
+
+static void test_actuation_boundary_rejects_early_outputs_and_drains_without_42(void)
+{
+    component_interface_t iface={VALID_COMPONENT_API,.name="phase_actuator",
+        .on_tick=fake_tick,.actuate=fake_actuate};
+    TEST_ASSERT_EQUAL_INT(0,initialize_components(&g_director_config));
+    g_director_config.component_count=1;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&iface,
+        .state=(component_state_t *)&fake_state};
+    emit_phase=1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_prepare_tick(1,100));
+    TEST_ASSERT_EQUAL_INT(1,simulith_42_pending_commands());
+    simulith_42_command_t cmd;
+    TEST_ASSERT_EQUAL_INT(0,dequeue_command(&cmd));
+    emit_phase=0;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,director_prepare_tick(2,200));
+    const double torque[4]={1,0,0,0};
+    /* Model a device handler producing output during EXECUTE. */
+    TEST_ASSERT_EQUAL_INT(0,simulith_42_send_wheel_command(0,torque,1));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_commit_tick(2,200));
+    TEST_ASSERT_EQUAL_INT(1,simulith_42_pending_commands());
+    TEST_ASSERT_EQUAL_INT(0,dequeue_command(&cmd));
+    emit_phase=3;
+    for (uint64_t tick=3;tick<6;tick++) {
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,director_prepare_tick(tick,tick*100));
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,director_commit_tick(tick,tick*100));
+        TEST_ASSERT_EQUAL_INT(0,simulith_42_pending_commands());
+    }
+    cleanup_components(&g_director_config);
+}
+
+static int observed_power_at_actuation;
+static int test_actuate_power_load(component_state_t *state,uint64_t ns,
+                                   const simulith_42_context_t *context)
+{
+    (void)context;
+    simulith_power_runtime_t *load=(simulith_power_runtime_t *)state;
+    observed_power_at_actuation=simulith_power_ready(load,ns);
+    double torque[4]={(double)observed_power_at_actuation,0,0,0};
+    return simulith_42_send_wheel_command(0,torque,1);
+}
+
+static void test_power_transition_precedes_actuation_and_cannot_emit_commands(void)
+{
+    simulith_power_runtime_t load={0};
+    component_interface_t provider={VALID_COMPONENT_API,.name="eps_sim",.power_supply=test_get_supply};
+    component_interface_t consumer={VALID_COMPONENT_API,.name="wheel_sim",
+        .power_configure=test_configure_load,.power_set=test_set_load,
+        .power_reset=test_reset_load,.power_snapshot=test_snapshot_load,
+        .actuate=test_actuate_power_load};
+    TEST_ASSERT_EQUAL_INT(0,initialize_components(&g_director_config));
+    memset(&test_supply,0,sizeof(test_supply));
+    test_supply.loads[0].scale=1;
+    strcpy(test_supply.loads[0].component,"wheel_sim");
+    test_supply.startup[0]=1;test_supply.effective[0]=1;
+    g_director_config.component_count=2;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&provider,
+        .state=(component_state_t *)&test_supply};
+    g_director_config.components[1]=(component_entry_t){.active=1,.interface=&consumer,
+        .state=(component_state_t *)&load};
+    TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(1,100));
+    emit_phase=4;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_commit_tick(1,100));
+    TEST_ASSERT_EQUAL_INT(1,simulith_42_pending_commands());
+    simulith_42_command_t command;
+    TEST_ASSERT_EQUAL_INT(0,dequeue_command(&command));
+    emit_phase=0;
+    TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(2,200));
+    TEST_ASSERT_EQUAL_INT(0,director_commit_tick(2,200));
+    TEST_ASSERT_EQUAL_INT(1,observed_power_at_actuation);
+    TEST_ASSERT_EQUAL_INT(0,simulith_42_pending_commands());
+    TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(3,300));
+    test_supply.transitions[0]=(simulith_power_transition_t){0,0,0};
+    test_supply.transition_count=1;
+    TEST_ASSERT_EQUAL_INT(0,director_commit_tick(3,300));
+    TEST_ASSERT_EQUAL_INT(0,observed_power_at_actuation);
+    TEST_ASSERT_EQUAL_INT(0,simulith_42_pending_commands());
+    cleanup_components(&g_director_config);
+}
+
+static void test_backdoor_exact_framing_and_byte_order(void)
+{
+    director_config_t config = {0};
+    component_interface_t iface = {VALID_COMPONENT_API, .name="eps_sim", .backdoor=fake_backdoor};
+    config.component_count=1; config.components[0].active=1; config.components[0].interface=&iface;
+    uint8_t packet[] = {'B','A','C','K','D','O','O','R',7,'e','p','s','_','s','i','m',0x01,0x02,0,2,0x12,0x34,0};
+    TEST_ASSERT_EQUAL_INT(0, director_dispatch_backdoor(&config, packet, sizeof(packet)-1));
+    TEST_ASSERT_EQUAL_HEX16(0x0102, fake_backdoor_command);
+    TEST_ASSERT_EQUAL_size_t(2, fake_backdoor_payload_length);
+    TEST_ASSERT_EQUAL_HEX8(0x12, fake_backdoor_payload[0]);
+    for (unsigned n=0; n<sizeof(packet)-1; n++)
+        TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, n));
+    TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, sizeof(packet)));
+    TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, NULL, 22));
+    packet[9]='x';
+    TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, sizeof(packet)-1));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_eps_topology_all_switches_shared_rails_and_order);
+    RUN_TEST(test_backdoor_exact_framing_and_byte_order);
+    RUN_TEST(test_actuation_boundary_rejects_early_outputs_and_drains_without_42);
+    RUN_TEST(test_power_transition_precedes_actuation_and_cannot_emit_commands);
     RUN_TEST(test_parse_args);
     RUN_TEST(test_scenario_validation_and_one_shot_injection);
     RUN_TEST(test_scenario_parser_rejects_malformed_payloads);

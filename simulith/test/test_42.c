@@ -177,9 +177,32 @@ static void test_command_api_argument_guards_and_torque_only_thruster(void)
     TEST_ASSERT_GREATER_THAN_UINT64(0, stats.nonzero_actuator_commands);
 }
 
+static void test_pending_count_preserves_independent_outputs(void)
+{
+    simulith_42_command_t cmd;
+    while (dequeue_command(&cmd) == 0) {}
+    double wheel[4] = {1,2,3,4}, dipole[3] = {1,2,3};
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_pending_commands());
+    /* Two independently owned wheels on the same spacecraft retain FIFO order. */
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_wheel_command(0,wheel,1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_wheel_command(0,wheel,2));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_send_mtb_command(1,dipole,4));
+    TEST_ASSERT_EQUAL_INT(3, simulith_42_pending_commands());
+    TEST_ASSERT_EQUAL_INT(0, dequeue_command(&cmd));
+    TEST_ASSERT_EQUAL_INT(1, cmd.cmd.wheel.enable_mask);
+    TEST_ASSERT_EQUAL_INT(2, simulith_42_pending_commands());
+    TEST_ASSERT_EQUAL_INT(0, dequeue_command(&cmd));
+    TEST_ASSERT_EQUAL_INT(2, cmd.cmd.wheel.enable_mask);
+    TEST_ASSERT_EQUAL_INT(0, dequeue_command(&cmd));
+    TEST_ASSERT_EQUAL_INT(1, cmd.spacecraft_id);
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd.type);
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_pending_commands());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_pending_count_preserves_independent_outputs);
     RUN_TEST(test_enqueue_dequeue_basic);
     RUN_TEST(test_queue_overflow);
     RUN_TEST(test_helper_wrappers);

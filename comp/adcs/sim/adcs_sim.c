@@ -25,6 +25,19 @@ typedef enum
     ADCS_COMMAND_REJECTED = 1
 } adcs_command_result_t;
 
+/* Power behavior belongs to this simulator. Emit only its owned outputs. */
+static int adcs_send_wheel(adcs_sim_state_t *state, const double torque[4], int mask)
+{
+    mask &= state->wheel_mask;
+    return mask ? simulith_42_send_wheel_command(state->spacecraft_id, torque, mask) : 0;
+}
+
+static int adcs_send_mtb(adcs_sim_state_t *state, const double dipole[3], int mask)
+{
+    mask &= state->mtb_mask;
+    return mask ? simulith_42_send_mtb_command(state->spacecraft_id, dipole, mask) : 0;
+}
+
 // ADCS Controller Utility Functions
 static void cross_product(const double a[3], const double b[3], double result[3]) {
     result[0] = a[1] * b[2] - a[2] * b[1];
@@ -95,7 +108,7 @@ static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_conte
         else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
     }
     
-    int status = simulith_42_send_mtb_command(0, dipole_cmd, 0x07);
+    int status = adcs_send_mtb(state, dipole_cmd, 0x07);
     #ifdef ADCS_CFG_DEBUG
     printf("ADCS B-DOT: w=[%.6f,%.6f,%.6f] b=[%.6f,%.6f,%.6f] gain=%.3f dipole=[%.6f,%.6f,%.6f]\n",
            w[0], w[1], w[2], b[0], b[1], b[2], detumble_gain, dipole_cmd[0], dipole_cmd[1], dipole_cmd[2]);
@@ -200,16 +213,16 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
             if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;
             else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
         }
-        if (simulith_42_send_mtb_command(0, dipole_cmd, 0x07) != 0)
+        if (adcs_send_mtb(state, dipole_cmd, 0x07) != 0)
             return COMPONENT_ERROR;
     } else {
         double zero_dipole[3] = {0.0,0.0,0.0};
-        if (simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+        if (adcs_send_mtb(state, zero_dipole, 0x07) != 0)
             return COMPONENT_ERROR;
     }
 
     double wheel_torques[4] = {control_torque[0], control_torque[1], control_torque[2], 0.0};
-    if (simulith_42_send_wheel_command(0, wheel_torques, 0x07) != 0)
+    if (adcs_send_wheel(state, wheel_torques, 0x07) != 0)
         return COMPONENT_ERROR;
 
     #ifdef ADCS_CFG_DEBUG
@@ -243,7 +256,7 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
         if (adcs_bdot_controller(state, context_42) != COMPONENT_SUCCESS)
             return COMPONENT_ERROR;
         double zero_torques_local[4] = {0.0, 0.0, 0.0, 0.0};
-        return simulith_42_send_wheel_command(0, zero_torques_local, 0x07) == 0 ?
+        return adcs_send_wheel(state, zero_torques_local, 0x07) == 0 ?
             COMPONENT_SUCCESS : COMPONENT_ERROR;
     }
     
@@ -389,7 +402,7 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
             else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
         }
 
-        if (simulith_42_send_mtb_command(0, dipole_cmd, 0x07) != 0)
+        if (adcs_send_mtb(state, dipole_cmd, 0x07) != 0)
             return COMPONENT_ERROR;
 
         #ifdef ADCS_CFG_DEBUG
@@ -399,7 +412,7 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
     } else {
         // Low rates and unsaturated wheels - disable MTBs
         double zero_dipole[3] = {0.0, 0.0, 0.0};
-        if (simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+        if (adcs_send_mtb(state, zero_dipole, 0x07) != 0)
             return COMPONENT_ERROR;
         #ifdef ADCS_CFG_DEBUG
         printf("ADCS MTB: Disabled (low rates, unsaturated wheels)\n");
@@ -407,7 +420,7 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
     }
     
     double wheel_torques[4] = {control_torque[0], control_torque[1], control_torque[2], 0.0};
-    if (simulith_42_send_wheel_command(0, wheel_torques, 0x07) != 0)
+    if (adcs_send_wheel(state, wheel_torques, 0x07) != 0)
         return COMPONENT_ERROR;
     
     #ifdef ADCS_CFG_DEBUG           
@@ -471,8 +484,8 @@ static int adcs_controller_update(adcs_sim_state_t* state,
     
     switch (state->current_mode) {
         case 0: // Disabled
-            if (simulith_42_send_wheel_command(0, zero_torques, 0x07) != 0 ||
-                simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+            if (adcs_send_wheel(state, zero_torques, 0x0F) != 0 ||
+                adcs_send_mtb(state, zero_dipole, 0x07) != 0)
                 return COMPONENT_ERROR;
             #ifdef ADCS_CFG_DEBUG
             printf("ADCS CONTROLLER: Disabled mode - zero commands sent\n");
@@ -486,7 +499,7 @@ static int adcs_controller_update(adcs_sim_state_t* state,
             if (adcs_bdot_controller(state, context_42) != COMPONENT_SUCCESS)
                 return COMPONENT_ERROR;
             /* reuse zero_torques declared at function scope */
-            if (simulith_42_send_wheel_command(0, zero_torques, 0x07) != 0)
+            if (adcs_send_wheel(state, zero_torques, 0x0F) != 0)
                 return COMPONENT_ERROR;
             break;
             
@@ -896,6 +909,7 @@ static int adcs_sim_component_on_tick(component_state_t* component_state,
 {
     adcs_sim_state_t *state = (adcs_sim_state_t *)component_state;
     if (!state) return COMPONENT_ERROR;
+    if (!simulith_power_ready(&state->power, tick_time_ns)) return COMPONENT_SUCCESS;
     
     // Update adcs data at the specified rate
     if (tick_time_ns >= state->next_sensor_update_ns)
@@ -984,8 +998,9 @@ static int adcs_sim_component_service(component_state_t* component_state,
         printf("\n");
         #endif
 
-        adcs_command_result_t command_status = handle_command(
-            state, data, (size_t)bytes);
+        adcs_command_result_t command_status = simulith_power_ready(&state->power, tick_time_ns) ?
+            handle_command(state, data, (size_t)bytes) : ADCS_COMMAND_REJECTED;
+        simulith_power_record(&state->power, command_status == ADCS_COMMAND_SUCCESS, tick_time_ns);
         if (simulith_transport_complete_request(&state->uart_port,
                                                 transaction_id,
                                                 command_status == ADCS_COMMAND_SUCCESS ?
@@ -1006,6 +1021,12 @@ int adcs_sim_init(adcs_sim_state_t* state)
 
     // Initialize state
     memset(state, 0, sizeof(adcs_sim_state_t));
+    state->spacecraft_id = ADCS_CFG_SPACECRAFT_ID;
+    state->wheel_mask = ADCS_CFG_WHEEL_MASK;
+    state->mtb_mask = ADCS_CFG_MTB_MASK;
+    if (state->spacecraft_id < 0 || state->wheel_mask < 0 || state->wheel_mask > 15 ||
+        state->mtb_mask < 0 || state->mtb_mask > 7)
+        return ADCS_SIM_ERROR;
 
     // Initialize UART port struct for Simulith (server/bind)
     snprintf(state->uart_port.name, sizeof(state->uart_port.name), "adcs_sim_uart%d", ADCS_CFG_HANDLE);
@@ -1096,12 +1117,13 @@ static int adcs_sim_component_actuate(component_state_t* component_state,
     {
         const double zero_torques[4] = {0.0, 0.0, 0.0, 0.0};
         const double zero_dipole[3] = {0.0, 0.0, 0.0};
-        if (simulith_42_send_wheel_command(0, zero_torques, 0x07) != 0 ||
-            simulith_42_send_mtb_command(0, zero_dipole, 0x07) != 0)
+        if (adcs_send_wheel(state, zero_torques, 0x0F) != 0 ||
+            adcs_send_mtb(state, zero_dipole, 0x07) != 0)
             return COMPONENT_ERROR;
         state->actuator_reset_pending = 0U;
         return COMPONENT_SUCCESS;
     }
+    if (!simulith_power_ready(&state->power, tick_time_ns)) return COMPONENT_SUCCESS;
     return adcs_controller_update(state, context_42, tick_time_ns);
 }
 
@@ -1112,6 +1134,49 @@ static void adcs_sim_component_destroy(component_state_t* state)
     adcs_sim_state_t* adcs_state = (adcs_sim_state_t*)state;
     adcs_sim_cleanup(adcs_state);
     free(adcs_state);
+}
+
+static int adcs_power_configure(component_state_t *state, const simulith_power_load_config_t *config)
+{
+    if (!state || !config) return COMPONENT_ERROR;
+    simulith_power_configure(&((adcs_sim_state_t *)state)->power, config);
+    return COMPONENT_SUCCESS;
+}
+
+static int adcs_power_reset(component_state_t *state, uint64_t ns)
+{
+    if (!state) return COMPONENT_ERROR;
+    adcs_sim_state_t *s = (adcs_sim_state_t *)state;
+    s->uart_port.rx_buf_len = 0;
+    memset(s->uart_port.rx_buf, 0, sizeof(s->uart_port.rx_buf));
+    memset(&s->hk, 0, sizeof(s->hk));
+    memset(&s->data, 0, sizeof(s->data));
+    memset(s->prev_attitude_error, 0, sizeof(s->prev_attitude_error));
+    memset(s->inertial_target, 0, sizeof(s->inertial_target));
+    s->inertial_target[0] = 1;
+    s->current_mode = 0; s->controller_active = 0;
+    s->control_deadline_valid = 0;
+    s->actuator_reset_pending = 1;
+    s->next_sensor_update_ns = ns;
+    s->gains = (adcs_sim_gains_t){ADCS_SUN_POINT_KP, ADCS_SUN_POINT_KD,
+        ADCS_WHEEL_MAX_TORQUE, ADCS_MTB_MAX_DIPOLE, ADCS_DETUMBLE_GAIN_BASE,
+        ADCS_DETUMBLE_GAIN_HIGH, 0};
+    return COMPONENT_SUCCESS;
+}
+
+static int adcs_power_set(component_state_t *state, int on, uint64_t ns)
+{
+    if (!state || (on != 0 && on != 1)) return COMPONENT_ERROR;
+    adcs_sim_state_t *s = (adcs_sim_state_t *)state;
+    return simulith_power_set(&s->power, on, ns) ? adcs_power_reset(state, ns) : COMPONENT_SUCCESS;
+}
+
+static int adcs_power_snapshot(component_state_t *state, uint64_t ns, simulith_power_snapshot_t *snapshot)
+{
+    if (!state || !snapshot) return COMPONENT_ERROR;
+    adcs_sim_state_t *s = (adcs_sim_state_t *)state;
+    simulith_power_snapshot(&s->power, (uint8_t)s->current_mode, ns, snapshot);
+    return COMPONENT_SUCCESS;
 }
 
 static const component_interface_t adcs_sim_interface = {
@@ -1125,7 +1190,11 @@ static const component_interface_t adcs_sim_interface = {
     .service = adcs_sim_component_service,
     .actuate = adcs_sim_component_actuate,
     .destroy = adcs_sim_component_destroy,
-    .backdoor = NULL
+    .backdoor = NULL,
+    .power_configure = adcs_power_configure,
+    .power_set = adcs_power_set,
+    .power_reset = adcs_power_reset,
+    .power_snapshot = adcs_power_snapshot
 };
 
 // Component registration function - exported for dynamic loading

@@ -21,6 +21,7 @@
 #include "uttest.h"
 
 #include <pthread.h>
+#include <stdlib.h>
 #include <string.h>
 
 static SCH_ScheduleEntry_t ScheduleTable[SCH_TABLE_ENTRIES];
@@ -576,6 +577,16 @@ static void Test_SCH_CustomCompletion(void)
     UtAssert_INT32_EQ(SCH_CustomPrepareEntry(6, &Message, &Decision), CFE_SUCCESS);
     UtAssert_True(!Decision.Transmit, "periodic ground output may be throttled");
     UtAssert_UINT32_EQ(PeriodicGroundOutputMessageId, TO_LAB_WAKEUP_MID);
+
+    setenv("SHIRE_SYNCHRONIZE_GROUND_OUTPUT", "1", 1);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MessageId, sizeof(MessageId), false);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(6, &Message, &Decision), CFE_SUCCESS);
+    UtAssert_True(Decision.Transmit, "validation downlink is synchronized and never throttled");
+    UtAssert_UINT32_EQ(RegisterParticipantCount, 3);
+    RegisterParticipantResult = 0;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MessageId, sizeof(MessageId), false);
+    UtAssert_INT32_EQ(SCH_CustomPrepareEntry(6, &Message, &Decision), CFE_STATUS_EXTERNAL_RESOURCE_FAIL);
+    unsetenv("SHIRE_SYNCHRONIZE_GROUND_OUTPUT");
 
     RegisterParticipantResult = 0;
     MessageId = CFE_SB_ValueToMsgId(0x1889);

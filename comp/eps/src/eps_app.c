@@ -331,7 +331,8 @@ void EPS_ProcessTelemetryRequest(void)
     switch (CommandCode)
     {
         case EPS_REQ_HK_TLM:
-            EPS_ReportHousekeeping();
+            if (EPS_VerifyCmdLength(EPS_AppData.MsgPtr, sizeof(EPS_NoArgs_cmd_t)) == OS_SUCCESS)
+                EPS_ReportHousekeeping();
             break;
 
         /*

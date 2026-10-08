@@ -1,4 +1,6 @@
 mission_name: "drm"
+eps:
+  wire_default_loads: true
 
 # Spacecraft configurations
 spacecraft:
@@ -42,3 +44,7 @@ scenarios:
     config_file: "drm/scenarios/adcs-modes-sweep.yaml"
   - name: "adcs-time-file-fallback"
     config_file: "drm/scenarios/adcs-time-file-fallback.yaml"
+  - name: "eps-functional"
+    config_file: "drm/scenarios/eps-functional.yaml"
+  - name: "eps-backdoor-testing"
+    config_file: "drm/scenarios/eps-backdoor-testing.yaml"

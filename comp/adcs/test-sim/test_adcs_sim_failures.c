@@ -112,6 +112,7 @@ int simulith_transport_complete_request(transport_port_t *port, uint64_t transac
     return SIMULITH_TRANSPORT_SUCCESS;
 }
 
+
 int simulith_42_send_mtb_command(int spacecraft_id, const double dipole[3], int enable_mask)
 {
     (void)spacecraft_id;

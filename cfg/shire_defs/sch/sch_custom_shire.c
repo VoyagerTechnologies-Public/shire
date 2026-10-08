@@ -17,6 +17,8 @@
 #include "to_lab_msgids.h"
 
 #include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 static pthread_t       SCH_ShireTickThread;
@@ -132,8 +134,15 @@ int32 SCH_CustomPrepareEntry(uint32                    ScheduleEntry,
     MessageIdValue = CFE_SB_MsgIdToValue(MessageId);
     if (MessageIdValue == TO_LAB_WAKEUP_MID)
     {
-        /* Periodic ground output is wall-clock paced and deliberately outside
-         * the internal mission barrier. Its Software Bus pipe remains lossless. */
+        /* Validation can include the downlink drain in the completion barrier
+         * so accelerated time cannot overrun its asynchronous wakeup queue. */
+        const char *Synchronize = getenv("SHIRE_SYNCHRONIZE_GROUND_OUTPUT");
+        if (Synchronize != NULL && strcmp(Synchronize, "1") == 0)
+        {
+            ParticipantToken = CFE_PSP_RegisterSimulithParticipant(
+                ScheduleEntry, MessageIdValue);
+            return ParticipantToken > 0 ? CFE_SUCCESS : CFE_STATUS_EXTERNAL_RESOURCE_FAIL;
+        }
         Decision->Transmit = CFE_PSP_AllowPeriodicGroundOutput(MessageIdValue);
         return CFE_SUCCESS;
     }

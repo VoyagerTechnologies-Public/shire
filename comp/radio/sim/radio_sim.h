@@ -40,6 +40,10 @@ typedef struct
 {
     // Communication resources are owned by this model instance.
     transport_port_t spi_device;
+    simulith_power_runtime_t power;
+    uint64_t power_time_ns;
+    uint64_t rf_received_total;
+    uint64_t rf_sent_total;
     transport_port_t power_gpio_device;
     transport_port_t interrupt_gpio_device;
     simulith_gpio_state_t power_gpio;

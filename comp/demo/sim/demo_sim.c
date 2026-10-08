@@ -12,6 +12,11 @@
  *          processes one complete transaction without advancing time.
  * ACTUATE: demo_sim_component_actuate() publishes final actuator outputs. The
  *          demo has none, so its implementation documents the no-op contract.
+ * POWER:   the director configures mapped loads at startup and COMMIT, applies
+ *          queued supply edges/reset operations before ACTUATE, and samples
+ *          readiness/demand at PREPARE and after COMMIT power changes. These
+ *          callbacks run with device-service workers quiescent. An outage
+ *          changes the model, not ownership of the UART endpoint.
  * DESTROY: demo_sim_component_destroy() closes owned resources and releases
  *          the state only after the director has quiesced every callback.
  *
@@ -208,6 +213,7 @@ static int demo_sim_component_on_tick(component_state_t* component_state,
 {
     demo_sim_state_t* state = (demo_sim_state_t*)component_state;
     if (!state) return COMPONENT_ERROR;
+    if (!simulith_power_ready(&state->power, tick_time_ns)) return COMPONENT_SUCCESS;
     
     // Update demo data at the specified rate.
     if (tick_time_ns >= state->next_update_time_ns)
@@ -324,7 +330,9 @@ static int demo_sim_component_service(component_state_t* component_state,
         #endif
 
         demo_command_result_t command_status =
-            handle_command(state, data, (size_t)bytes);
+            simulith_power_ready(&state->power, tick_time_ns) ?
+            handle_command(state, data, (size_t)bytes) : DEMO_COMMAND_REJECTED;
+        simulith_power_record(&state->power, command_status == DEMO_COMMAND_SUCCESS, tick_time_ns);
         /* Completion is deliberately sent only after command validation,
          * modeled state changes, and every response byte has been sent. A
          * rejected command receives a failed protocol completion but still
@@ -492,10 +500,84 @@ static void demo_sim_component_destroy(component_state_t* state)
 }
 
 /**
+ * Copy the resolved EPS load settings into this consumer's power runtime.
+ *
+ * The director calls this before the startup supply state and again at every
+ * COMMIT, including updates to power scale. The helper enters managed mode only
+ * on first configuration; subsequent calls replace settings without changing
+ * the supply state, boot deadline, counters, or modeled device configuration.
+ * Do not reboot here: resetting at every COMMIT would prevent normal operation.
+ */
+static int demo_power_configure(component_state_t *state, const simulith_power_load_config_t *config)
+{
+    if (!state || !config) return COMPONENT_ERROR;
+    simulith_power_configure(&((demo_sim_state_t *)state)->power, config);
+    return COMPONENT_SUCCESS;
+}
+
+/**
+ * Restore volatile device state without recreating the component or UART.
+ *
+ * Called on each real supply edge through demo_power_set(), or explicitly by
+ * the director during EPS RESET even if the rail was already off. Clear cached
+ * protocol bytes, HK/data, test overrides, and deterministic noise state, then
+ * rebase sampling to current simulated time. Leave the entire power runtime
+ * intact: its mapping, supply state, boot deadline and diagnostic history belong
+ * to the power lifecycle. This callback alone does not start a new boot delay.
+ */
+static int demo_power_reset(component_state_t *state, uint64_t ns)
+{
+    if (!state) return COMPONENT_ERROR;
+    demo_sim_state_t *s = (demo_sim_state_t *)state;
+    s->uart_port.rx_buf_len = 0;
+    memset(s->uart_port.rx_buf, 0, sizeof(s->uart_port.rx_buf));
+    memset(&s->hk, 0, sizeof(s->hk));
+    memset(&s->data, 0, sizeof(s->data));
+    s->prng_state = DEMO_SIM_PRNG_SEED;
+    s->rand_hk_enabled = s->rand_data_enabled = 0;
+    s->next_update_time_ns = ns;
+    return COMPONENT_SUCCESS;
+}
+
+/**
+ * Apply an effective EPS supply state at startup or an ordered COMMIT boundary.
+ *
+ * simulith_power_set() returns an edge flag (0/1), not a COMPONENT_* status.
+ * An ON edge sets the simulated boot deadline and increments cycle history.
+ * Both edges reset volatile state; repeated ON/OFF leaves it unchanged. Return
+ * COMPONENT_SUCCESS for a normal outage or boot interval, preserving the UART
+ * so service() can receive and reject requests without stranding flight callers.
+ */
+static int demo_power_set(component_state_t *state, int on, uint64_t ns)
+{
+    if (!state || (on != 0 && on != 1)) return COMPONENT_ERROR;
+    demo_sim_state_t *s = (demo_sim_state_t *)state;
+    return simulith_power_set(&s->power, on, ns) ? demo_power_reset(state, ns) : COMPONENT_SUCCESS;
+}
+
+/**
+ * Report internal readiness, diagnostic history and electrical demand to EPS.
+ *
+ * DEMO has one physical operating mode, index 0; DeviceConfig is not a mode
+ * selector. The helper reports scaled boot watts before the deadline, scaled
+ * mode-0 watts when ready, and zero watts while off. Keep this callback a state
+ * query: no transport I/O, model reset, RNG advance, or actuator publication.
+ * This snapshot is internal power accounting, not a Yamcs telemetry packet.
+ */
+static int demo_power_snapshot(component_state_t *state, uint64_t ns, simulith_power_snapshot_t *snapshot)
+{
+    if (!state || !snapshot) return COMPONENT_ERROR;
+    demo_sim_state_t *s = (demo_sim_state_t *)state;
+    simulith_power_snapshot(&s->power, 0, ns, snapshot);
+    return COMPONENT_SUCCESS;
+}
+
+/**
  * Describe the demo simulator to the director.
  *
- * This table is the primary mold for new components. Keep the lifecycle in
- * phase order so ownership and tick causality are visible at a glance.
+ * This table is the primary mold for new components. DEMO consumes a supply,
+ * so power_supply is intentionally omitted. A mapped consumer must provide
+ * all four consumer callbacks; EPS supplies topology and transition queues.
  */
 static const component_interface_t demo_sim_interface = {
     .api_version = SIMULITH_COMPONENT_API_VERSION,
@@ -508,7 +590,11 @@ static const component_interface_t demo_sim_interface = {
     .service = demo_sim_component_service,
     .actuate = demo_sim_component_actuate,
     .destroy = demo_sim_component_destroy,
-    .backdoor = demo_sim_backdoor
+    .backdoor = demo_sim_backdoor,
+    .power_configure = demo_power_configure,
+    .power_set = demo_power_set,
+    .power_reset = demo_power_reset,
+    .power_snapshot = demo_power_snapshot
 };
 
 /** Return the demo-named registration alias used by component-specific tools. */

@@ -19,7 +19,9 @@ class ConfigurationPathsTests(unittest.TestCase):
                 root = Path(temporary) / "repository"
                 shutil.copytree(ROOT / "cfg", root / "cfg")
                 (root / "tools").mkdir()
-                for name in ("shire-orchestrator.py", "shire_provenance.py"):
+                shutil.copytree(ROOT / "comp/eps/support", root / "comp/eps/support")
+                shutil.copytree(ROOT / "comp/eps/gsw", root / "comp/eps/gsw")
+                for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_eps_stacks.py"):
                     shutil.copy2(ROOT / "tools" / name, root / "tools" / name)
                 cwd = {"root": root, "tools": root / "tools",
                        "outside": Path(temporary)}[location]

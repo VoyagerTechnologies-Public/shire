@@ -49,3 +49,10 @@ add_dependencies(test_eps_sim eps_sim_component)
 
 enable_testing()
 add_test(NAME EpsSimTests COMMAND test_eps_sim)
+
+add_executable(test_eps_cli test_eps_cli.c ${UNITY_SRC})
+target_include_directories(test_eps_cli PRIVATE ${UNITY_INC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../cli ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+    ${SIMULITH_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../${FSW_DIR}/psp/fsw/hwlib/inc)
+add_test(NAME EpsCliTests COMMAND test_eps_cli)

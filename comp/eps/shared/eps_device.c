@@ -128,7 +128,8 @@ int32_t EPS_RequestHK(i2c_bus_info_t *device, EPS_Device_HK_tlm_t *data)
     }
 
     /* Read housekeeping data */
-    status = i2c_read_transaction(device, EPS_CFG_I2C_DEVICE_ADDR, (void*)data, sizeof(*data), EPS_CFG_MS_TIMEOUT);
+    EPS_Device_HK_tlm_t candidate = {0};
+    status = i2c_read_transaction(device, EPS_CFG_I2C_DEVICE_ADDR, (void*)&candidate, sizeof(candidate), EPS_CFG_MS_TIMEOUT);
     if (status != I2C_SUCCESS)
     {
         OS_printf("EPS_RequestHK: Read failed with status %d\n", status);
@@ -136,11 +137,13 @@ int32_t EPS_RequestHK(i2c_bus_info_t *device, EPS_Device_HK_tlm_t *data)
     }
 
     /* Verify CRC */
-    if (!EPS_Verify_CRC8((const uint8_t*)data, sizeof(*data) - 1, data->crc))
+    if (!EPS_Verify_CRC8((const uint8_t*)&candidate, sizeof(candidate) - 1, candidate.crc))
     {
         OS_printf("EPS_RequestHK: CRC verification failed\n");
         return I2C_ERROR;
     }
+
+    *data = candidate;
 
     #ifdef EPS_CFG_DEBUG
         OS_printf("EPS_RequestHK: Battery %d/255 V, %d/255 C, Solar %d/255 V, %d/255 C\n",

@@ -1,0 +1,264 @@
+name: eps-backdoor-faults
+description: EPS wiring, load and startup dispersions with required functional acceptance
+  metrics
+scenario: eps-backdoor-testing
+base_initial_conditions: nominal-baseline
+trial_count: 20
+seed: 20261007
+max_parallel: 2
+parameters:
+- path: component_overrides.eps.battery_initial_soc
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0.2
+    high: 0.95
+- path: component_overrides.eps.battery_capacity_wh
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 32
+    high: 48
+- path: component_overrides.eps.max_solar_power_w
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 4.8
+    high: 7.2
+- path: component_overrides.eps.loads.demo.power_scale
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0.8
+    high: 1.2
+- path: component_overrides.eps.loads.demo.boot_delay_s
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0
+    high: 2
+- path: component_overrides.eps.loads.demo.switch
+  distribution:
+    type: choice
+    values:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- path: component_overrides.eps.loads.adcs.power_scale
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0.8
+    high: 1.2
+- path: component_overrides.eps.loads.adcs.boot_delay_s
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0
+    high: 2
+- path: component_overrides.eps.loads.adcs.switch
+  distribution:
+    type: choice
+    values:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- path: component_overrides.eps.loads.radio.power_scale
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0.8
+    high: 1.2
+- path: component_overrides.eps.loads.radio.boot_delay_s
+  mode: absolute
+  distribution:
+    type: uniform
+    low: 0
+    high: 2
+- path: component_overrides.eps.loads.radio.switch
+  distribution:
+    type: choice
+    values:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+metrics:
+- name: recovery_time_s
+  stack: EpsFaultInjection
+  step_name: startup restored
+  field: wall_end
+  required: true
+  elapsed_since:
+    step_name: RECOVERY_BEGIN
+    field: wall_start
+- name: battery_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/BATTERY_VOLTAGE
+  required: true
+- name: solar_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SOLAR_VOLTAGE
+  required: true
+- name: eps_device_count
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/DEVICE_COUNT
+  required: true
+- name: eps_device_errors
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/DEVICE_ERR_COUNT
+  required: true
+- name: demo_device_count
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /DEMO/DEVICE_COUNT
+  required: true
+- name: demo_device_errors
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /DEMO/DEVICE_ERR_COUNT
+  required: true
+- name: adcs_device_count
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /ADCS/DEVICE_COUNT
+  required: true
+- name: adcs_device_errors
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /ADCS/DEVICE_ERR_COUNT
+  required: true
+- name: radio_device_count
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /RADIO/RADIO_HK_DeviceCount
+  required: true
+- name: radio_device_errors
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /RADIO/RADIO_HK_DeviceErrorCount
+  required: true
+- name: switch_0_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_0_VOLTAGE
+  required: true
+- name: switch_0_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_0_CURRENT
+  required: true
+- name: switch_1_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_1_VOLTAGE
+  required: true
+- name: switch_1_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_1_CURRENT
+  required: true
+- name: switch_2_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_2_VOLTAGE
+  required: true
+- name: switch_2_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_2_CURRENT
+  required: true
+- name: switch_3_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_3_VOLTAGE
+  required: true
+- name: switch_3_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_3_CURRENT
+  required: true
+- name: switch_4_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_4_VOLTAGE
+  required: true
+- name: switch_4_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_4_CURRENT
+  required: true
+- name: switch_5_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_5_VOLTAGE
+  required: true
+- name: switch_5_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_5_CURRENT
+  required: true
+- name: switch_6_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_6_VOLTAGE
+  required: true
+- name: switch_6_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_6_CURRENT
+  required: true
+- name: switch_7_voltage_v
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_7_VOLTAGE
+  required: true
+- name: switch_7_current_a
+  stack: EpsFaultInjection
+  step_name: acceptance metrics
+  field: actual
+  parameter: /EPS/SWITCH_7_CURRENT
+  required: true

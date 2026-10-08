@@ -103,6 +103,7 @@ services:
         condition: service_started
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SIMULITH_EPS_DEBUG=${SIMULITH_EPS_DEBUG:-}
       - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
       - SIMULITH_DURATION=${SIMULITH_DURATION:-}
       - SHIRE_CONTROL_TRACE_DIR=/run/shire-traces
@@ -161,6 +162,7 @@ services:
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
       - SHIRE_GROUND_OUTPUT_HZ=${SHIRE_GROUND_OUTPUT_HZ:-20}
+      - SHIRE_SYNCHRONIZE_GROUND_OUTPUT=${SHIRE_SYNCHRONIZE_GROUND_OUTPUT:-0}
       - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
     sysctls:
       - fs.mqueue.msg_max=10000

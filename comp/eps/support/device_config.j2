@@ -21,6 +21,12 @@
 #define EPS_SWITCH_12V_POWER_W      {{ config.switch_12v_power_w }}
 #define EPS_SWITCH_24V_POWER_W      {{ config.switch_24v_power_w }}
 
+#define EPS_SWITCH_VOLTAGES { {% for s in config.switches %}{{ s.voltage_v }}{{ ", " if not loop.last else "" }}{% endfor %} }
+#define EPS_SWITCH_STARTUP { {% for s in config.switches %}{{ 1 if s.startup_on else 0 }}{{ ", " if not loop.last else "" }}{% endfor %} }
+#define EPS_POWER_LOAD_CONFIG { \
+{% for l in config.rendered_loads %}    { "{{ l.component }}", {{ l.switch }}, { {% for w in l.mode_power_w %}{{ w }}{{ ", " if not loop.last else "" }}{% endfor %} }, {{ l.boot_power_w }}, {{ l.boot_delay_s }}, {{ l.power_scale }} }{{ "," if not loop.last else "" }} \
+{% endfor %}}
+
 {% if config.debug %}#define EPS_CFG_DEBUG{% endif %}
 #endif
 

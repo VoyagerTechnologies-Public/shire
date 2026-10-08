@@ -44,8 +44,8 @@ typedef struct
 typedef struct
 {
     uint8_t state;       /* 0=off, 1=on, else=fault */
-    uint8_t voltage;     /* 32V / 255 = 0.125V per count */
-    uint8_t current;     /* 10A / 255 = 0.0392A per count */
+    uint8_t voltage;     /* 32V / 255 = 0.12549019607843137V per count */
+    uint8_t current;     /* 10A / 255 = 0.0392156862745098A per count */
 } __attribute__((packed)) EPS_Switch_tlm_t;
 
 /*
@@ -55,7 +55,7 @@ typedef struct
 {
     uint8_t battery_voltage;      /* 32V / 255 = 0.12549V per count */
     uint8_t battery_temperature;  /* 250C / 255 = 0.9804C per count */
-    uint8_t solar_voltage;        /* 32V / 255 = 0.125V per count */
+    uint8_t solar_voltage;        /* 32V / 255 = 0.12549019607843137V per count */
     uint8_t solar_temperature;    /* 250C / 255 = 0.9804C per count */
     EPS_Switch_tlm_t switches[EPS_NUM_SWITCHES];  /* 8 switches */
     uint8_t crc;                  /* CRC-8-CCITT */
