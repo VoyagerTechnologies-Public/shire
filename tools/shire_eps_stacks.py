@@ -170,7 +170,10 @@ def generate_stacks(cfg):
             for i, switch in enumerate(cfg['switches']):
                 if switch['startup_on']: self.switch(i, True)
             self.probe([n for n,l in loads.items() if cfg['switches'][l['switch']]['startup_on']])
-            self.verify('startup restored', [(f'SWITCH_{i}_EFFECTIVE','eq',int(s['startup_on'])) for i,s in enumerate(cfg['switches'])] + [('ADCS_MODE','eq',0)] if 'adcs' in loads else [(f'SWITCH_{i}_EFFECTIVE','eq',int(s['startup_on'])) for i,s in enumerate(cfg['switches'])])
+            restored = [(f'SWITCH_{i}_EFFECTIVE','eq',int(s['startup_on'])) for i,s in enumerate(cfg['switches'])]
+            if 'adcs' in loads and cfg['switches'][loads['adcs']['switch']]['startup_on']:
+                restored.append(('ADCS_MODE','eq',0))
+            self.verify('startup restored', restored)
             self.electrical(True, startup=True)
             self.text('RECOVERY_END')
         def result(self, stack_name):

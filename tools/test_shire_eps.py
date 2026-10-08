@@ -2,6 +2,7 @@
 from copy import deepcopy
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 import yaml
 from shire_eps_config import normalize_eps, merge_component_config
@@ -100,6 +101,34 @@ class EpsConfigurationTests(unittest.TestCase):
             write_stacks(self.resolve(),path)
             self.assertEqual(sorted(p.suffix for p in path.iterdir()),['.ycs']*3)
             self.assertFalse(any('Check simulator console' in p.read_text() for p in path.iterdir()))
+
+    def test_yamcs_build_stages_resolved_eps_mapping_and_stacks(self):
+        for resolved in (False, True):
+            with self.subTest(resolved=resolved), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                yamcs = root/'yamcs'
+                yamcs.mkdir()
+                (yamcs/'Makefile').write_text((ROOT/'yamcs/Makefile').read_text())
+                source = root/'comp/eps/gsw'
+                (source/'procedures').mkdir(parents=True)
+                (source/'eps.xtce').write_text('default topology')
+                (source/'procedures/EpsPowerFunctional.ycs').write_text('default stack')
+                if resolved:
+                    scenario = root/'build/test-mission/scenario'
+                    (scenario/'eps-stacks').mkdir(parents=True)
+                    (scenario/'eps.xtce').write_text('resolved topology')
+                    (scenario/'eps-stacks/EpsPowerFunctional.ycs').write_text('resolved stack')
+                subprocess.run(['make', '--no-print-directory', 'copy-gsw-files', 'MISSION=test-mission'],
+                               cwd=yamcs, check=True, capture_output=True, text=True)
+                prefix = 'resolved' if resolved else 'default'
+                staged = yamcs/'src/main/yamcs'
+                self.assertEqual((staged/'mdb/components/eps/eps.xtce').read_text(), prefix+' topology')
+                self.assertEqual((staged/'procedures/components/eps/EpsPowerFunctional.ycs').read_text(),
+                                 prefix+' stack')
+                logs = subprocess.run(['make', '--no-print-directory', '-n', 'logs'], cwd=yamcs,
+                                      check=True, capture_output=True, text=True)
+                self.assertNotIn('eps.xtce', logs.stdout)
+                self.assertNotIn('eps-stacks', logs.stdout)
 
     def test_campaign_metrics_are_fsw_and_exist_in_generated_checks(self):
         stacks=generate_stacks(self.resolve())
@@ -233,6 +262,31 @@ class EpsConfigurationTests(unittest.TestCase):
         self.assertFalse(event_gate({'fsw':'2026-10-06T22:00:00Z EVS Port1 /EPS_APP 41: error'}, {}, ROOT)['passed'])
         phases={'stacks':[{'steps':[{'name':'FAULT_BEGIN','wall_start':'2026-10-06T21:59:00+00:00'}, {'name':'FAULT_END','wall_end':'2026-10-06T22:01:00+00:00'}]}]}
         self.assertTrue(event_gate({'fsw':'2026-10-06T22:00:00Z EVS Port1 /EPS_APP 41: error'}, phases, ROOT)['passed'])
+
+    def test_consumer_outages_do_not_allow_eps_errors(self):
+        for phase in ('OUTAGE', 'RECOVERY', 'FAULT'):
+            windows = {'stacks':[{'steps':[
+                {'name':phase+'_BEGIN','wall_start':'2026-10-06T21:59:00+00:00'},
+                {'name':phase+'_END','wall_end':'2026-10-06T22:01:00+00:00'}]}]}
+            for eid in (14,16,41):
+                log = f'2026-10-06T22:00:00Z EVS Port1 /EPS_APP {eid}: error'
+                result = event_gate({'fsw':log}, windows, ROOT)
+                self.assertEqual(result['passed'], phase == 'FAULT')
+                self.assertEqual(result['events'][0]['expected'], phase == 'FAULT')
+            self.assertTrue(event_gate({'fsw':'2026-10-06T22:00:00Z EVS Port1 /ADCS_APP 41: error'}, windows, ROOT)['passed'])
+
+    def test_recovery_does_not_read_mode_from_unpowered_adcs(self):
+        for startup in (False, True):
+            cfg = self.resolve()
+            cfg['switches'][cfg['loads']['adcs']['switch']]['startup_on'] = startup
+            stacks = generate_stacks(cfg)
+            for name in ('EpsPowerFunctional','EpsFaultInjection'):
+                check = next(step for step in stacks[name]['steps']
+                             if step.get('comment') == 'startup restored')
+                self.assertEqual(any(c['parameter'] == '/ADCS/MODE' for c in check['condition']), startup)
+                self.assertTrue(any(c['parameter'] == '/EPS/SWITCH_4_STATE'
+                                    and c['value'] == ('ON' if startup else 'OFF')
+                                    for c in check['condition']))
 
     def test_report_requires_complete_replays_of_the_archived_campaign(self):
         import json

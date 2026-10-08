@@ -1457,6 +1457,34 @@ static void test_register_component_alias(void)
 /* -------------------------------------------------------------------------
  * main
  * -------------------------------------------------------------------------*/
+static void test_power_callback_contract_and_off_prepare(void)
+{
+    simulith_power_load_config_t cfg = {0};
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(NULL, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_reset(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(NULL, 1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(NULL, 0, &snapshot));
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(state, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(state, 0, NULL));
+    cfg.boot_delay_s = 1; cfg.boot_w = 4; cfg.mode_w[0] = 2; cfg.scale = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, -1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, 2, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_prepare_tick(state, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 0, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_reset(state, 100));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 100, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    g_iface->destroy(state);
+}
+
 static void test_eps_power_cycle_boot_and_mode_demand(void)
 {
     component_state_t *state = NULL;
@@ -1486,6 +1514,50 @@ static void test_eps_power_cycle_boot_and_mode_demand(void)
     TEST_ASSERT_EQUAL_UINT32(0, s->rx_buffer_head);
     TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 4000000000ULL));
     TEST_ASSERT_EQUAL_UINT64(2, s->power.cycles);
+    g_iface->destroy(state);
+}
+
+static void test_rf_input_requires_eps_supply_and_completed_boot(void)
+{
+    component_state_t *state=NULL;
+    TEST_ASSERT_EQUAL_INT(0,g_iface->create(&state));
+    g_state_under_test=state;
+    radio_sim_state_t *s=(radio_sim_state_t *)state;
+    simulith_power_load_config_t cfg={.scale=1,.boot_delay_s=1};
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_configure(state,&cfg));
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,1,0));
+    const uint8_t payload[]={1,2,3,4};
+    TEST_ASSERT_EQUAL_INT(sizeof(payload),inject_udp(payload,sizeof(payload)));
+    int queued=0;
+    for (unsigned int i=0; i<200; i++) {
+        uint8_t peek[8];
+        pthread_mutex_lock(&s->buffer_mutex);
+        queued=(int)recv(s->udp_rx_socket,peek,sizeof(peek),MSG_PEEK|MSG_DONTWAIT);
+        pthread_mutex_unlock(&s->buffer_mutex);
+        if (queued<0) break;
+        usleep(1000);
+    }
+    TEST_ASSERT_LESS_THAN_INT(0,queued);
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,0,&snapshot));
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0,snapshot.rf_received);
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,1000000000ULL,&snapshot));
+    TEST_ASSERT_TRUE(snapshot.ready);
+    TEST_ASSERT_EQUAL_INT(sizeof(payload),inject_udp(payload,sizeof(payload)));
+    for (unsigned int i=0; i<200; i++) {
+        TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,1000000000ULL,&snapshot));
+        if (snapshot.rf_received==sizeof(payload)) break;
+        usleep(1000);
+    }
+    TEST_ASSERT_EQUAL_UINT64(sizeof(payload),snapshot.rf_received);
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,0,2000000000ULL));
+    TEST_ASSERT_EQUAL_INT(sizeof(payload),inject_udp(payload,sizeof(payload)));
+    usleep(50000);
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,2000000000ULL,&snapshot));
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(sizeof(payload),snapshot.rf_received);
+    g_state_under_test=NULL;
     g_iface->destroy(state);
 }
 
@@ -1559,7 +1631,9 @@ int main(void)
     UNITY_BEGIN();
 
     /* Lifecycle */
+    RUN_TEST(test_power_callback_contract_and_off_prepare);
     RUN_TEST(test_eps_power_cycle_boot_and_mode_demand);
+    RUN_TEST(test_rf_input_requires_eps_supply_and_completed_boot);
     RUN_TEST(test_eps_power_cycle_discards_queued_udp_datagrams);
     RUN_TEST(test_dlopen_radio_sim_so);
     RUN_TEST(test_get_component_interface_symbol);

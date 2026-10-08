@@ -26,7 +26,11 @@ def event_gate(logs, verification, root):
         # An interrupted phase ends at its last observed step, never at an unbounded future time.
         for kind,start in open_windows.items():
             if stack.get('steps'): windows.append((kind,start,dt.datetime.fromisoformat(stack['steps'][-1]['wall_end'])))
-    allowed={'DEMO_APP':{41,42,43}, 'ADCS_APP':{41,42,43}, 'RADIO_APP':{41,42,43}, 'EPS_APP':{14,16,41}}
+    consumer_errors={'DEMO_APP':{41,42,43}, 'ADCS_APP':{41,42,43}, 'RADIO_APP':{41,42,43}}
+    allowed={kind:dict(consumer_errors) for kind in ('OUTAGE','RECOVERY','FAULT')}
+    # Cutting a consumer rail does not interrupt the EPS itself. Its errors
+    # are expected only while deliberately injecting EPS request/CRC faults.
+    allowed['FAULT']['EPS_APP']={14,16,41}
     events=[]; unexpected=[]
     for role,log in logs.items():
         for line in log.splitlines():
@@ -37,7 +41,9 @@ def event_gate(logs, verification, root):
                 if symbol:
                     try: stamp=dt.datetime.fromisoformat(line.split()[0].replace('Z','+00:00'))
                     except ValueError: stamp=None
-                    event['expected']=stamp is not None and eid in allowed.get(app,set()) and any(start<=stamp<=end for _,start,end in windows)
+                    event['expected']=stamp is not None and any(
+                        start<=stamp<=end and eid in allowed[kind].get(app,set())
+                        for kind,start,end in windows)
                     if not event['expected']: unexpected.append(event)
                 events.append(event)
             elif ' ERROR' in line or ' CRITICAL' in line:

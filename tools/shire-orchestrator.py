@@ -6,6 +6,7 @@ Loads global, mission, and scenario YAMLs, merges them, and writes to active.yam
 import argparse
 import sys
 import os
+import re
 import uuid
 from jinja2 import Environment, FileSystemLoader
 import yaml
@@ -33,6 +34,23 @@ def load_yaml(path):
         return None
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+def retain_runtime_events(platform_config):
+    """Raise runtime limits while preserving EVS unit-test squelch boundaries.
+
+    cFE compiles both coverage subjects and test runners with _UNIT_TEST_.
+    Its squelch tests require a burst below the 8-bit counter's saturation
+    value; runtime scenarios retain the larger limits to archive all events.
+    """
+    def override(match):
+        definition, baseline = match.groups()
+        return (f"#if defined(_UNIT_TEST_)\n{definition} {baseline}\n"
+                f"#else\n{definition} 1000000\n#endif")
+
+    return re.sub(
+        r"(#define CFE_PLATFORM_EVS_(?:MAX_APP_EVENT_BURST|APP_EVENTS_PER_SEC))\s+(\d+)",
+        override, platform_config)
 
 
 def main():
@@ -378,13 +396,12 @@ def main():
                 shutil.copy2(s, d)
         print(f"[orchestrator] Baseline FSW config files copied to {build_cfg_dir}")
         if scenario_cfg.get('retain_all_events'):
-            import re
             for cpu in (1,2):
                 path = os.path.join(build_cfg_dir, f'cpu{cpu}_platform_cfg.h')
                 with open(path) as stream: text=stream.read()
-                text=re.sub(r'(#define CFE_PLATFORM_EVS_(?:MAX_APP_EVENT_BURST|APP_EVENTS_PER_SEC))\s+\d+',r'\1 1000000',text)
+                text = retain_runtime_events(text)
                 with open(path,'w') as stream: stream.write(text)
-            print('[orchestrator] Event limits raised above modeled validation demand')
+            print('[orchestrator] Runtime event limits raised; unit tests retain baseline squelch limits')
 
         # Manipulate cpu1_cfe_es_startup.scr to remove lines for components not enabled for the spacecraft
         startup_scr_path = os.path.join(build_cfg_dir, "cpu1_cfe_es_startup.scr")

@@ -67,6 +67,8 @@ target_include_directories(test_adcs_sim_failures PRIVATE
 )
 
 target_link_libraries(test_adcs_sim_failures PRIVATE pthread m)
+target_compile_options(test_adcs_sim_failures PRIVATE
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/adcs_test_ownership_config.h)
 target_link_options(test_adcs_sim_failures PRIVATE
     -Wl,--wrap=malloc
 )

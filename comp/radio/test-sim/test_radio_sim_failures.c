@@ -43,6 +43,7 @@ static int send_failure;
 static int completion_calls;
 static int completion_failure_call;
 static int wait_result;
+static int continuous_udp, udp_receives, last_completion_status;
 static dns_lookup_mode_t dns_lookup_mode;
 static struct hostent stub_hostent;
 static char *stub_addr_list[2];
@@ -52,6 +53,15 @@ const component_interface_t *get_component_interface(void);
 
 void *__real_malloc(size_t size);
 int __real_pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attributes);
+ssize_t __real_recv(int fd, void *buffer, size_t length, int flags);
+
+ssize_t __wrap_recv(int fd, void *buffer, size_t length, int flags)
+{
+    if (!continuous_udp) return __real_recv(fd, buffer, length, flags);
+    TEST_ASSERT_EQUAL_INT(MSG_DONTWAIT, flags);
+    udp_receives++;
+    return 1;
+}
 
 void *__wrap_malloc(size_t size)
 {
@@ -173,7 +183,7 @@ int simulith_transport_complete_request(transport_port_t *port, uint64_t transac
 {
     (void)port;
     (void)transaction_id;
-    (void)status;
+    last_completion_status = status;
     completion_calls++;
     return completion_calls == completion_failure_call ?
         SIMULITH_TRANSPORT_ERROR : SIMULITH_TRANSPORT_SUCCESS;
@@ -198,6 +208,8 @@ void simulith_time_cleanup(void *handle)
 
 void setUp(void)
 {
+    continuous_udp = udp_receives = 0;
+    last_completion_status = 123;
     failure = FAIL_NONE;
     transport_calls = 0;
     transport_failure_call = 0;
@@ -449,6 +461,63 @@ static void test_component_receive_cmd_send_failure_returns_error(void)
     pthread_mutex_destroy(&state.buffer_mutex);
 }
 
+static void test_managed_gpio_recovery_and_boot_deadline(void)
+{
+    const component_interface_t *interface = get_component_interface();
+    radio_sim_state_t state;
+    initialize_service_state(&state);
+    state.udp_rx_socket = -1;
+    simulith_power_load_config_t cfg = {.boot_delay_s=2, .scale=1, .boot_w=4};
+    component_state_t *component = (component_state_t *)&state;
+    TEST_ASSERT_EQUAL_INT(0, interface->power_configure(component, &cfg));
+    TEST_ASSERT_EQUAL_INT(0, interface->power_set(component, 1, 0));
+    TEST_ASSERT_EQUAL_UINT64(1, state.power.cycles);
+    for (int edge=0; edge<4; edge++) {
+        reset_faults();
+        request_target_call=1; request_length=3;
+        request_data[0]=1; request_data[1]=RADIO_CFG_GPIO_POWER_PIN;
+        request_data[2]=(uint8_t)(edge%2);
+        uint64_t ns=edge==3 ? UINT64_MAX-1 : (uint64_t)edge*1000000000ULL;
+        TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, interface->service(component, ns, NULL));
+        TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, last_completion_status);
+        if (edge%2) {
+            TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_DUPLEX, state.config.Mode);
+            TEST_ASSERT_EQUAL_UINT64(edge==3 ? UINT64_MAX : ns+2000000000ULL, state.power.boot_ready_ns);
+        } else TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_SLEEP, state.config.Mode);
+    }
+    TEST_ASSERT_EQUAL_UINT64(3, state.power.cycles);
+    reset_faults();
+    script_spi_command(RADIO_DEVICE_NOOP_CMD, 0, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, interface->service(component, UINT64_MAX-1, NULL));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR, last_completion_status);
+    TEST_ASSERT_EQUAL_UINT16(0, state.hk.CommandCounter);
+    TEST_ASSERT_EQUAL_INT(0, interface->power_set(component, 0, UINT64_MAX));
+    reset_faults();
+    request_target_call=1; request_length=3;
+    request_data[0]=1; request_data[1]=RADIO_CFG_GPIO_POWER_PIN; request_data[2]=0;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, interface->service(component, UINT64_MAX, NULL));
+    reset_faults(); request_target_call=1; request_length=3; request_data[2]=1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, interface->service(component, UINT64_MAX, NULL));
+    TEST_ASSERT_EQUAL_UINT64(3, state.power.cycles); /* GPIO cannot energize a cut EPS rail. */
+    pthread_mutex_destroy(&state.buffer_mutex);
+}
+
+static void test_reset_bounds_drain_under_continuous_udp_input(void)
+{
+    const component_interface_t *interface = get_component_interface();
+    radio_sim_state_t state;
+    initialize_service_state(&state);
+    state.udp_rx_socket=100;
+    state.rx_buffer_head=8; state.tx_buffer_head=9;
+    continuous_udp=1;
+    TEST_ASSERT_EQUAL_INT(0, interface->power_reset((component_state_t *)&state, 123));
+    TEST_ASSERT_EQUAL_INT(4096, udp_receives);
+    TEST_ASSERT_EQUAL_UINT32(0, state.rx_buffer_head);
+    TEST_ASSERT_EQUAL_UINT32(0, state.tx_buffer_head);
+    TEST_ASSERT_EQUAL_UINT64(123, state.power_time_ns);
+    pthread_mutex_destroy(&state.buffer_mutex);
+}
+
 static void test_radio_init_resolves_ground_host_via_dns_when_env_unset(void)
 {
     /* RADIO_GROUND_HOST unset -> ground_host_env is NULL, short-circuiting
@@ -514,6 +583,8 @@ int main(void)
     RUN_TEST(test_component_service_receive_request_errors);
     RUN_TEST(test_component_gpio_read_response_send_failure_is_tolerated);
     RUN_TEST(test_component_receive_cmd_send_failure_returns_error);
+    RUN_TEST(test_managed_gpio_recovery_and_boot_deadline);
+    RUN_TEST(test_reset_bounds_drain_under_continuous_udp_input);
     RUN_TEST(test_radio_init_resolves_ground_host_via_dns_when_env_unset);
     RUN_TEST(test_radio_init_falls_back_to_inaddr_any_when_dns_fails);
     RUN_TEST(test_radio_init_falls_back_to_inaddr_any_when_dns_wrong_family);

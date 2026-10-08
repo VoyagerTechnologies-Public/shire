@@ -108,10 +108,32 @@ add_executable(test_shared_barrier test_shared_barrier.c
 target_link_libraries(test_shared_barrier pthread)
 add_test(NAME SharedBarrierTests COMMAND test_shared_barrier)
 
+add_executable(test_shared_barrier_failures test_shared_barrier_failures.c
+    ../src/simulith_shared_barrier.c ${UNITY_SRC})
+target_link_libraries(test_shared_barrier_failures pthread)
+target_link_options(test_shared_barrier_failures PRIVATE
+    -Wl,--wrap=open -Wl,--wrap=unlink -Wl,--wrap=ftruncate -Wl,--wrap=mmap
+    -Wl,--wrap=fstat -Wl,--wrap=nanosleep -Wl,--wrap=pthread_mutexattr_init
+    -Wl,--wrap=pthread_mutexattr_setpshared -Wl,--wrap=pthread_condattr_init
+    -Wl,--wrap=pthread_condattr_setpshared -Wl,--wrap=pthread_condattr_setclock
+    -Wl,--wrap=pthread_mutex_init -Wl,--wrap=pthread_cond_init)
+add_test(NAME SharedBarrierFailureTests COMMAND test_shared_barrier_failures)
+
+
 add_executable(test_42_socket_client test_42_socket_client.c ${UNITY_SRC})
 target_link_libraries(test_42_socket_client simulith pthread)
 target_compile_definitions(test_42_socket_client PRIVATE SIMULITH_TESTING)
 add_test(NAME 42SocketClientTests COMMAND test_42_socket_client)
+
+add_executable(test_42_socket_client_failures test_42_socket_client_failures.c
+    ../src/simulith_42_socket_client.c ${UNITY_SRC})
+target_include_directories(test_42_socket_client_failures PRIVATE ../../42/Include)
+target_link_libraries(test_42_socket_client_failures m pthread)
+target_compile_definitions(test_42_socket_client_failures PRIVATE SIMULITH_TESTING)
+target_link_options(test_42_socket_client_failures PRIVATE
+    -Wl,--wrap=socket -Wl,--wrap=open -Wl,--wrap=fstat -Wl,--wrap=mmap
+    -Wl,--wrap=recv -Wl,--wrap=send -Wl,--wrap=syscall)
+add_test(NAME 42SocketClientFailureTests COMMAND test_42_socket_client_failures)
 
 add_executable(test_director test_director.c ${UNITY_SRC})
 target_link_libraries(test_director simulith_director_core)
@@ -137,6 +159,8 @@ add_dependencies(test_director
     director_fixture_bad_version director_fixture_bad_size)
 target_link_options(test_director PRIVATE
     -Wl,--wrap=sendto
+    -Wl,--wrap=getaddrinfo -Wl,--wrap=nanosleep -Wl,--wrap=socket
+    -Wl,--wrap=malloc -Wl,--wrap=fread -Wl,--wrap=fseek
     -Wl,--wrap=eventfd
     -Wl,--wrap=pthread_create
     -Wl,--wrap=pthread_mutex_init
@@ -150,6 +174,9 @@ add_test(NAME DirectorTests COMMAND test_director)
 
 add_executable(test_control_trace test_control_trace.c ../src/simulith_control_trace.c)
 target_link_libraries(test_control_trace pthread)
+target_link_options(test_control_trace PRIVATE
+    -Wl,--wrap=fwrite -Wl,--wrap=pthread_create -Wl,--wrap=fflush
+    -Wl,--wrap=fsync -Wl,--wrap=fclose -Wl,--wrap=rename)
 add_test(NAME ControlTraceTests COMMAND test_control_trace)
 
 # Exercise every entry-point outcome with the real main source and deterministic
@@ -195,4 +222,6 @@ set_tests_properties(ServerNumericSpeedAndMetricsThenUnknownTest PROPERTIES
 # Prevent a failed socket/thread fixture from stalling CI indefinitely.
 set_tests_properties(
     SimulithTests DirectorTests DirectorMainTests DirectorWithoutServerTest
+    42SocketClientTests 42SocketClientFailureTests ControlTraceTests
+    SharedBarrierTests SharedBarrierFailureTests
     PROPERTIES TIMEOUT 20)

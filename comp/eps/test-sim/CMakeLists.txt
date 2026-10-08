@@ -56,3 +56,13 @@ target_include_directories(test_eps_cli PRIVATE ${UNITY_INC}
     ${SIMULITH_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../${FSW_DIR}/psp/fsw/hwlib/inc)
 add_test(NAME EpsCliTests COMMAND test_eps_cli)
+
+add_executable(test_eps_sim_failures test_eps_sim_failures.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/eps_device.c ${UNITY_SRC})
+target_include_directories(test_eps_sim_failures PRIVATE ${UNITY_INC}
+    ${SIMULITH_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../sim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../${FSW_DIR}/psp/fsw/hwlib/inc)
+target_compile_definitions(test_eps_sim_failures PRIVATE UNITY_INCLUDE_DOUBLE)
+target_link_libraries(test_eps_sim_failures PRIVATE m pthread)
+add_test(NAME EpsSimFailureTests COMMAND test_eps_sim_failures)

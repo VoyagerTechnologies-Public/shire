@@ -24,6 +24,7 @@
 #include "adcs_device.h"
 
 const component_interface_t *get_component_interface(void);
+int adcs_test_spacecraft, adcs_test_wheels, adcs_test_mtbs;
 
 static int malloc_should_fail;
 
@@ -139,6 +140,9 @@ static const component_interface_t *g_iface;
 
 void setUp(void)
 {
+    adcs_test_spacecraft = ADCS_TEST_DEFAULT_SPACECRAFT;
+    adcs_test_wheels = ADCS_TEST_DEFAULT_WHEELS;
+    adcs_test_mtbs = ADCS_TEST_DEFAULT_MTBS;
     malloc_should_fail = 0;
     transport_send_calls = 0;
     transport_send_failure_call = 0;
@@ -155,6 +159,29 @@ void setUp(void)
 }
 
 void tearDown(void) {}
+
+static void test_generated_actuator_ownership_bounds(void)
+{
+    static const int invalid[][3] = {{-1,7,7},{0,-1,7},{0,16,7},{0,7,-1},{0,7,8}};
+    adcs_sim_state_t state;
+    for (size_t i=0; i<sizeof(invalid)/sizeof(invalid[0]); i++) {
+        adcs_test_spacecraft=invalid[i][0];
+        adcs_test_wheels=invalid[i][1];
+        adcs_test_mtbs=invalid[i][2];
+        TEST_ASSERT_EQUAL_INT(ADCS_SIM_ERROR, adcs_sim_init(&state));
+        TEST_ASSERT_EQUAL_INT(0, state.uart_port.init);
+    }
+    adcs_test_spacecraft=0; adcs_test_wheels=15; adcs_test_mtbs=7;
+    TEST_ASSERT_EQUAL_INT(ADCS_SIM_SUCCESS, adcs_sim_init(&state));
+    TEST_ASSERT_EQUAL_INT(15, state.wheel_mask);
+    TEST_ASSERT_EQUAL_INT(7, state.mtb_mask);
+    adcs_sim_cleanup(&state);
+    adcs_test_wheels=adcs_test_mtbs=0;
+    TEST_ASSERT_EQUAL_INT(ADCS_SIM_SUCCESS, adcs_sim_init(&state));
+    TEST_ASSERT_EQUAL_INT(0, state.wheel_mask);
+    TEST_ASSERT_EQUAL_INT(0, state.mtb_mask);
+    adcs_sim_cleanup(&state);
+}
 
 static simulith_42_context_t zero_ctx(void)
 {
@@ -511,6 +538,8 @@ int main(void)
     }
 
     UNITY_BEGIN();
+
+    RUN_TEST(test_generated_actuator_ownership_bounds);
 
     RUN_TEST(test_create_fails_when_malloc_fails);
 

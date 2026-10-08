@@ -8,6 +8,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <netdb.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -47,6 +48,10 @@ static int                    sync_primitive_failure;
 static int                    capture_visual;
 static int                    visual_send_failure;
 static int                    visual_sends;
+static int resolver_mode, resolver_calls, resolver_sleeps;
+static int scenario_socket_failure, scenario_read_failure, scenario_seek_failure;
+static size_t scenario_malloc_failure_size;
+
 static uint8_t                visual_packet[256];
 static pthread_mutex_t        service_test_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t         service_test_condition = PTHREAD_COND_INITIALIZER;
@@ -54,6 +59,64 @@ static pthread_cond_t         service_test_condition = PTHREAD_COND_INITIALIZER;
 #define VALID_COMPONENT_API \
     .api_version = SIMULITH_COMPONENT_API_VERSION, \
     .struct_size = sizeof(component_interface_t)
+
+
+int __real_getaddrinfo(const char *, const char *, const struct addrinfo *, struct addrinfo **);
+int __wrap_getaddrinfo(const char *host, const char *service,
+                       const struct addrinfo *hints, struct addrinfo **addresses)
+{
+    if (resolver_mode) {
+        resolver_calls++;
+        if (resolver_mode == 3) return EAI_FAIL;
+        if (resolver_mode == 4) { *addresses = NULL; return 0; }
+        if (resolver_mode == 6) return EAI_AGAIN;
+        if (resolver_calls == 1) {
+            if (resolver_mode == 5) {
+                int status = __real_getaddrinfo(host, service, hints, addresses);
+                TEST_ASSERT_EQUAL_INT(0, status);
+            }
+            return resolver_mode == 2 ? EAI_NONAME : EAI_AGAIN;
+        }
+    }
+    return __real_getaddrinfo(host, service, hints, addresses);
+}
+int __real_nanosleep(const struct timespec *, struct timespec *);
+int __wrap_nanosleep(const struct timespec *delay, struct timespec *remaining)
+{
+    if (resolver_mode && delay->tv_sec == 0 && delay->tv_nsec == 100000000) {
+        resolver_sleeps++;
+        return 0;
+    }
+    return __real_nanosleep(delay, remaining);
+}
+int __real_socket(int, int, int);
+int __wrap_socket(int domain, int type, int protocol)
+{
+    if (scenario_socket_failure && type == SOCK_DGRAM) { errno = EMFILE; return -1; }
+    return __real_socket(domain, type, protocol);
+}
+void *__real_malloc(size_t);
+void *__wrap_malloc(size_t length)
+{
+    if (scenario_malloc_failure_size && length == scenario_malloc_failure_size) {
+        scenario_malloc_failure_size = 0; errno = ENOMEM; return NULL;
+    }
+    return __real_malloc(length);
+}
+size_t __real_fread(void *, size_t, size_t, FILE *);
+size_t __wrap_fread(void *buffer, size_t size, size_t count, FILE *file)
+{
+    if (scenario_read_failure) { scenario_read_failure = 0; errno = EIO; return 0; }
+    return __real_fread(buffer, size, count, file);
+}
+int __real_fseek(FILE *, long, int);
+int __wrap_fseek(FILE *file, long offset, int whence)
+{
+    if (scenario_seek_failure && whence == SEEK_SET) {
+        scenario_seek_failure = 0; errno = EIO; return -1;
+    }
+    return __real_fseek(file, offset, whence);
+}
 
 int __real_eventfd(unsigned int initial_value, int flags);
 ssize_t __real_sendto(int fd, const void *buffer, size_t length, int flags,
@@ -379,6 +442,9 @@ void setUp(void)
     capture_visual = 0;
     visual_send_failure = 0;
     visual_sends = 0;
+    resolver_mode = resolver_calls = resolver_sleeps = 0;
+    scenario_socket_failure = scenario_read_failure = scenario_seek_failure = 0;
+    scenario_malloc_failure_size = 0;
     memset(visual_packet, 0, sizeof(visual_packet));
     unsetenv("SHIRE_VISUAL_HZ");
     unsetenv("SHIRE_RUN_ID");
@@ -395,6 +461,8 @@ void setUp(void)
 void tearDown(void)
 {
     unsetenv("SHIRE_CONTROL_TRACE_DIR");
+    unsetenv("SIMULITH_WARMUP");
+    unsetenv("SIMULITH_DURATION");
     simulith_42_command_t command;
     while (dequeue_command(&command) == 0) {}
     unsetenv("FORTYTWO_IPC_MODE");
@@ -572,6 +640,123 @@ static void test_scenario_parser_rejects_malformed_payloads(void)
     TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(&config));
     close(pipe_fds[0]);
     close(pipe_fds[1]);
+}
+
+
+/* Keep filesystem cleanup identical for accepted and rejected scenarios. */
+static void check_scenario(const char *json, int expected_result,
+                           size_t expected_commands, size_t expected_packet)
+{
+    char path[] = "/tmp/shire-scenario-branches-XXXXXX";
+    int fd = mkstemp(path);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, fd);
+    size_t size = strlen(json);
+    TEST_ASSERT_EQUAL_INT(size, write(fd, json, size)); close(fd);
+    director_config_t config = {0};
+    snprintf(config.scenario_file, sizeof(config.scenario_file), "%s", path);
+    int result = initialize_scenario(&config);
+    int socket_initialized = config.scenario_socket_initialized;
+    size_t commands = config.scenario_command_count;
+    size_t packet_size = config.scenario_commands[0].packet_length;
+    cleanup_components(&config); unlink(path);
+    TEST_ASSERT_EQUAL_INT(expected_result, result);
+    TEST_ASSERT_EQUAL_INT(expected_result == 0, socket_initialized);
+    if (expected_result == 0) {
+        TEST_ASSERT_EQUAL_size_t(expected_commands, commands);
+        TEST_ASSERT_EQUAL_size_t(expected_packet, packet_size);
+    }
+}
+static void test_scenario_field_validation_and_whitespace(void)
+{
+    const char *bad[] = {
+        "{}", "{\"schema_version\"", "{\"schema_version\" : ",
+        "{\"schema_version\":null}", "{\"schema_version\":-1}",
+        "{\"schema_version\":18446744073709551616}",
+        "{\"schema_version\":1,\"commands\":{}}",
+        "{\"schema_version\":1,\"commands\":[]}",
+        "{\"schema_version\":1,\"commands\":[   ",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":null}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":18446744073709551616}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":null}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":65536}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":0}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"unclosed}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"a\\b\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"a\nb\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"127.0.0.1\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"127.0.0.1\",\"packet_hex\":0}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"127.0.0.1\",\"packet_hex\":\"\"}]}",
+        "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"port\":1,\"host\":\"127.0.0.1\",\"packet_hex\":\"0g\"}]}",
+    };
+    TEST_ASSERT_EQUAL_INT(-1, initialize_scenario(NULL));
+    TEST_ASSERT_EQUAL_INT(0, director_inject_scenario_commands(NULL, 0));
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        check_scenario(bad[i], -1, 0, 0);
+    check_scenario("{\"note\":\"schema_version\",\"schema_version\" \t: \n1,"
+        "\"commands\" : [ \n{ \"sequence\" : 18446744073709551615,"
+        "\"host\" : \"127.0.0.1\", \"port\" : 65535, \"packet_hex\" : \"0F\" } ]}", 0, 1, 1);
+}
+static void test_scenario_packet_command_and_file_boundaries(void)
+{
+    char json[65538], hex[SIMULITH_SCENARIO_MAX_PACKET_SIZE * 2 + 2];
+    memset(hex, 'a', sizeof(hex) - 1); hex[sizeof(hex) - 1] = 0;
+    snprintf(json, sizeof(json), "{\"schema_version\":1,\"commands\":[{\"sequence\":0,"
+             "\"host\":\"127.0.0.1\",\"port\":1,\"packet_hex\":\"%s\"}]}", hex);
+    check_scenario(json, -1, 0, 0); /* one hex character beyond the string buffer */
+    hex[sizeof(hex) - 2] = 0;
+    snprintf(json, sizeof(json), "{\"schema_version\":1,\"commands\":[{\"sequence\":0,"
+             "\"host\":\"127.0.0.1\",\"port\":1,\"packet_hex\":\"%s\"}]}", hex);
+    check_scenario(json, 0, 1, SIMULITH_SCENARIO_MAX_PACKET_SIZE);
+    char host[256]; memset(host, 'a', sizeof(host) - 1); host[sizeof(host) - 1] = 0;
+    snprintf(json, sizeof(json), "{\"schema_version\":1,\"commands\":[{\"sequence\":0,"
+             "\"host\":\"%s\",\"port\":1,\"packet_hex\":\"aa\"}]}", host);
+    check_scenario(json, -1, 0, 0);
+    for (unsigned count = SIMULITH_SCENARIO_MAX_COMMANDS; count <= SIMULITH_SCENARIO_MAX_COMMANDS + 1; count++) {
+        size_t used = (size_t)snprintf(json, sizeof(json), "{\"schema_version\":1,\"commands\":[");
+        for (unsigned i = 0; i < count; i++) {
+            used += (size_t)snprintf(json + used, sizeof(json) - used,
+                "%s{\"sequence\":%u,\"host\":\"127.0.0.1\",\"port\":1,\"packet_hex\":\"aa\"}",
+                i ? "," : "", i);
+        }
+        snprintf(json + used, sizeof(json) - used, "]}");
+        check_scenario(json, count == SIMULITH_SCENARIO_MAX_COMMANDS ? 0 : -1, count, 1);
+    }
+    strcpy(json, "{\"schema_version\":1,\"commands\":[{\"sequence\":0,\"host\":\"127.0.0.1\",\"port\":1,\"packet_hex\":\"aa\"}]}");
+    size_t used = strlen(json);
+    memset(json + used, ' ', 65537 - used); json[65537] = 0;
+    check_scenario(json, -1, 0, 0);
+    json[65536] = 0;
+    check_scenario(json, 0, 1, 1);
+}
+static const char simple_scenario[] = "{\"schema_version\":1,\"commands\":[{\"sequence\":0,"
+    "\"host\":\"127.0.0.1\",\"port\":1,\"packet_hex\":\"aa\"}]}";
+static void test_scenario_dns_retries_and_recovery(void)
+{
+    for (int mode = 1; mode <= 6; mode++) {
+        resolver_mode = mode; resolver_calls = resolver_sleeps = 0;
+        int success = mode == 1 || mode == 2 || mode == 5;
+        check_scenario(simple_scenario, success ? 0 : -1, 1, 1);
+        TEST_ASSERT_EQUAL_INT(success ? 2 : mode == 6 ? 20 : 1, resolver_calls);
+        TEST_ASSERT_EQUAL_INT(success ? 1 : mode == 6 ? 19 : 0, resolver_sleeps);
+        resolver_mode = 0;
+        check_scenario(simple_scenario, 0, 1, 1);
+    }
+}
+static void test_scenario_io_failures_can_recover(void)
+{
+    for (int fault = 0; fault < 4; fault++) {
+        if (fault == 0) scenario_malloc_failure_size = strlen(simple_scenario) + 1;
+        if (fault == 1) scenario_read_failure = 1;
+        if (fault == 2) scenario_seek_failure = 1;
+        if (fault == 3) scenario_socket_failure = 1;
+        check_scenario(simple_scenario, -1, 0, 0);
+        TEST_ASSERT_EQUAL_size_t(0, scenario_malloc_failure_size);
+        TEST_ASSERT_EQUAL_INT(0, scenario_read_failure);
+        TEST_ASSERT_EQUAL_INT(0, scenario_seek_failure);
+        scenario_socket_failure = 0;
+        check_scenario(simple_scenario, 0, 1, 1);
+    }
 }
 
 static void test_scenario_injection_reports_send_failure(void)
@@ -1456,6 +1641,117 @@ static int test_snapshot_load(component_state_t *state, uint64_t ns, simulith_po
 {
     simulith_power_snapshot((simulith_power_runtime_t *)state, 0, ns, snapshot); return 0;
 }
+
+static int power_failure_stage;
+static int fail_power_configure(component_state_t *s, const simulith_power_load_config_t *cfg)
+{ return power_failure_stage==1 ? COMPONENT_ERROR : test_configure_load(s,cfg); }
+static int fail_power_set(component_state_t *s, int on, uint64_t ns)
+{ return power_failure_stage==2 ? COMPONENT_ERROR : test_set_load(s,on,ns); }
+static int fail_power_reset(component_state_t *s, uint64_t ns)
+{ return power_failure_stage==3 ? COMPONENT_ERROR : test_reset_load(s,ns); }
+static int fail_power_snapshot(component_state_t *s, uint64_t ns, simulith_power_snapshot_t *out)
+{ return power_failure_stage==4 ? COMPONENT_ERROR : test_snapshot_load(s,ns,out); }
+static simulith_power_supply_t *null_supply(component_state_t *s) { (void)s; return NULL; }
+
+static void test_power_topology_and_callback_failures_are_rejected(void)
+{
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_commit_power(NULL,0));
+    for (int fault=0; fault<14; fault++) {
+        director_config_t cfg={0};
+        simulith_power_runtime_t runtime={0};
+        component_interface_t provider={VALID_COMPONENT_API,.name="eps_sim",.power_supply=test_get_supply};
+        component_interface_t consumer={VALID_COMPONENT_API,.name="demo_sim",.power_configure=fail_power_configure,
+            .power_set=fail_power_set,.power_reset=fail_power_reset,.power_snapshot=fail_power_snapshot};
+        component_interface_t nameless=consumer; nameless.name=NULL;
+        component_interface_t other=consumer; other.name="other_sim";
+        memset(&test_supply,0,sizeof(test_supply));
+        strcpy(test_supply.loads[0].component,"demo_sim");
+        test_supply.loads[0].scale=1;
+        cfg.component_count=7;
+        cfg.components[0]=(component_entry_t){.active=1,.state=(component_state_t *)&test_supply,.interface=&provider};
+        cfg.components[1]=(component_entry_t){.active=0,.state=(component_state_t *)&runtime,.interface=&consumer};
+        cfg.components[2]=(component_entry_t){.active=1,.state=(component_state_t *)&runtime};
+        cfg.components[3]=(component_entry_t){.active=1,.interface=&consumer};
+        cfg.components[4]=(component_entry_t){.active=1,.state=(component_state_t *)&runtime,.interface=&nameless};
+        cfg.components[5]=(component_entry_t){.active=1,.state=(component_state_t *)&runtime,.interface=&other};
+        cfg.components[6]=(component_entry_t){.active=1,.state=(component_state_t *)&runtime,.interface=&consumer};
+        power_failure_stage=0;
+        switch (fault) {
+            case 0: strcpy(test_supply.loads[0].component,"missing_sim"); break;
+            case 1: consumer.power_configure=NULL; break;
+            case 2: consumer.power_set=NULL; break;
+            case 3: consumer.power_snapshot=NULL; break;
+            case 4: consumer.power_reset=NULL; break;
+            case 5: test_supply.loads[0].switch_id=SIMULITH_POWER_SWITCHES; break;
+            case 6: power_failure_stage=1; break;
+            case 7: power_failure_stage=2; break;
+            case 8: power_failure_stage=4; break;
+            case 9: power_failure_stage=2; test_supply.configured=1; test_supply.transition_count=1; break;
+            case 10: power_failure_stage=3; test_supply.configured=1; test_supply.transition_count=1;
+                     test_supply.transitions[0].reset=1; break;
+            case 11: provider.power_supply=null_supply; break;
+            case 12: test_supply.overflow=1; break;
+            case 13: cfg.components[cfg.component_count++]=cfg.components[0]; break;
+        }
+        TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_commit_power(&cfg,0));
+        TEST_ASSERT_EQUAL_INT(0,simulith_42_pending_commands());
+    }
+    power_failure_stage=0;
+}
+
+static void test_power_failures_withhold_prepare_and_commit(void)
+{
+    simulith_power_runtime_t load={0};
+    simulith_power_runtime_t peer_load={0};
+    component_interface_t provider={VALID_COMPONENT_API,.name="eps_sim",.power_supply=test_get_supply};
+    component_interface_t consumer={VALID_COMPONENT_API,.name="demo_sim",.power_configure=test_configure_load,
+        .power_set=test_set_load,.power_reset=test_reset_load,.power_snapshot=fail_power_snapshot};
+    TEST_ASSERT_EQUAL_INT(0,initialize_components(&g_director_config));
+    memset(&test_supply,0,sizeof(test_supply));
+    test_supply.configured=1;
+    strcpy(test_supply.loads[0].component,"demo_sim");
+    g_director_config.component_count=2;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&provider,.state=(component_state_t *)&test_supply};
+    g_director_config.components[1]=(component_entry_t){.active=1,.interface=&consumer,.state=(component_state_t *)&load};
+    power_failure_stage=4;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_prepare_tick(1,0));
+    power_failure_stage=0;
+    consumer.power_snapshot=NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_prepare_tick(2,100));
+    consumer.power_snapshot=fail_power_snapshot;
+    strcpy(test_supply.loads[0].component,"missing_sim");
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_prepare_tick(3,200));
+    strcpy(test_supply.loads[0].component,"demo_sim");
+    provider.power_supply=null_supply;
+    TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(4,300)); /* No supplied snapshot to read. */
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,director_commit_tick(4,300));
+    provider.power_supply=test_get_supply;
+    component_interface_t peer=consumer; peer.name="adcs_sim";
+    strcpy(test_supply.loads[1].component,"adcs_sim");
+    test_supply.loads[1].switch_id=1;
+    g_director_config.components[g_director_config.component_count++]=(component_entry_t){
+        .active=1,.interface=&peer,.state=(component_state_t *)&peer_load};
+    test_supply.transitions[0]=(simulith_power_transition_t){.switch_id=0,.reset=1};
+    test_supply.transition_count=1;
+    TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(5,400));
+    TEST_ASSERT_EQUAL_INT(0,director_commit_tick(5,400));
+    TEST_ASSERT_EQUAL_size_t(0,test_supply.transition_count);
+    TEST_ASSERT_EQUAL_INT(0,simulith_42_pending_commands());
+    cleanup_components(&g_director_config);
+}
+
+static void test_invalid_initial_power_topology_stops_startup(void)
+{
+    component_interface_t provider={VALID_COMPONENT_API,.name="eps_sim",.power_supply=test_get_supply,
+        .create=fake_init,.on_tick=fake_tick,.destroy=fake_cleanup};
+    memset(&test_supply,0,sizeof(test_supply));
+    strcpy(test_supply.loads[0].component,"missing_sim");
+    g_director_config.component_count=1;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&provider};
+    TEST_ASSERT_EQUAL_INT(-1,initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0,g_director_config.threads_spawned);
+    cleanup_components(&g_director_config);
+}
 static void test_eps_topology_all_switches_shared_rails_and_order(void)
 {
     static const char *names[] = {"demo_sim", "adcs_sim", "radio_sim"};
@@ -1582,6 +1878,30 @@ static void test_power_transition_precedes_actuation_and_cannot_emit_commands(vo
     cleanup_components(&g_director_config);
 }
 
+static void test_backdoor_udp_drops_empty_oversized_and_malformed_datagrams(void)
+{
+    TEST_ASSERT_EQUAL_INT(0,initialize_components(&g_director_config));
+    TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(0,0));
+    TEST_ASSERT_EQUAL_INT(0,director_commit_tick(0,0));
+    component_interface_t receiver={VALID_COMPONENT_API,.name="eps_sim",.backdoor=fake_backdoor};
+    g_director_config.component_count=1;
+    g_director_config.components[0]=(component_entry_t){.active=1,.interface=&receiver,.state=&fake_state};
+    uint8_t large[1700]={0};
+    uint8_t valid[]={'B','A','C','K','D','O','O','R',7,'e','p','s','_','s','i','m',0,1,0,2,0x12,0x34};
+    for (unsigned int i=0; i<4; i++) {
+        if (i==0) send_backdoor_datagram(large,0);
+        if (i==1) send_backdoor_datagram(large,sizeof(large));
+        if (i==2) send_backdoor_datagram(large,32);
+        if (i==3) send_backdoor_datagram(valid,sizeof(valid));
+        TEST_ASSERT_EQUAL_INT(0,director_prepare_tick(i+1,(i+1)*100));
+        TEST_ASSERT_EQUAL_INT(0,director_commit_tick(i+1,(i+1)*100));
+        TEST_ASSERT_EQUAL_INT(i==3 ? 1 : 0,fake_backdoor_calls);
+    }
+    TEST_ASSERT_EQUAL_HEX16(1,fake_backdoor_command);
+    TEST_ASSERT_EQUAL_HEX8(0x12,fake_backdoor_payload[0]);
+    cleanup_components(&g_director_config);
+}
+
 static void test_backdoor_exact_framing_and_byte_order(void)
 {
     director_config_t config = {0};
@@ -1596,21 +1916,78 @@ static void test_backdoor_exact_framing_and_byte_order(void)
         TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, n));
     TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, sizeof(packet)));
     TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, NULL, 22));
+    TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(NULL, packet, sizeof(packet)-1));
+    iface.name="long_eps_sim";
+    TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, sizeof(packet)-1));
+    iface.name="eps_sim";
     packet[9]='x';
     TEST_ASSERT_EQUAL_INT(-1, director_dispatch_backdoor(&config, packet, sizeof(packet)-1));
+}
+
+
+static void assert_42_timing_count(unsigned expected_count)
+{
+    FILE *output = tmpfile(); TEST_ASSERT_NOT_NULL(output);
+    fflush(stdout); int saved = dup(STDOUT_FILENO);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, saved);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, dup2(fileno(output), STDOUT_FILENO));
+    director_write_terminal_metrics(); fflush(stdout);
+    int restored = dup2(saved, STDOUT_FILENO); close(saved);
+    rewind(output); char text[8192] = {0};
+    size_t used = fread(text, 1, sizeof(text) - 1, output); fclose(output);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, restored); TEST_ASSERT_GREATER_THAN(0, used);
+    char expected[80]; snprintf(expected, sizeof(expected), "\"name\":\"42_state\",\"count\":%u", expected_count);
+    TEST_ASSERT_NOT_NULL(strstr(text, expected));
+}
+static void test_timing_warmup_validation_and_measurement_boundary(void)
+{
+    const char *values[] = {"", "bad", "0s", "nan", "inf", "-1", "1e100", "0", "0.02"};
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+        setenv("SIMULITH_WARMUP", values[i], 1);
+        memset(&g_director_config, 0, sizeof(g_director_config));
+        TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, director_prepare_tick(0, 0));
+        unsigned first_count = i == 8 ? 0 : 1;
+        assert_42_timing_count(first_count);
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, director_prepare_tick(1, 20000000));
+        assert_42_timing_count(first_count + 1);
+        cleanup_components(&g_director_config);
+    }
+}
+static void test_trace_duration_rejects_invalid_environment_values(void)
+{
+    unsetenv("SIMULITH_DURATION");
+    TEST_ASSERT_EQUAL_INT(0, director_configure_trace_duration());
+    setenv("SIMULITH_DURATION", "", 1);
+    TEST_ASSERT_EQUAL_INT(0, director_configure_trace_duration());
+    const char *invalid[] = {"bad", "1s", "nan", "inf", "0", "-1", "1e100"};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        setenv("SIMULITH_DURATION", invalid[i], 1);
+        TEST_ASSERT_EQUAL_INT(-1, director_configure_trace_duration());
+    }
+    setenv("SIMULITH_DURATION", "0.02", 1);
+    TEST_ASSERT_EQUAL_INT(0, director_configure_trace_duration());
 }
 
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_power_topology_and_callback_failures_are_rejected);
+    RUN_TEST(test_power_failures_withhold_prepare_and_commit);
+    RUN_TEST(test_invalid_initial_power_topology_stops_startup);
     RUN_TEST(test_eps_topology_all_switches_shared_rails_and_order);
     RUN_TEST(test_backdoor_exact_framing_and_byte_order);
+    RUN_TEST(test_backdoor_udp_drops_empty_oversized_and_malformed_datagrams);
     RUN_TEST(test_actuation_boundary_rejects_early_outputs_and_drains_without_42);
     RUN_TEST(test_power_transition_precedes_actuation_and_cannot_emit_commands);
     RUN_TEST(test_parse_args);
     RUN_TEST(test_scenario_validation_and_one_shot_injection);
     RUN_TEST(test_scenario_parser_rejects_malformed_payloads);
     RUN_TEST(test_scenario_injection_reports_send_failure);
+    RUN_TEST(test_scenario_field_validation_and_whitespace);
+    RUN_TEST(test_scenario_packet_command_and_file_boundaries);
+    RUN_TEST(test_scenario_dns_retries_and_recovery);
+    RUN_TEST(test_scenario_io_failures_can_recover);
     RUN_TEST(test_component_loading_paths);
     RUN_TEST(test_component_loading_accepts_only_valid_plugins);
     RUN_TEST(test_component_worker_start_failures_are_cleaned_up);
@@ -1631,5 +2008,7 @@ int main(void)
     RUN_TEST(test_tick_command_failure_and_boundary_paths);
     RUN_TEST(test_commit_reports_42_and_scenario_failures);
     RUN_TEST(test_director_identity_validations_and_terminal_metrics);
+    RUN_TEST(test_timing_warmup_validation_and_measurement_boundary);
+    RUN_TEST(test_trace_duration_rejects_invalid_environment_values);
     return UNITY_END();
 }

@@ -199,6 +199,55 @@ static void test_pending_count_preserves_independent_outputs(void)
     TEST_ASSERT_EQUAL_INT(0, simulith_42_pending_commands());
 }
 
+
+static void test_null_vectors_leave_queue_and_stats_unchanged(void)
+{
+    const double vector3[3] = {0}, vector4[4] = {0};
+    simulith_42_cmd_queue_stats_t before, after;
+    simulith_42_get_command_queue_stats(&before);
+    int pending = simulith_42_pending_commands();
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_mtb_command(0, NULL, 7));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_wheel_command(0, NULL, 15));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_thruster_command(0, NULL, vector3, 7));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_thruster_command(0, vector3, NULL, 7));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_42_send_wheel_command(-1, vector4, 15));
+    simulith_42_get_command_queue_stats(&after);
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof(before));
+    TEST_ASSERT_EQUAL_INT(pending, simulith_42_pending_commands());
+}
+static void test_thruster_stats_follow_enabled_nonzero_axes(void)
+{
+    const double zero[3] = {0}, nonzero[3] = {1, -2, 3};
+    const struct { const double *thrust, *torque; int mask, actuating; } cases[] = {
+        {zero, zero, 7, 0}, {nonzero, nonzero, 0, 0},
+        {zero, nonzero, 4, 1}, {nonzero, zero, 2, 1},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        simulith_42_cmd_queue_stats_t before, after;
+        simulith_42_get_command_queue_stats(&before);
+        TEST_ASSERT_EQUAL_INT(0, simulith_42_send_thruster_command(0, cases[i].thrust,
+            cases[i].torque, cases[i].mask));
+        simulith_42_command_t command;
+        TEST_ASSERT_EQUAL_INT(0, dequeue_command(&command));
+        TEST_ASSERT_EQUAL_INT(cases[i].mask, command.cmd.thruster.enable_mask);
+        TEST_ASSERT_EQUAL_MEMORY(cases[i].thrust, command.cmd.thruster.thrust, sizeof(zero));
+        TEST_ASSERT_EQUAL_MEMORY(cases[i].torque, command.cmd.thruster.torque, sizeof(zero));
+        simulith_42_get_command_queue_stats(&after);
+        TEST_ASSERT_EQUAL_UINT64(before.nonzero_actuator_commands + cases[i].actuating,
+                                 after.nonzero_actuator_commands);
+        TEST_ASSERT_EQUAL_UINT64(before.by_type[SIMULITH_42_CMD_THRUSTER] + 1,
+                                 after.by_type[SIMULITH_42_CMD_THRUSTER]);
+    }
+    simulith_42_command_t sentinel = {.type = SIMULITH_42_CMD_COUNT};
+    simulith_42_cmd_queue_stats_t before, after;
+    simulith_42_get_command_queue_stats(&before);
+    TEST_ASSERT_EQUAL_INT(0, enqueue_command(&sentinel));
+    TEST_ASSERT_EQUAL_INT(0, dequeue_command(&sentinel));
+    simulith_42_get_command_queue_stats(&after);
+    TEST_ASSERT_EQUAL_MEMORY(before.by_type, after.by_type, sizeof(before.by_type));
+    TEST_ASSERT_EQUAL_UINT64(before.nonzero_actuator_commands, after.nonzero_actuator_commands);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -208,5 +257,7 @@ int main(void)
     RUN_TEST(test_helper_wrappers);
     RUN_TEST(test_set_mode_extra_and_defaults);
     RUN_TEST(test_command_api_argument_guards_and_torque_only_thruster);
+    RUN_TEST(test_null_vectors_leave_queue_and_stats_unchanged);
+    RUN_TEST(test_thruster_stats_follow_enabled_nonzero_axes);
     return UNITY_END();
 }

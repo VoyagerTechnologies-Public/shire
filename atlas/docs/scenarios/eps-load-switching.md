@@ -80,6 +80,8 @@ The barrier keeps scheduled downlink drains complete before time advances.
 Ordinary manual starts retain the default asynchronous 20 Hz downlink behavior.
 An explicit `SHIRE_SYNCHRONIZE_GROUND_OUTPUT` environment value overrides the scenario setting.
 Validation builds retain all flight events and reject unexpected errors.
+`retain_all_events: true` raises the runtime EVS burst and refill limits.
+Unit-test builds keep the baseline EVS limits so the cFE squelching tests can exercise counter saturation without overflowing their test arithmetic.
 The 1200-second simulated run budget accommodates fresh FSW housekeeping at normal and accelerated timing.
 Verification measures freshness from before each command, followed by accelerated completion.
 Use `--simulith-speed 1` or `--simulith-speed 2` with `tools/shire-scenario.py` to repeat a scenario from a fresh start.

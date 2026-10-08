@@ -2506,6 +2506,34 @@ static void test_powered_off_and_booting_requests_complete_without_payload(void)
     g_iface->destroy(state);
 }
 
+static void test_power_callback_contract_and_off_prepare(void)
+{
+    simulith_power_load_config_t cfg = {0};
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(NULL, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_reset(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(NULL, 1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(NULL, 0, &snapshot));
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(state, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(state, 0, NULL));
+    cfg.boot_delay_s = 1; cfg.boot_w = 4; cfg.mode_w[0] = 2; cfg.scale = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, -1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, 2, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_prepare_tick(state, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 0, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_reset(state, 100));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 100, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    g_iface->destroy(state);
+}
+
 static void test_eps_power_cycle_boot_and_mode_demand(void)
 {
     component_state_t *state = NULL;
@@ -2643,6 +2671,7 @@ int main(void)
 
     /* Lifecycle / Loader */
     RUN_TEST(test_powered_off_and_booting_requests_complete_without_payload);
+    RUN_TEST(test_power_callback_contract_and_off_prepare);
     RUN_TEST(test_eps_power_cycle_boot_and_mode_demand);
     RUN_TEST(test_owned_actuators_survive_power_cycles_without_affecting_peers);
     RUN_TEST(test_dlopen_adcs_sim_so);

@@ -26,7 +26,8 @@ typedef enum
     RECV_STOP_TICK,
     RECV_EAGAIN_THEN_STOP,
     RECV_OVERSIZED,
-    RECV_SHARED_PHASE_RACE
+    RECV_SHARED_PHASE_RACE,
+    RECV_SCRIPTED
 } receive_mode_t;
 
 static int socket_calls;
@@ -40,6 +41,11 @@ static receive_mode_t receive_mode;
 static int shared_phase_receives;
 static int shared_phase_completions;
 static int shared_complete_failure;
+static int shared_connect_failure, shared_receive_status;
+static const char *scripted_reply;
+static simulith_tick_message_t scripted_tick;
+static simulith_shared_barrier_t *connected_barrier;
+
 
 void simulith_log(const char *format, ...)
 {
@@ -128,6 +134,11 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
     (void)flags;
     receive_calls++;
     switch (receive_mode) {
+        case RECV_SCRIPTED:
+            if (scripted_reply) return copy_reply(buffer, length, scripted_reply);
+            if (length < sizeof(scripted_tick)) return -1;
+            memcpy(buffer, &scripted_tick, sizeof(scripted_tick));
+            return sizeof(scripted_tick);
         case RECV_EAGAIN:
             errno = EAGAIN;
             return -1;
@@ -219,7 +230,9 @@ int __wrap_zmq_recv(void *socket, void *buffer, size_t length, int flags)
 
 int __wrap_simulith_shared_barrier_connect(simulith_shared_barrier_t *barrier, int slot)
 {
+    if (shared_connect_failure || slot < 0 || slot >= SIMULITH_SHARED_BARRIER_SLOTS) return -1;
     barrier->slot = slot;
+    connected_barrier = barrier;
     return 0;
 }
 
@@ -229,6 +242,7 @@ int __wrap_simulith_shared_barrier_receive(simulith_shared_barrier_t *barrier,
 {
     (void)barrier;
     shared_phase_receives++;
+    if (shared_receive_status) return shared_receive_status;
     *sequence = (uint64_t)shared_phase_receives;
     *time_ns = 100 + (uint64_t)shared_phase_receives;
     *phase = SIMULITH_PHASE_EXECUTE;
@@ -271,11 +285,15 @@ void setUp(void)
     shared_phase_receives = 0;
     shared_phase_completions = 0;
     shared_complete_failure = 0;
+    shared_connect_failure = shared_receive_status = 0;
+    scripted_reply = NULL; memset(&scripted_tick, 0, sizeof(scripted_tick));
+    connected_barrier = NULL;
 }
 
 void tearDown(void)
 {
     simulith_client_shutdown();
+    unsetenv("SIMULITH_SYNC_TRANSPORT");
 }
 
 static void test_client_initialization_resource_failures(void)
@@ -505,6 +523,115 @@ static void test_client_rejects_non_monotonic_simulation_time(void)
     TEST_ASSERT_EQUAL_UINT64(101, time_ns);
 }
 
+
+static void test_identity_bounds_and_explicit_zmq_override(void)
+{
+    char long_id[65]; memset(long_id, 'a', sizeof(long_id) - 1); long_id[64] = 0;
+    const char *bad[] = {"", "a/b", long_id};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        TEST_ASSERT_EQUAL_INT(-1, simulith_client_init("pub", "rep", bad[i], 1));
+    TEST_ASSERT_EQUAL_INT(0, socket_calls);
+    long_id[63] = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", long_id, 1));
+    simulith_client_shutdown();
+    setenv("SIMULITH_SYNC_TRANSPORT", "zmq", 1);
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "ipc:///tmp/unused", "a-_.9", 1));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_handshake()); /* slotless ACK is valid for ZMQ */
+    TEST_ASSERT_NULL(connected_barrier);
+    simulith_client_shutdown();
+    setenv("SIMULITH_SYNC_TRANSPORT", "shared", 1);
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "ipc:///tmp/unused", "id", 1));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake()); /* shared requires a slot */
+}
+static void test_shared_handshake_slots_and_connect_failure(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "ipc:///tmp/unused", "id", 1));
+    receive_mode = RECV_SCRIPTED;
+    const char *bad[] = {"ACK 1 trailing", "ACK -1", "ACK 32"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        scripted_reply = bad[i];
+        TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    }
+    scripted_reply = "ACK 31"; shared_connect_failure = 1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_handshake());
+    shared_connect_failure = 0;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_configure_phases(
+        SIMULITH_PHASE_MASK_PREPARE | SIMULITH_PHASE_MASK_EXECUTE | SIMULITH_PHASE_MASK_COMMIT));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_handshake());
+    TEST_ASSERT_NOT_NULL(connected_barrier);
+    TEST_ASSERT_EQUAL_INT(31, connected_barrier->slot);
+    TEST_ASSERT_TRUE(connected_barrier->fast_receive_safe);
+}
+static void test_receive_outputs_and_completion_identity_guards(void)
+{
+    uint64_t time_ns, sequence; simulith_phase_t phase;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_configure_phases(SIMULITH_PHASE_MASK_COMMIT));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(0, SIMULITH_PHASE_EXECUTE));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 10));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_wait_for_tick(NULL));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(NULL, &sequence, &phase));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(&time_ns, NULL, &phase));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(&time_ns, &sequence, NULL));
+    TEST_ASSERT_EQUAL_INT(0, receive_calls);
+    receive_mode = RECV_SCRIPTED;
+    scripted_tick = (simulith_tick_message_t){.magic = SIMULITH_PROTOCOL_MAGIC,
+        .version = SIMULITH_PROTOCOL_VERSION, .sequence = 1, .time_ns = 100,
+        .phase = SIMULITH_PHASE_PREPARE};
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence, 0));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence, SIMULITH_PHASE_STOP));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence + 1, phase));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence, SIMULITH_PHASE_EXECUTE));
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence, phase)); /* not subscribed */
+    TEST_ASSERT_EQUAL_INT(0, send_calls);
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_configure_phases(SIMULITH_PHASE_MASK_PREPARE));
+    receive_mode = RECV_ACK;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_complete_tick(sequence, phase));
+    TEST_ASSERT_EQUAL_INT(1, send_calls);
+}
+static void test_bad_header_sequence_and_rate_do_not_replace_last_valid_tick(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "rep", "id", 10));
+    receive_mode = RECV_SCRIPTED;
+    const simulith_tick_message_t valid = {.magic = SIMULITH_PROTOCOL_MAGIC,
+        .version = SIMULITH_PROTOCOL_VERSION, .sequence = 10, .time_ns = 100,
+        .phase = SIMULITH_PHASE_PREPARE};
+    uint64_t time_ns, sequence; simulith_phase_t phase;
+    for (int bad = 0; bad < 3; bad++) {
+        scripted_tick = valid;
+        if (bad == 0) scripted_tick.version++;
+        if (bad == 1) scripted_tick.phase = 0;
+        if (bad == 2) scripted_tick.phase = SIMULITH_PHASE_STOP + 1;
+        TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    }
+    scripted_tick = valid;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    for (int bad = 0; bad < 3; bad++) {
+        scripted_tick = valid;
+        if (bad == 0) scripted_tick.sequence = 9;
+        if (bad == 1) { scripted_tick.sequence = 12; scripted_tick.time_ns = 120; }
+        if (bad == 2) { scripted_tick.sequence = 11; scripted_tick.time_ns = 119; }
+        TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    }
+    scripted_tick = valid; scripted_tick.sequence = 11; scripted_tick.time_ns = 110;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_UINT64(11, sequence); TEST_ASSERT_EQUAL_UINT64(110, time_ns);
+}
+static void test_shared_receive_stop_and_rejection(void)
+{
+    receive_mode = RECV_SHARED_PHASE_RACE;
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_init("pub", "ipc:///tmp/unused", "shire-fsw", 10));
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_handshake());
+    uint64_t time_ns, sequence; simulith_phase_t phase = 0;
+    shared_receive_status = -1;
+    TEST_ASSERT_EQUAL_INT(-1, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    shared_receive_status = 1;
+    TEST_ASSERT_EQUAL_INT(1, simulith_client_receive_phase(&time_ns, &sequence, &phase));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_PHASE_STOP, phase);
+    TEST_ASSERT_EQUAL_INT(0, simulith_client_run_phased_loop(NULL, NULL, NULL));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -519,5 +646,10 @@ int main(void)
     RUN_TEST(test_phased_loop_dispatches_execute_and_commit);
     RUN_TEST(test_client_rejects_invalid_duplicate_and_stop_ticks);
     RUN_TEST(test_client_rejects_non_monotonic_simulation_time);
+    RUN_TEST(test_identity_bounds_and_explicit_zmq_override);
+    RUN_TEST(test_shared_handshake_slots_and_connect_failure);
+    RUN_TEST(test_receive_outputs_and_completion_identity_guards);
+    RUN_TEST(test_bad_header_sequence_and_rate_do_not_replace_last_valid_tick);
+    RUN_TEST(test_shared_receive_stop_and_rejection);
     return UNITY_END();
 }
