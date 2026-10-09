@@ -51,7 +51,7 @@ class EpsConfigurationTests(unittest.TestCase):
         self.assertEqual(bank['load_power_w'],20)
         self.assertEqual(bank['label'],'Load bank')
         self.assertFalse(bank['startup_on'])
-        self.assertEqual(cfg['max_solar_power_w'],12)
+        self.assertEqual(cfg['max_solar_power_w'],BASE['max_solar_power_w'])
         self.assertFalse(any(load['switch']==5 for load in cfg['loads'].values()))
         text=Template((ROOT/'comp/eps/support/device_config.j2').read_text()).render(config=cfg)
         self.assertIn('#define EPS_SWITCH_LOAD_W { 0.0, 0.0, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0 }',text)

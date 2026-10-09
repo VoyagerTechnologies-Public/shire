@@ -16,7 +16,7 @@ JOBS := $(shell if [ $(NPROC) -le 1 ]; then echo 1; else expr $(NPROC) - 1; fi)
 all: runtime
 
 build:
-	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME) -w $(CURDIR) --user $(shell id -u):$(shell id -g) -e BUILDDIR=$(BUILDDIR) $(BUILD_IMAGE) make -j$(JOBS) build-cli
+	docker run --rm -v $(SHIRE_DIR):$(SHIRE_DIR) --name $(RUNTIME_NAME)-build -w $(CURDIR) --user $(shell id -u):$(shell id -g) -e BUILDDIR=$(BUILDDIR) $(BUILD_IMAGE) make -j$(JOBS) build-cli
 
 build-cli:
 	mkdir -p $(BUILDDIR) && \

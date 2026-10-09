@@ -62,6 +62,8 @@ For the default DRM, these are `build/drm/shire-compose.yaml` and `build/drm/cli
 
 The DRM contains 42, GSW, Server, Director, CryptoLib, and FSW services.
 The CLI contains 42, Server, Director, and the selected component CLI.
+The Director loads the mission's configured component simulators, including consumers wired to EPS.
+`make cli` builds these simulators together so power mappings never reference an omitted device.
 The component simulator libraries run inside the Director rather than as separate services.
 
 Build and start the DRM with:

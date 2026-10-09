@@ -889,6 +889,74 @@ static void test_subsecond_energy_and_telemetry_balance(void)
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_prepare_tick((component_state_t *)&s, 1, &ctx));
 }
 
+static void test_console_layout_all_fields_and_buffer_bounds(void)
+{
+    eps_sim_state_t s;
+    TEST_ASSERT_EQUAL_INT(0, g_eps_sim_init(&s));
+    s.battery_energy_wh=12; s.initial_energy_wh=10;
+    s.solar_energy_wh=3; s.load_energy_wh=2; s.adjustment_wh=1;
+    s.solar_power_w=4; s.solar_override=1; s.solar_override_w=9;
+    s.backdoor_accepted=17; s.backdoor_rejected=18;
+    s.backdoor_last_id=EPS_BD_SET_SOLAR; s.backdoor_last_status=1;
+    s.backdoor_generation=19; s.backdoor_applied_ns=UINT64_C(2000000000);
+    s.crc_remaining=20; s.fail_remaining=21; s.fail_selector=3;
+    s.requests_successful=22; s.requests_rejected=23;
+    s.power.configured=1;
+    for (unsigned int j=0; j<8; j++) {
+        s.power.requested[j]=j%2;
+        s.power.effective[j]=!(j%2);
+        s.power.fault[j]=j%3;
+        s.power.voltage[j]=j+2;
+    }
+    for (unsigned int j=0; j<3; j++) {
+        strcpy(s.power.loads[j].component,"fixture");
+        s.power.loads[j].switch_id=j ? 2*j+2 : 0;
+        s.power.loads[j].scale=j+1;
+        s.power.snapshots[j]=(simulith_power_snapshot_t){
+            .supplied=1, .ready=j%2, .mode=j+1, .cycles=30+j,
+            .successful_requests=40+j, .rejected_requests=50+j,
+            .last_response_ns=(j+1)*UINT64_C(1000000000), .watts=2*j+3,
+            .rf_received=60+j, .rf_sent=70+j};
+    }
+    double expected[110]={1, 3, 12, 12/EPS_BATTERY_CAPACITY_WH, 4,
+        EPS_BASE_LOAD_W+15, 12, 0, 17, 18, EPS_BD_SET_SOLAR, 1,
+        19, 2, 1, 20, 21, 3, 10, 3, 2, 1};
+    const double rail_watts[8]={3,0,0,0,5,0,7,0};
+    for (unsigned int j=0; j<8; j++) {
+        size_t offset=22+6*j;
+        expected[offset]=j%2;
+        expected[offset+1]=!(j%2);
+        expected[offset+2]=j%3;
+        expected[offset+3]=j%2 ? 0 : j+2;
+        expected[offset+4]=rail_watts[j]/(j+2);
+        expected[offset+5]=rail_watts[j];
+    }
+    for (unsigned int j=0; j<3; j++) {
+        const double fields[12]={1,j%2,j+1,30+j,40+j,50+j,j+1,
+                                2*j+3,j+1,60+j,70+j,j ? 2*j+2 : 0};
+        memcpy(expected+70+12*j,fields,sizeof(fields));
+    }
+    expected[106]=UINT64_C(2000000000)/INTERVAL_NS;
+    expected[107]=9; expected[108]=22; expected[109]=23;
+    uint8_t packet[110*8+16];
+    memset(packet,0xa5,sizeof(packet));
+    TEST_ASSERT_EQUAL_size_t(110*8,g_console_state((component_state_t *)&s,
+        UINT64_C(3000000000),1,packet,sizeof(packet)));
+    const uint8_t little_endian_one[8]={0,0,0,0,0,0,0xf0,0x3f};
+    TEST_ASSERT_EQUAL_MEMORY(little_endian_one,packet,8);
+    for (unsigned int j=0; j<110; j++) {
+        uint64_t bits=0;
+        for (unsigned int k=0; k<8; k++) bits|=(uint64_t)packet[j*8+k]<<(8*k);
+        double value; memcpy(&value,&bits,sizeof(value));
+        TEST_ASSERT_DOUBLE_WITHIN(1e-12,expected[j],value);
+    }
+    for (size_t j=110*8; j<sizeof(packet); j++) TEST_ASSERT_EQUAL_HEX8(0xa5,packet[j]);
+    memset(packet,0xa5,sizeof(packet));
+    TEST_ASSERT_EQUAL_size_t(0,g_console_state((component_state_t *)&s,
+        0,0,packet,110*8-1));
+    for (size_t j=0; j<sizeof(packet); j++) TEST_ASSERT_EQUAL_HEX8(0xa5,packet[j]);
+}
+
 static int capture_actuate(eps_sim_state_t *s, uint64_t ns, char *output, size_t capacity)
 {
     simulith_42_context_t context = {.valid = 1, .dyn_time = 1.0};
@@ -928,6 +996,21 @@ static void test_console_state_requires_debug(void)
     TEST_ASSERT_EQUAL_STRING("", output);
     TEST_ASSERT_EQUAL_INT(0, capture_actuate(&s, 990000000, output, sizeof(output)));
     TEST_ASSERT_NOT_NULL(strstr(output, "EPS_SIM_STATE {\"time_ns\":990000000,\"values\":["));
+    TEST_ASSERT_EQUAL_size_t(sizeof(packet),g_console_state(
+        (component_state_t *)&s,990000000,1,packet,sizeof(packet)));
+    char *cursor=strchr(output,'[')+1;
+    for (unsigned int j=0; j<EPS_CONSOLE_DOUBLES; j++) {
+        char *end=NULL;
+        double value=strtod(cursor,&end), expected;
+        uint64_t bits=0;
+        for (unsigned int k=0; k<8; k++) bits|=(uint64_t)packet[j*8+k]<<(8*k);
+        memcpy(&expected,&bits,sizeof(expected));
+        TEST_ASSERT_NOT_EQUAL(cursor,end);
+        TEST_ASSERT_DOUBLE_WITHIN(1e-12,expected,value);
+        TEST_ASSERT_EQUAL_CHAR(j+1<EPS_CONSOLE_DOUBLES ? ',' : ']',*end);
+        cursor=end+1;
+    }
+    TEST_ASSERT_EQUAL_STRING("}\n",cursor);
     g_iface->backdoor((component_state_t *)&s, EPS_BD_RESET, NULL, 0);
     TEST_ASSERT_TRUE(s.debug_enabled);
     setenv("SIMULITH_EPS_DEBUG", "invalid", 1);
@@ -990,6 +1073,7 @@ int main(void)
     RUN_TEST(test_backdoor_state_fault_reset_and_validation);
     RUN_TEST(test_backdoor_crc_and_request_failure_counts);
     RUN_TEST(test_subsecond_energy_and_telemetry_balance);
+    RUN_TEST(test_console_layout_all_fields_and_buffer_bounds);
     RUN_TEST(test_console_state_requires_debug);
     RUN_TEST(test_dlopen_eps_sim_so);
     RUN_TEST(test_get_component_interface_symbol);

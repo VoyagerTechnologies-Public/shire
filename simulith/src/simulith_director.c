@@ -246,7 +246,11 @@ int director_commit_power(director_config_t *config, uint64_t ns)
             if (!e || !e->interface->power_configure || !e->interface->power_set ||
                 !e->interface->power_snapshot || !e->interface->power_reset || l->switch_id >= SIMULITH_POWER_SWITCHES ||
                 e->interface->power_configure(e->state, l) != COMPONENT_SUCCESS)
+            {
+                fprintf(stderr, "Power topology: provider %s requires available, power-capable consumer %s on switch %u\n",
+                        provider->interface->name, l->component, (unsigned int)l->switch_id);
                 return COMPONENT_ERROR;
+            }
             if (!p->configured && e->interface->power_set(e->state,
                     p->effective[l->switch_id], ns) != COMPONENT_SUCCESS) return COMPONENT_ERROR;
         }

@@ -7,6 +7,12 @@ const component_interface_t *get_component_interface(void);
 #define EPS_HK_UPDATE_PERIOD_NS 1000000000ULL
 #define EPS_PRNG_INITIAL_STATE 0x45505331U
 
+/* Debug layout: 22 provider fields, six per rail, twelve per consumer,
+ * and four trailing application/request fields. */
+_Static_assert(EPS_CONSOLE_DOUBLES == 22U + 6U * EPS_NUM_SWITCHES +
+               12U * SIMULITH_POWER_LOADS + 4U, "EPS console layout mismatch");
+_Static_assert(sizeof(double) == sizeof(uint64_t), "EPS console requires 64-bit doubles");
+
 typedef enum { EPS_COMMAND_ERROR = -1, EPS_COMMAND_SUCCESS = 0,
                EPS_COMMAND_REJECTED = 1 } eps_command_result_t;
 
@@ -159,9 +165,9 @@ static int eps_component_actuate(component_state_t *state, uint64_t ns,
     if (s->debug_enabled && context && context->valid &&
         ns % UINT64_C(1000000000) == UINT64_C(1000000000) - INTERVAL_NS) {
         uint8_t packet[EPS_CONSOLE_DOUBLES * 8U];
-        if (eps_sim_console_state(state, ns, context->dyn_time,
-                                          packet, sizeof(packet)) != sizeof(packet))
-            return COMPONENT_ERROR;
+        /* State and buffer are valid here, and the fixed layout is checked
+         * at compile time. Optional debug output cannot fail actuation. */
+        (void)eps_sim_console_state(state, ns, context->dyn_time, packet, sizeof(packet));
         flockfile(stdout);
         printf("EPS_SIM_STATE {\"time_ns\":%llu,\"values\":[", (unsigned long long)ns);
         for (unsigned int k = 0; k < EPS_CONSOLE_DOUBLES; k++) {
@@ -408,7 +414,6 @@ size_t eps_sim_console_state(component_state_t *state, uint64_t ns,
     values[i++] = s->solar_override_w;
     values[i++] = (double)s->requests_successful;
     values[i++] = (double)s->requests_rejected;
-    if (i != EPS_CONSOLE_DOUBLES) return 0;
     for (size_t j = 0; j < i; j++) {
         uint64_t bits; memcpy(&bits, &values[j], 8);
         for (unsigned int k = 0; k < 8; k++) packet[j * 8 + k] = (uint8_t)(bits >> (k * 8));

@@ -54,6 +54,9 @@ The housekeeping format is as follows:
 
 ### Command Line Interface
 The CLI can be configured to connect to either the hardware or simulation.
+The simulated CLI builds the configured mission simulators along with the selected EPS CLI client.
+This includes DEMO, ADCS, and radio when wired to EPS in DRM, so switch commands control their simulated supplies.
+After changing the configuration or build code, run `make cli` before `make cli-start` to rebuild the images.
 This enables direct checkouts these without interference.
 Note that `make cfg` (tools/shire-orchestrator.py) must be run at the top level SHIRE to produce the required `./shared/device_cfg.h`.
 
