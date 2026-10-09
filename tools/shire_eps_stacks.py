@@ -73,7 +73,7 @@ def generate_stacks(cfg):
             self.command('/SHIRE_GROUND/RESTORE_UPLINK')
         def rail_current(self, name):
             rail = loads[name]['switch']
-            watts = sum(load['mode_power_w'][self.modes[peer]] * self.scales[peer]
+            watts = cfg['switches'][rail]['load_power_w'] + sum(load['mode_power_w'][self.modes[peer]] * self.scales[peer]
                         for peer, load in loads.items() if load['switch'] == rail)
             current = watts / cfg['switches'][rail]['voltage_v']
             return [(f'/EPS/SWITCH_{rail}_CURRENT','gte',max(0,current-10/255-1e-7)),
@@ -84,8 +84,8 @@ def generate_stacks(cfg):
             conditions = list(conditions)
             if suffix == 'SET_SOC':
                 voltage = cfg['battery_voltage_min'] + args['SOC_PPM']/1e6 * (cfg['battery_voltage_max']-cfg['battery_voltage_min'])
-                conditions += [('/EPS/BATTERY_VOLTAGE','gte',max(0,voltage-32/255-.02)),
-                               ('/EPS/BATTERY_VOLTAGE','lte',voltage+32/255+.02)]
+                conditions += [('/EPS/BATTERY_VOLTAGE','gte',max(0,voltage-(cfg['battery_voltage_max']-cfg['battery_voltage_min'])/255-.02)),
+                               ('/EPS/BATTERY_VOLTAGE','lte',voltage+(cfg['battery_voltage_max']-cfg['battery_voltage_min'])/255+.02)]
             elif suffix == 'SET_SOLAR' and args['MODE'] == 1:
                 voltage = 4.5 if args['POWER_MW'] else 0
                 conditions += [('/EPS/SOLAR_VOLTAGE','gte',max(0,voltage-32/255)),
@@ -153,8 +153,8 @@ def generate_stacks(cfg):
             for i,switch in enumerate(cfg['switches']):
                 enabled = switch['startup_on'] if startup else on
                 voltage=switch['voltage_v'] if enabled else 0
-                watts=sum(l['mode_power_w'][3 if name=='radio' else 0]*l['power_scale']
-                          for name,l in loads.items() if l['switch']==i) if enabled else 0
+                watts=(switch['load_power_w'] + sum(l['mode_power_w'][3 if name=='radio' else 0]*l['power_scale']
+                          for name,l in loads.items() if l['switch']==i)) if enabled else 0
                 for suffix,expected,count in (('VOLTAGE',voltage,32/255),('CURRENT',watts/switch['voltage_v'],10/255)):
                     parameter=f'/EPS/SWITCH_{i}_{suffix}'
                     conditions.extend([(parameter,'gte',max(0,expected-count-1e-7)),
@@ -301,6 +301,14 @@ def write_xtce(cfg, source, destination):
     ns = root.tag.split('}')[0][1:]
     ET.register_namespace('xtce', ns)
     tag = lambda name: '{'+ns+'}'+name
+    battery_type=root.find('.//'+tag('FloatParameterType')+"[@name='BATTERY_VOLTAGE_Type']")
+    if battery_type is not None:
+        low,high=cfg['battery_voltage_min'],cfg['battery_voltage_max']
+        battery_type.set('shortDescription',f'Battery Voltage ({low}-{high} V configured span)')
+        polynomial=battery_type.find('.//'+tag('PolynomialCalibrator'))
+        polynomial.clear()
+        ET.SubElement(polynomial,tag('Term'),coefficient=str(low),exponent='0')
+        ET.SubElement(polynomial,tag('Term'),coefficient=str((high-low)/255),exponent='1')
     values = root.find('.//'+tag('EnumeratedArgumentType')+"[@name='BD_COMPONENT']/"+tag('EnumerationList'))
     if values is not None:
         values.clear()
@@ -312,8 +320,8 @@ def write_xtce(cfg, source, destination):
     parameters=root.find('./'+tag('TelemetryMetaData')+'/'+tag('ParameterSet'))
     if parameters is not None:
         for i,switch in enumerate(cfg['switches']):
-            consumers=', '.join(name.upper() for name,load in cfg['loads'].items() if load['switch']==i) or 'unloaded'
-            description=f"{switch['label']}: {consumers}, {switch['voltage_v']} V, startup {'ON' if switch['startup_on'] else 'OFF'}"
+            consumers=', '.join(name.upper() for name,load in cfg['loads'].items() if load['switch']==i) or ('no device' if switch['load_power_w'] else 'unloaded')
+            description=f"{switch['label']}: {consumers}, passive load {switch['load_power_w']} W, {switch['voltage_v']} V, startup {'ON' if switch['startup_on'] else 'OFF'}"
             for suffix in ('STATE','VOLTAGE','CURRENT'):
                 parameter=parameters.find(tag('Parameter')+f"[@name='SWITCH_{i}_{suffix}']")
                 if parameter is not None:parameter.set('shortDescription',description)

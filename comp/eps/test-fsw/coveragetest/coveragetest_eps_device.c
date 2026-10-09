@@ -112,7 +112,7 @@ void Test_EPS_RequestHK(void)
     /* Test successful HK request with valid CRC */
     device.isOpen = I2C_OPEN;
     memset(&data, 0, sizeof(data));
-    data.battery_voltage = 200;
+    data.battery_voltage = 204; /* 80% of the configured battery voltage span. */
     data.battery_temperature = 50;
     data.solar_voltage = 180;
     data.solar_temperature = 45;
@@ -123,6 +123,8 @@ void Test_EPS_RequestHK(void)
     UT_SetDeferredRetcode(UT_KEY(i2c_read_transaction), 1, I2C_SUCCESS);
     status = EPS_RequestHK(&device, &data);
     UtAssert_True(status == I2C_SUCCESS, "RequestHK should succeed with valid CRC");
+    UtAssert_UINT32_EQ(data.battery_voltage, 204);
+    UtAssert_UINT32_EQ(sizeof(EPS_Device_HK_tlm_t), 29);
 }
 
 void Test_EPS_SetSwitch(void)

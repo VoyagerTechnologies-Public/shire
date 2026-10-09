@@ -2527,12 +2527,12 @@
         {
           "parameter": "/EPS/SWITCH_5_CURRENT",
           "operator": "gte",
-          "value": "0"
+          "value": "1.6274508803921568"
         },
         {
           "parameter": "/EPS/SWITCH_5_CURRENT",
           "operator": "lte",
-          "value": "0.039215786274509806"
+          "value": "1.7058824529411767"
         },
         {
           "parameter": "/EPS/SWITCH_6_VOLTAGE",

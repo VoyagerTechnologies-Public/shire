@@ -17,6 +17,43 @@ Each load belongs to one switch.
 Power demand is specified in watts per operating mode, with configurable boot demand, boot delay and power scale.
 Energy integrates using simulated elapsed time at every tick.
 Housekeeping publication does not control integration.
+`eps.base_load_w` adds always-on platform demand to the switched loads.
+It is currently configured as 2 W for illustrative platform demand, must be finite and nonnegative, and remains active when every rail is off.
+It consumes battery energy without contributing to any switch current.
+Set it in the mission or spacecraft YAML, for example by setting `eps.base_load_w` to `4.0`, then regenerate configuration and rebuild the simulators.
+
+The default battery stores 40 Wh and maps SOC linearly onto 16 to 24 V.
+The FSW battery voltage has a resolution of `(battery_voltage_max - battery_voltage_min) / 255`, about 0.03137 V per count with these defaults.
+It uses the full eight-bit field across the configured battery range, with resolved Yamcs calibration and unchanged packet layout.
+Rail and solar voltage scaling remain 32/255 V.
+At the configured 3.5 W demand, including the 2 W base load with DEMO powered, ADCS disabled, and radio asleep, a full voltage count takes about 2.7 simulated minutes in eclipse.
+Switch 5 defaults to a passive 20 W load bank at 12 V, labeled **Load bank**, with no attached component simulator.
+It starts off and can be enabled or disabled through normal EPS flight switch commands.
+When enabled alongside idle devices, total demand becomes 23.5 W and one voltage count takes about 24 simulated seconds in eclipse.
+Its current appears in FSW switch 5 housekeeping and its label appears in the EPS visualization.
+Configure the eight default passive loads through `eps.switch_load_power_w`, or override an individual switch with `load_power_w`.
+Mapped device demand is additional to these passive loads.
+Default assignments and mode power values are configured under `eps.default_loads` in `comp/eps/support/device_config.yaml`: DEMO on switch 0, ADCS on switch 4, and radio on switch 6.
+DRM's `eps.wire_default_loads: true` selects defaults for available devices.
+Mapped rails start on unless explicit switch startup states override them.
+Mission, spacecraft, and scenario YAML can override individual `default_loads` fields or provide higher-priority `eps.loads` settings.
+Setting `wire_default_loads: false` maps only explicitly listed `eps.loads` devices, while retaining their omitted settings from `default_loads`.
+Passive loads can share rails with devices and are included in the 10 A peak rail limit.
+Default solar capacity is 12 W, with output scaled by positive body-X solar incidence.
+The model assumes a single array surface normal along body +X, matching ADCS SUNSAFE's +X Sun-pointing target.
+Generation is `12 * max(0, cos(angle))` watts outside eclipse.
+At 0, 30, 60, and 90 degrees off-pointing this gives 12, about 10.4, 6, and 0 W.
+SUNSAFE increases ADCS demand from 0.5 to 2.5 W, giving about 5.5 W total nominal consumption with the load bank off and radio asleep.
+Direct Sun-pointing then leaves 6.5 W for charging, producing a full battery voltage count about every 1.4 simulated minutes.
+At 60 degrees, 6 W generation leaves just 0.5 W for charging.
+Greater off-pointing can cause discharge outside eclipse.
+Solar voltage housekeeping currently indicates generation present or absent and does not measure generated watts or pointing efficiency.
+At peak illumination with idle devices, the 8.5 W charging surplus produces a full voltage count in about 1.1 simulated minutes.
+Enabling the load bank exceeds solar generation even at peak illumination.
+Energy still decreases every tick while the reported voltage remains on one count.
+Solar generation is zero in eclipse under AUTO solar mode.
+A solar backdoor override continues to supply its configured power until AUTO is restored.
+The graph shows these FSW voltage readings, so a flat segment does not by itself indicate stalled energy integration.
 
 ## Executable demonstrations
 

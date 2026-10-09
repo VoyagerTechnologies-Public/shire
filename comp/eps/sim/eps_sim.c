@@ -26,7 +26,8 @@ static uint8_t encode(double value, double full_scale)
 
 static double rail_power(const eps_sim_state_t *s, unsigned int idx)
 {
-    double w = 0;
+    const double passive[] = EPS_SWITCH_LOAD_W;
+    double w = s->power.effective[idx] ? passive[idx] : 0;
     for (unsigned int j = 0; j < SIMULITH_POWER_LOADS; j++) {
         const simulith_power_load_config_t *l = &s->power.loads[j];
         if (l->component[0] && l->switch_id == idx && s->power.effective[idx])
@@ -37,11 +38,10 @@ static double rail_power(const eps_sim_state_t *s, unsigned int idx)
 
 static void refresh_hk(eps_sim_state_t *s)
 {
-    s->hk.battery_voltage = encode(EPS_BATTERY_VOLTAGE_MIN +
-        (s->battery_energy_wh / EPS_BATTERY_CAPACITY_WH) *
-        (EPS_BATTERY_VOLTAGE_MAX - EPS_BATTERY_VOLTAGE_MIN), 32.0);
+    /* Use the full byte across the configured battery span. */
+    s->hk.battery_voltage = encode(s->battery_energy_wh / EPS_BATTERY_CAPACITY_WH, 1.0);
     s->hk.solar_voltage = encode(s->solar_power_w > 0 ? 4.5 : 0, 32.0);
-    s->load_power_w = 0;
+    s->load_power_w = EPS_BASE_LOAD_W;
     for (unsigned int i = 0; i < EPS_NUM_SWITCHES; i++) {
         double w = rail_power(s, i);
         s->load_power_w += w;
@@ -276,7 +276,8 @@ static int scale_valid(const eps_sim_state_t *s, unsigned int load, double scale
 {
     if (!s->power.loads[load].component[0] || scale > 1000.0) return 0;
     for (unsigned int i = 0; i < EPS_NUM_SWITCHES; i++) {
-        double peak = 0;
+        const double passive[] = EPS_SWITCH_LOAD_W;
+        double peak = passive[i];
         for (unsigned int j = 0; j < SIMULITH_POWER_LOADS; j++) {
             const simulith_power_load_config_t *l = &s->power.loads[j];
             if (!l->component[0] || l->switch_id != i) continue;

@@ -246,12 +246,12 @@
         {
           "parameter": "/EPS/BATTERY_VOLTAGE",
           "operator": "gte",
-          "value": "19.85450980392157"
+          "value": "19.948627450980393"
         },
         {
           "parameter": "/EPS/BATTERY_VOLTAGE",
           "operator": "lte",
-          "value": "20.14549019607843"
+          "value": "20.051372549019607"
         }
       ]
     },

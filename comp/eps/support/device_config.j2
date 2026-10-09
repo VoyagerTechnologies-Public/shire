@@ -16,11 +16,13 @@
 #define EPS_BATTERY_VOLTAGE_MAX     {{ config.battery_voltage_max }}
 #define EPS_BATTERY_INITIAL_SOC     {{ config.battery_initial_soc }}
 #define EPS_MAX_SOLAR_POWER_W       {{ config.max_solar_power_w }}
-#define EPS_SWITCH_3V3_POWER_W      {{ config.switch_3v3_power_w }}
-#define EPS_SWITCH_5V_POWER_W       {{ config.switch_5v_power_w }}
-#define EPS_SWITCH_12V_POWER_W      {{ config.switch_12v_power_w }}
-#define EPS_SWITCH_24V_POWER_W      {{ config.switch_24v_power_w }}
+#ifndef EPS_BASE_LOAD_W
+#define EPS_BASE_LOAD_W           {{ config.base_load_w }}
+#endif
 
+#ifndef EPS_SWITCH_LOAD_W
+#define EPS_SWITCH_LOAD_W { {% for s in config.switches %}{{ s.load_power_w }}{{ ", " if not loop.last else "" }}{% endfor %} }
+#endif
 #define EPS_SWITCH_VOLTAGES { {% for s in config.switches %}{{ s.voltage_v }}{{ ", " if not loop.last else "" }}{% endfor %} }
 #define EPS_SWITCH_STARTUP { {% for s in config.switches %}{{ 1 if s.startup_on else 0 }}{{ ", " if not loop.last else "" }}{% endfor %} }
 #define EPS_POWER_LOAD_CONFIG { \

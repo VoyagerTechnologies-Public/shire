@@ -8,8 +8,18 @@ eps:
   battery_voltage_min: 16.0
   battery_voltage_max: 24.0
   battery_initial_soc: 0.8
-  max_solar_power_w: 6.0
-  switch_3v3_power_w: 0.8    # Sensors, low-power electronics
-  switch_5v_power_w: 1.5     # Computing systems, cameras
-  switch_12v_power_w: 2.5    # ADCS systems, motors
-  switch_24v_power_w: 4.0    # High-power transmitters, heaters
+  max_solar_power_w: 8.0
+  base_load_w: 1.5 # Always-on platform demand, independent of switched loads
+  switch_load_power_w: [0, 0, 0, 0, 0, 20, 0, 0]  # Switch 5: passive 20 W load bank, startup OFF
+  # Selected for available devices when wire_default_loads is true (as in DRM).
+  # Mission/spacecraft/scenario eps.loads entries override these defaults.
+  default_loads:
+    demo:
+      switch: 0
+      mode_power_w: [0.8, 0.8, 0.8, 0.8, 0.8, 0.8]  # Powered in every mode
+    adcs:
+      switch: 4
+      mode_power_w: [0.2, 1.0, 1.25, 1.25, 1.25, 1.25]  # Disabled, BDOT, SUNSAFE, NADIR, TARGET, INERTIAL
+    radio:
+      switch: 6
+      mode_power_w: [0.2, 4.0, 1.5, 4.5, 0.2, 0.2]  # Sleep, TX, RX, duplex, reserved, reserved

@@ -22,7 +22,7 @@ The specific command format is as follows:
 EPS housekeeping is published once per second.
 Energy integrates at every simulated tick, independently of housekeeping.
 The housekeeping format is as follows:
-* uint8, battery voltage (32V / 255 = 0.12549V per count)
+* uint8, battery voltage (Vmin + count × (Vmax − Vmin) / 255, default 16–24 V)
 * uint8, battery temperature (250C / 255 = 0.9803921568627451C per count)
 * uint8, solar array voltage (32V / 255 =0.12549019607843137V per count)
 * uint8, solar array temperature (250C / 255 = 0.9803921568627451C per count)
@@ -87,10 +87,35 @@ DRM maps DEMO to switch 0 at 3.3 V, ADCS to switch 4 at 12 V, and radio to switc
 Mapped rails start on and unused rails start off.
 These are illustrative simulation defaults.
 Rail current is summed load watts divided by configured rail voltage.
-Unloaded switches draw no power.
+Switches without device or passive demand draw no power.
+`base_load_w` models always-on platform demand in addition to switched loads.
+It is currently configured as 2 W for illustrative platform demand, remains active with all rails off, and contributes only to total battery consumption, not rail current.
+In AUTO solar mode, eclipse sets solar generation to zero.
+Battery energy integrates `(solar watts - base watts - switched watts) * elapsed seconds / 3600` each tick.
+The default 40 Wh battery maps SOC linearly onto 16–24 V, and FSW battery voltage now uses all 256 byte values across that configured range.
+Battery voltage resolution is `(battery_voltage_max - battery_voltage_min) / 255`, about 0.03137 V with the default 16–24 V range.
+The one-byte field and CRC placement are unchanged.
+Rail and solar voltages retain their 32/255 V scaling.
+Resolved Yamcs calibration follows the configured battery range.
+With the configured 2 W base load and 1.5 W idle device demand, one full voltage count spans about 2.7 simulated minutes of eclipse discharge.
+The default passive 20 W load bank on switch 5 reduces this to about 24 simulated seconds when enabled.
+The load bank starts off, has no component simulator, and contributes to switch current and battery consumption.
+Default solar capacity is 12 W, scaled by positive body-X solar incidence and set to zero in eclipse.
+With idle devices and peak illumination, the 8.5 W charging surplus produces a full voltage count in about 1.1 simulated minutes.
+The 20 W bank exceeds solar capacity, so enabling it demonstrates discharge even in sunlight.
+A solar override can keep charging in eclipse until AUTO mode is restored.
 
 Configure `eps.switches` and `eps.loads` in the mission, spacecraft, initial condition, or scenario YAML using the existing configuration precedence.
-A switch list contains exactly eight entries with `label`, `voltage_v`, and `startup_on`.
+The default DEMO, ADCS, and radio assignments and mode power values live under `eps.default_loads` in `comp/eps/support/device_config.yaml`.
+DRM enables these defaults with `eps.wire_default_loads: true`; only available components are mapped.
+Override `eps.default_loads` to change the defaults, or use `eps.loads` to override a selected device's settings.
+Both mappings merge individual device fields across configuration layers.
+With `wire_default_loads: false`, only devices explicitly listed in `eps.loads` are mapped; their omitted fields still inherit from `default_loads`.
+The resolver contains no device wattage or default switch assignment values.
+A switch list contains exactly eight entries with `label`, `voltage_v`, and `startup_on`, plus optional `load_power_w` for a passive switched load.
+`switch_load_power_w` supplies eight default passive watt values, independently of device mappings.
+Explicit switch `load_power_w` values override that list, including zero to remove a load.
+Passive and mapped demand share the rail current limit of 10 A.
 Several loads can share one switch.
 Each component has one assignment.
 
@@ -98,6 +123,9 @@ Each component has one assignment.
 eps:
   wire_default_loads: true
   battery_initial_soc: 0.8
+  max_solar_power_w: 12.0
+  base_load_w: 4.0  # Always-on platform watts, independent of the eight rails
+  switch_load_power_w: [0, 0, 0, 0, 0, 20, 0, 0]
   loads:
     demo:
       switch: 0

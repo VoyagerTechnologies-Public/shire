@@ -146,7 +146,7 @@ int32_t EPS_RequestHK(i2c_bus_info_t *device, EPS_Device_HK_tlm_t *data)
     *data = candidate;
 
     #ifdef EPS_CFG_DEBUG
-        OS_printf("EPS_RequestHK: Battery %d/255 V, %d/255 C, Solar %d/255 V, %d/255 C\n",
+        OS_printf("EPS_RequestHK: Battery count %d/255 (configured voltage span), %d/255 C, Solar %d/255 V, %d/255 C\n",
                   data->battery_voltage, data->battery_temperature,
                   data->solar_voltage, data->solar_temperature);
         for (int i = 0; i < EPS_NUM_SWITCHES; i++)

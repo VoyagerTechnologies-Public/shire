@@ -14,11 +14,12 @@
       <xtce:IntegerParameterType name="DEVICE_COUNT_Type" shortDescription="Device Command Count" signed="false">
         <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="leastSignificantByteFirst" />
       </xtce:IntegerParameterType>
-      <xtce:FloatParameterType name="BATTERY_VOLTAGE_Type" shortDescription="Battery Voltage (32V/255 scale)">
+      <xtce:FloatParameterType name="BATTERY_VOLTAGE_Type" shortDescription="Battery Voltage (16-24V configured span)">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned">
           <xtce:DefaultCalibrator>
             <xtce:PolynomialCalibrator>
-              <xtce:Term coefficient="0.12549019607843137" exponent="1" />
+              <xtce:Term coefficient="16.0" exponent="0" />
+              <xtce:Term coefficient="0.03137254901960784" exponent="1" />
             </xtce:PolynomialCalibrator>
           </xtce:DefaultCalibrator>
         </xtce:IntegerDataEncoding>

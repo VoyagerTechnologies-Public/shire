@@ -26,6 +26,7 @@ class EpsConfigurationTests(unittest.TestCase):
             self.assertTrue(cfg['switches'][rail]['startup_on'])
     def test_finite_bounds_availability_and_representability(self):
         bad=[{'battery_initial_soc':v} for v in (-1,60,1.1,float('nan'),True)]
+        bad += [{'base_load_w':v} for v in (-1,float('nan'),float('inf'),True,'2')]
         bad += [{'battery_capacity_wh':v} for v in (0,-1,float('inf'))]
         bad += [{'loads':{'demo':{'switch':v}}} for v in (-1,8,1.2,True)]
         bad += [{'loads':[]},{'loads':{'demo':[]}}, {'switches':[0]*8}]
@@ -33,6 +34,73 @@ class EpsConfigurationTests(unittest.TestCase):
         for override in bad:
             with self.subTest(override=override), self.assertRaises(ValueError): self.resolve(override)
         with self.assertRaises(ValueError):self.resolve({'loads':{'radio':{'switch':1}}},available=('demo',))
+    def test_base_load_defaults_override_and_generated_header(self):
+        from jinja2 import Template
+        self.assertEqual(self.resolve()['base_load_w'],BASE['base_load_w'])
+        base=deepcopy(BASE);base.pop('base_load_w')
+        self.assertEqual(normalize_eps(base,set())['base_load_w'],0)
+        resolved=self.resolve({'base_load_w':3.5})
+        text=Template((ROOT/'comp/eps/support/device_config.j2').read_text()).render(config=resolved)
+        self.assertIn('#define EPS_BASE_LOAD_W           3.5',text)
+        self.assertEqual(resolved['loads']['demo']['mode_power_w'][0],0.8)
+
+    def test_passive_load_bank_defaults_bounds_and_shared_rail(self):
+        from jinja2 import Template
+        cfg=self.resolve()
+        bank=cfg['switches'][5]
+        self.assertEqual(bank['load_power_w'],20)
+        self.assertEqual(bank['label'],'Load bank')
+        self.assertFalse(bank['startup_on'])
+        self.assertEqual(cfg['max_solar_power_w'],12)
+        self.assertFalse(any(load['switch']==5 for load in cfg['loads'].values()))
+        text=Template((ROOT/'comp/eps/support/device_config.j2').read_text()).render(config=cfg)
+        self.assertIn('#define EPS_SWITCH_LOAD_W { 0.0, 0.0, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0 }',text)
+        for watts in (-1,float('nan'),float('inf'),True,121):
+            values=[0]*8;values[5]=watts
+            with self.subTest(watts=watts), self.assertRaises(ValueError):
+                self.resolve({'switch_load_power_w':values})
+        with self.assertRaises(ValueError): self.resolve({'switch_load_power_w':[0]})
+        switches=deepcopy(cfg['switches']);switches[5]['load_power_w']=118
+        with self.assertRaises(ValueError):
+            self.resolve({'switches':switches,'loads':{'radio':{'switch':5}}})
+        switches[5]['load_power_w']=0
+        self.assertEqual(self.resolve({'switches':switches})['switches'][5]['load_power_w'],0)
+
+    def test_passive_load_bank_stack_current_and_metadata(self):
+        import xml.etree.ElementTree as ET
+        cfg=self.resolve()
+        stack=generate_stacks(cfg)['EpsPowerFunctional']
+        check=next(s for s in stack['steps'] if s.get('comment')=='encoded rail readings on')
+        current=[c for c in check['condition'] if c['parameter']=='/EPS/SWITCH_5_CURRENT']
+        self.assertEqual(len(current),2)
+        self.assertLess(float(current[0]['value']),20/12)
+        self.assertGreater(float(current[1]['value']),20/12)
+        with tempfile.TemporaryDirectory() as directory:
+            output=Path(directory)/'eps.xtce'
+            write_xtce(cfg,ROOT/'comp/eps/gsw/eps.xtce',output)
+            ns={'x':'http://www.omg.org/spec/XTCE/20180204'}
+            parameter=ET.parse(output).find("./x:TelemetryMetaData/x:ParameterSet/x:Parameter[@name='SWITCH_5_STATE']",ns)
+            self.assertIn('Load bank: no device, passive load 20.0 W',parameter.get('shortDescription'))
+
+    def test_battery_voltage_calibration_follows_configured_range(self):
+        import xml.etree.ElementTree as ET
+        ns={'x':'http://www.omg.org/spec/XTCE/20180204'}
+        for low,high in ((16,24),(20,28),(0,32),(12,12)):
+            cfg=self.resolve({'battery_voltage_min':low,'battery_voltage_max':high})
+            with tempfile.TemporaryDirectory() as directory:
+                output=Path(directory)/'eps.xtce'
+                write_xtce(cfg,ROOT/'comp/eps/gsw/eps.xtce',output)
+                root=ET.parse(output)
+                voltage=root.find(".//x:FloatParameterType[@name='BATTERY_VOLTAGE_Type']",ns)
+                self.assertEqual(voltage.find('x:IntegerDataEncoding',ns).get('sizeInBits'),'8')
+                terms=voltage.findall('.//x:Term',ns)
+                calibration={int(t.get('exponent')):float(t.get('coefficient')) for t in terms}
+                for count in (0,1,127,128,254,255):
+                    decoded=calibration[0]+calibration[1]*count
+                    self.assertAlmostEqual(decoded,low+(high-low)*count/255)
+                rail=root.find(".//x:FloatParameterType[@name='SWITCH_VOLTAGE_Type']//x:Term",ns)
+                self.assertAlmostEqual(float(rail.get('coefficient')),32/255)
+
     def test_partial_override_retains_wiring_and_mode_power(self):
         cfg={**BASE,'wire_default_loads':True,'loads':{'demo':{'switch':7,'mode_power_w':[1.5]*6}}}
         merge_component_config('eps',cfg,{'loads':{'demo':{'power_scale':.9}}})
@@ -41,6 +109,38 @@ class EpsConfigurationTests(unittest.TestCase):
         self.assertEqual(result['loads']['demo']['mode_power_w'],[1.5]*6)
         self.assertEqual(result['loads']['demo']['power_scale'],.9)
         self.assertEqual(set(result['loads']),{'demo','adcs','radio'})
+
+    def test_yaml_defaults_control_mapping_and_power_without_mutating_source(self):
+        source=deepcopy(BASE)
+        source['wire_default_loads']=True
+        source['default_loads']['demo']={'switch':7,'mode_power_w':[1.2]*6}
+        original=deepcopy(source)
+        result=normalize_eps(source,{'demo'})
+        self.assertEqual(set(result['loads']),{'demo'})
+        self.assertEqual(result['loads']['demo']['switch'],7)
+        self.assertEqual(result['loads']['demo']['mode_power_w'],[1.2]*6)
+        self.assertEqual(result['loads']['demo']['boot_power_w'],1.2)
+        self.assertEqual([s['startup_on'] for s in result['switches']],
+                         [False]*7+[True])
+        self.assertEqual(source,original)
+
+    def test_default_load_layer_overrides_and_explicit_selection(self):
+        source=deepcopy(BASE)
+        merge_component_config('eps',source,{'default_loads':{'demo':{'switch':7}}})
+        merge_component_config('eps',source,{'default_loads':{'demo':{'power_scale':.5}}})
+        source['wire_default_loads']=False
+        self.assertEqual(normalize_eps(source,{'demo','adcs','radio'})['loads'],{})
+        source['loads']={'demo':{'switch':2}}
+        result=normalize_eps(source,{'demo','adcs','radio'})
+        self.assertEqual(set(result['loads']),{'demo'})
+        self.assertEqual(result['loads']['demo']['switch'],2)
+        self.assertEqual(result['loads']['demo']['power_scale'],.5)
+        self.assertEqual(result['loads']['demo']['mode_power_w'],[.8]*6)
+        for defaults in ([],{'imaginary':{}},{'demo':[]},
+                         {'demo':{'switch':0}},
+                         {'demo':{'switch':0,'mode_power_w':[float('nan')]*6}}):
+            with self.subTest(defaults=defaults), self.assertRaises(ValueError):
+                self.resolve({'default_loads':defaults},available=('demo',))
 
     def test_explicit_startup_and_source_config_unchanged(self):
         cfg=self.resolve();switches=cfg['switches'];switches[0]['startup_on']=False

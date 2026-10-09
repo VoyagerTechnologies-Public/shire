@@ -1,6 +1,7 @@
 /* Compile the real model with scripted transport failures. No UDP/IPC or
  * flight retry is needed to distinguish a modeled rejection from an error. */
 #include "unity.h"
+#define EPS_BASE_LOAD_W 2.0
 #include "../sim/eps_sim.c"
 
 static int receive_result, send_result, completion_result, completion_status;
@@ -200,7 +201,7 @@ static void test_load_scale_bounds_and_shared_rail_limit(void)
     TEST_ASSERT_TRUE(s.backdoor_last_status);
     s.power.effective[0]=1;
     refresh_hk(&s);
-    TEST_ASSERT_DOUBLE_WITHIN(0,2,s.load_power_w);
+    TEST_ASSERT_DOUBLE_WITHIN(0,2 + EPS_BASE_LOAD_W,s.load_power_w);
     uint8_t solar[]={0,0xff,0xff,0xff,0xff};
     eps_component_backdoor((component_state_t *)&s,EPS_BD_SET_SOLAR,solar,5);
     TEST_ASSERT_FALSE(s.backdoor_last_status);
@@ -230,9 +231,126 @@ static void test_nonmatching_request_failure_does_not_consume_fault(void)
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,completion_status);
 }
 
+static void test_eclipse_base_load_with_all_switches_off(void)
+{
+    eps_sim_state_t s;
+    TEST_ASSERT_EQUAL_INT(0, eps_sim_init(&s));
+    memset(s.power.effective, 0, sizeof(s.power.effective));
+    refresh_hk(&s);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-12, 2.0, s.load_power_w);
+    for (unsigned int i = 0; i < EPS_NUM_SWITCHES; i++)
+        TEST_ASSERT_EQUAL_UINT8(0, s.hk.switches[i].current);
+    simulith_42_context_t ctx = {0};
+    ctx.valid = 1; ctx.eclipse = 1; ctx.sun_vector_body[0] = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, eps_component_on_tick((component_state_t *)&s, 0, &ctx));
+    /* Start midway through a reporting bin rather than on its lower edge. */
+    s.battery_energy_wh += EPS_BATTERY_CAPACITY_WH / (2 * 255.0);
+    refresh_hk(&s);
+    double initial = s.battery_energy_wh;
+    uint8_t voltage = s.hk.battery_voltage;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, eps_component_on_tick((component_state_t *)&s, UINT64_C(1000000000), &ctx));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, initial - 2.0 / 3600, s.battery_energy_wh);
+    TEST_ASSERT_EQUAL_UINT8(voltage, s.hk.battery_voltage); /* Drain below one telemetry count. */
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, eps_component_on_tick((component_state_t *)&s, UINT64_C(3600000000000), &ctx));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, initial - 2.0, s.battery_energy_wh);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 2.0, s.load_energy_wh);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0, s.solar_energy_wh);
+    TEST_ASSERT_LESS_THAN_UINT8(voltage, s.hk.battery_voltage);
+}
+
+static void test_passive_load_bank_switching_and_eclipse_energy(void)
+{
+    eps_sim_state_t s;
+    TEST_ASSERT_EQUAL_INT(0, eps_sim_init(&s));
+    memset(s.power.effective, 0, sizeof(s.power.effective));
+    refresh_hk(&s);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 2.0, s.load_power_w);
+    request.command = EPS_CMD_SWITCH_ON; request.payload = 5;
+    request.crc = EPS_Calculate_CRC8((uint8_t *)&request, sizeof(request)-1);
+    TEST_ASSERT_EQUAL_INT(EPS_COMMAND_SUCCESS, handle_eps_command(&s, (uint8_t *)&request, sizeof(request)));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 22.0, s.load_power_w);
+    TEST_ASSERT_EQUAL_UINT8(encode(20.0 / 12.0, 10.0), s.hk.switches[5].current);
+    simulith_42_context_t ctx = {0}; ctx.valid = 1; ctx.eclipse = 1;
+    eps_component_on_tick((component_state_t *)&s, 0, &ctx);
+    double initial = s.battery_energy_wh;
+    eps_component_on_tick((component_state_t *)&s, UINT64_C(3600000000000), &ctx);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, initial - 22.0, s.battery_energy_wh);
+    request.command = EPS_CMD_SWITCH_OFF;
+    request.crc = EPS_Calculate_CRC8((uint8_t *)&request, sizeof(request)-1);
+    TEST_ASSERT_EQUAL_INT(EPS_COMMAND_SUCCESS, handle_eps_command(&s, (uint8_t *)&request, sizeof(request)));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 2.0, s.load_power_w);
+    TEST_ASSERT_EQUAL_UINT8(0, s.hk.switches[5].current);
+}
+
+static void test_sunlit_charge_and_load_bank_discharge(void)
+{
+    eps_sim_state_t s;
+    TEST_ASSERT_EQUAL_INT(0, eps_sim_init(&s));
+    simulith_42_context_t ctx = {0}; ctx.valid = 1; ctx.sun_vector_body[0] = 1;
+    eps_component_on_tick((component_state_t *)&s, 0, &ctx);
+    double initial = s.battery_energy_wh;
+    double watts = s.load_power_w;
+    TEST_ASSERT_GREATER_THAN_DOUBLE(watts, EPS_MAX_SOLAR_POWER_W);
+    eps_component_on_tick((component_state_t *)&s, UINT64_C(360000000000), &ctx);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, initial + (EPS_MAX_SOLAR_POWER_W - watts) / 10, s.battery_energy_wh);
+    queue_switch(&s, 5, 1);
+    initial = s.battery_energy_wh;
+    TEST_ASSERT_GREATER_THAN_DOUBLE(EPS_MAX_SOLAR_POWER_W, s.load_power_w);
+    eps_component_on_tick((component_state_t *)&s, UINT64_C(720000000000), &ctx);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, initial - (watts + 20 - EPS_MAX_SOLAR_POWER_W) / 10, s.battery_energy_wh);
+}
+
+static void test_battery_reporting_full_byte_span_and_wire_layout(void)
+{
+    eps_sim_state_t s;
+    TEST_ASSERT_EQUAL_INT(0, eps_sim_init(&s));
+    TEST_ASSERT_EQUAL_size_t(29, sizeof(EPS_Device_HK_tlm_t));
+    TEST_ASSERT_EQUAL_size_t(4, sizeof(EPS_Command_t));
+    for (unsigned int count = 0; count <= 255; count++) {
+        s.battery_energy_wh = EPS_BATTERY_CAPACITY_WH * count / 255.0;
+        refresh_hk(&s);
+        TEST_ASSERT_EQUAL_UINT8(count, s.hk.battery_voltage);
+    }
+    s.battery_energy_wh = EPS_BATTERY_CAPACITY_WH * 0.5;
+    refresh_hk(&s);
+    TEST_ASSERT_EQUAL_UINT8(127, s.hk.battery_voltage);
+    s.battery_energy_wh += EPS_BATTERY_CAPACITY_WH / 255;
+    refresh_hk(&s);
+    TEST_ASSERT_EQUAL_UINT8(128, s.hk.battery_voltage);
+    s.battery_energy_wh = -1; refresh_hk(&s);
+    TEST_ASSERT_EQUAL_UINT8(0, s.hk.battery_voltage);
+    s.battery_energy_wh = EPS_BATTERY_CAPACITY_WH + 1; refresh_hk(&s);
+    TEST_ASSERT_EQUAL_UINT8(255, s.hk.battery_voltage);
+}
+
+static void test_solar_cosine_losses_and_eclipse(void)
+{
+    eps_sim_state_t s;
+    TEST_ASSERT_EQUAL_INT(0, eps_sim_init(&s));
+    simulith_42_context_t ctx = {0}; ctx.valid = 1;
+    const double directions[][3] = {
+        {1, 0, 0}, {0.8660254037844386, 0.5, 0},
+        {0.5, 0.8660254037844386, 0}, {0, 1, 0}, {-1, 0, 0}
+    };
+    const double fractions[] = {1, 0.8660254037844386, 0.5, 0, 0};
+    for (unsigned int i = 0; i < 5; i++) {
+        memcpy(ctx.sun_vector_body, directions[i], sizeof(ctx.sun_vector_body));
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, eps_component_on_tick((component_state_t *)&s, i * UINT64_C(1000000000), &ctx));
+        TEST_ASSERT_DOUBLE_WITHIN(1e-9, EPS_MAX_SOLAR_POWER_W * fractions[i], s.solar_power_w);
+    }
+    ctx.eclipse = 1; ctx.sun_vector_body[0] = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, eps_component_on_tick((component_state_t *)&s, UINT64_C(5000000000), &ctx));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, s.solar_power_w);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_solar_cosine_losses_and_eclipse);
+    RUN_TEST(test_battery_reporting_full_byte_span_and_wire_layout);
+    RUN_TEST(test_eclipse_base_load_with_all_switches_off);
+    RUN_TEST(test_passive_load_bank_switching_and_eclipse_energy);
+    RUN_TEST(test_sunlit_charge_and_load_bank_discharge);
     RUN_TEST(test_transport_failures_with_crc_injection);
     RUN_TEST(test_switch_transition_queue_limit);
     RUN_TEST(test_private_api_bounds_and_supply_access);

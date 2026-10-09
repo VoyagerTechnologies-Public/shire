@@ -53,7 +53,7 @@ typedef struct
 */
 typedef struct
 {
-    uint8_t battery_voltage;      /* 32V / 255 = 0.12549V per count */
+    uint8_t battery_voltage;      /* Vmin + count * (Vmax - Vmin) / 255 */
     uint8_t battery_temperature;  /* 250C / 255 = 0.9804C per count */
     uint8_t solar_voltage;        /* 32V / 255 = 0.12549019607843137V per count */
     uint8_t solar_temperature;    /* 250C / 255 = 0.9804C per count */
