@@ -76,9 +76,22 @@ contract.
 An API change therefore requires a clean rebuild of every component.
 An old shared object is never called through a guessed layout.
 
+The Director retains a generic committed control trace for performance and fidelity checks.
+Component diagnostics belong to the component, outside this trace interface.
+EPS exposes optional console diagnostics and uses FSW housekeeping for stack acceptance.
+
 Mutable model data, transport endpoints, GPIO state, timing deadlines, and
 deterministic random-generator state belong to the allocated component state.
 The current ADCS, Demo, EPS, and Radio simulators follow this ownership rule.
+
+### Ground output completion
+
+Periodic FSW downlink draining normally runs outside the simulation completion barrier, with a 20 Hz wall-clock limit.
+`SHIRE_SYNCHRONIZE_GROUND_OUTPUT=1` includes that drain in the barrier and bypasses the limit.
+Use it when validation requires each scheduled drain to finish before time advances.
+It does not control console output or wait for an operator.
+Automated EPS validation explicitly enables this barrier to prevent downlink queue overruns.
+Ordinary manual starts retain asynchronous ground output.
 
 ### Tick loop at a glance
 
@@ -89,7 +102,7 @@ Every synchronized tick follows the same closed-loop cycle:
 flowchart LR
     PREPARE["PREPARE<br/>Read 42 truth<br/>Run on_tick"]
     EXECUTE["EXECUTE<br/>Run exactly one SCH slot<br/>Service device requests"]
-    COMMIT["COMMIT<br/>Quiesce service<br/>Run actuate<br/>Commit commands to 42"]
+    COMMIT["COMMIT<br/>Quiesce service<br/>Apply backdoors and power<br/>Run actuate<br/>Commit commands to 42"]
 
     PREPARE -->|Prepared| EXECUTE
     EXECUTE -->|All FSW work complete| COMMIT
@@ -154,6 +167,8 @@ sequenceDiagram
         Server->>Director: Publish COMMIT for sequence N
         Director->>Component: Interrupt readiness waits
         Director->>Director: Wait for active service callbacks
+        Director->>Component: Dispatch received backdoors
+        Director->>Component: Apply queued power transitions
         loop Each component in deterministic order
             Director->>Component: actuate(time, truth)
             Component-->>Director: Queue final actuator outputs
@@ -211,6 +226,32 @@ the request immediately, stores operation state, advances that state in
 `on_tick`, and exposes progress through later status requests.
 Holding a synchronous request open until a future tick would deadlock the
 closed-loop barrier.
+
+## Component power lifecycle
+
+EPS owns the configured rail topology and queues effective switch transitions.
+Mapped device simulators implement `power_configure`, `power_set`, `power_reset`, and `power_snapshot` through `component_interface_t`.
+EPS exposes the provider side through `power_supply`.
+The Director connects these roles without interpreting the device's protocol.
+
+Power configuration runs at startup and every COMMIT.
+It updates electrical settings without rebooting an already configured consumer.
+After EXECUTE completes, the Director dispatches backdoors and applies queued transitions with service workers quiescent, before actuator publication.
+Actual OFF/ON edges reset volatile device state, while an unchanged ON leaves its boot deadline and configuration intact.
+An ON edge starts a boot deadline in simulated time.
+No wall-clock sleep is required to model boot.
+
+Off and booting devices retain their transport endpoints and complete device requests as modeled failures without returning device payloads.
+Their autonomous behavior is gated by readiness.
+An actuator component clears its pending outputs and commits zeros through `actuate` when unpowered.
+Power callbacks update private state and do not send 42 commands.
+
+The Director reads consumer snapshots at startup, before PREPARE model updates, and after COMMIT transitions.
+These snapshots describe readiness, mode, electrical demand and internal request history for EPS accounting.
+They are not Yamcs telemetry or an EPS audit stream.
+Fresh FSW results establish the stack's observable switching and recovery checks.
+
+See [Power-aware component simulators](../how-to/components.md#power-aware-component-simulators) for each callback's contract, the shared state helpers, a wiring example, and the DEMO implementation pattern.
 
 ## 42 integration
 
@@ -314,4 +355,4 @@ A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
 
 ***
-Last reviewed: 20260914
+Last reviewed: 20261008

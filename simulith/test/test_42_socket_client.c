@@ -292,6 +292,27 @@ static void test_parse_state_fields_and_eclipse(void)
     TEST_ASSERT_EQUAL_INT(-1, simulith_42_parse_state_for_test("", NULL));
 }
 
+/* Independently computed UTC offsets include the Gregorian century rules
+ * and dates before the J2000 epoch. */
+static void test_calendar_epoch_and_leap_centuries(void)
+{
+    const struct { const char *text; double seconds; } cases[] = {
+        {"TIME 1999-365-12:00:00\n", -86400.0},
+        {"TIME 1900-060-12:00:00\n", -3150576000.0},
+        {"TIME 2000-001-12:00:00\n", 0.0},
+        {"TIME 2000-060-12:00:00\n", 5097600.0},
+        {"TIME 2100-060-12:00:00\n", 3160857600.0},
+        {"TIME 2400-060-12:00:00\n", 12627878400.0},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        simulith_42_context_t context;
+        TEST_ASSERT_EQUAL_INT(0, simulith_42_parse_state_for_test(cases[i].text, &context));
+        TEST_ASSERT_TRUE(fabs(context.dyn_time - cases[i].seconds) < 1e-6);
+        TEST_ASSERT_TRUE(fabs(context.sim_time - 43200) < 1e-6);
+        TEST_ASSERT_EQUAL_INT(1, context.valid);
+    }
+}
+
 static void test_truncated_time_line_is_rejected(void)
 {
     simulith_42_context_t context;
@@ -628,6 +649,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_parse_state_fields_and_eclipse);
+    RUN_TEST(test_calendar_epoch_and_leap_centuries);
     RUN_TEST(test_truncated_time_line_is_rejected);
     RUN_TEST(test_unconnected_and_invalid_connections);
     RUN_TEST(test_unix_connection_state_and_commands);

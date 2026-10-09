@@ -16,4 +16,4 @@ max_parallel: 2
 
 parameters:
   - path: "component_overrides.eps.battery_initial_soc"
-    distribution: {type: "choice", values: [60.0, 90.0]}
+    distribution: {type: "choice", values: [0.6, 0.9]}

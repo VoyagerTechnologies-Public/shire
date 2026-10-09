@@ -34,6 +34,16 @@ static bool radio_sim_udp_thread_is_running(radio_sim_state_t* state)
 /*
 ** UDP Ground Thread - handles communication with ground software
 */
+/* Called under buffer_mutex. Bound draining under sustained concurrent input. */
+static void radio_discard_udp(radio_sim_state_t *state)
+{
+    uint8_t discarded[8192];
+    if (state->udp_rx_socket < 0) return;
+    for (unsigned int i = 0; i < 4096; i++)
+        if (recv(state->udp_rx_socket, discarded, sizeof(discarded), MSG_DONTWAIT) < 0)
+            break;
+}
+
 static void* udp_ground_thread(void* arg)
 {
     radio_sim_state_t* state = (radio_sim_state_t*)arg;
@@ -58,8 +68,11 @@ static void* udp_ground_thread(void* arg)
         
         if (select_result > 0 && FD_ISSET(state->udp_rx_socket, &read_fds))
         {
+            /* Serialize receipt with power resets. A reset may drain the
+             * selected socket, so receipt must remain nonblocking. */
+            pthread_mutex_lock(&state->buffer_mutex);
             from_len = sizeof(from_addr);
-            bytes_received = recvfrom(state->udp_rx_socket, buffer, sizeof(buffer), 0,
+            bytes_received = recvfrom(state->udp_rx_socket, buffer, sizeof(buffer), MSG_DONTWAIT,
                                      (struct sockaddr*)&from_addr, &from_len);
             
             if (bytes_received > 0)
@@ -73,16 +86,16 @@ static void* udp_ground_thread(void* arg)
                 #endif
                 
                 // Write to RX buffer if radio is powered and in RX or DUPLEX mode
-                pthread_mutex_lock(&state->buffer_mutex);
-                if (state->power_gpio.value &&
+                if (state->power_gpio.value && simulith_power_ready(&state->power, state->power_time_ns) &&
                     (state->config.Mode == RADIO_MODE_RX || state->config.Mode == RADIO_MODE_DUPLEX))
                 {
                     radio_sim_write_to_rx_buffer(state, buffer, (uint32_t)bytes_received);
                     state->bytes_received += (uint32_t)bytes_received;
+                    state->rf_received_total += (uint64_t)bytes_received;
                     radio_sim_update_interrupt(state);
                 }
-                pthread_mutex_unlock(&state->buffer_mutex);
             }
+            pthread_mutex_unlock(&state->buffer_mutex);
         }
         else if (select_result < 0 && errno != EINTR)
         {
@@ -456,6 +469,7 @@ static radio_request_result_t radio_sim_handle_spi_command(
                     {
                         pthread_mutex_lock(&state->buffer_mutex);
                         state->bytes_sent += (uint32_t)sent;
+                        state->rf_sent_total += (uint64_t)sent;
                         state->hk.BytesSent += (uint32_t)sent;
                         pthread_mutex_unlock(&state->buffer_mutex);
                     }
@@ -496,6 +510,10 @@ static int radio_sim_component_on_tick(component_state_t* component_state,
     radio_sim_state_t *state = (radio_sim_state_t *)component_state;
     if (!state) return COMPONENT_ERROR;
     
+    pthread_mutex_lock(&state->buffer_mutex);
+    state->power_time_ns = tick_time_ns;
+    pthread_mutex_unlock(&state->buffer_mutex);
+
     // Increment tick counter for rate limiting
     state->tick_counter++;
     
@@ -553,7 +571,7 @@ static int radio_sim_component_service(component_state_t* component_state,
     if (gpio_bytes > 0) 
     {
         work = COMPONENT_WORK;
-        int request_status = SIMULITH_TRANSPORT_ERROR;
+        int request_status = RADIO_REQUEST_REJECTED;
         // Simple protocol: [cmd, pin, value]
         //   cmd: 0=read, 1=write
         if (gpio_bytes >= 2) {
@@ -576,11 +594,23 @@ static int radio_sim_component_service(component_state_t* component_state,
                     if (value != state->power_gpio.value)
                     {
                         state->power_gpio.value = value;
+                        state->power.enabled = value;
+                        if (value && state->power.managed && state->power.supply_on) {
+                            state->power.cycles++;
+                            uint64_t delay = (uint64_t)(state->power.config.boot_delay_s * 1e9);
+                            state->power.boot_ready_ns = delay > UINT64_MAX-tick_time_ns ? UINT64_MAX : tick_time_ns+delay;
+                        }
                         #ifdef RADIO_CFG_DEBUG
                         printf("Radio power %s (via GPIO write)\n", value ? "ON" : "OFF");
                         #endif
-                        if (!value) 
+                        if (value && state->power.managed) {
+                            memset(&state->config, 0, sizeof(state->config));
+                            memset(&state->hk, 0, sizeof(state->hk));
+                            state->config.Mode = state->hk.Mode = RADIO_MODE_DUPLEX;
+                        }
+                        if (!value)
                         {
+                            radio_discard_udp(state);
                             state->rx_buffer_head = 0;
                             state->rx_buffer_tail = 0;
                             state->tx_buffer_head = 0;
@@ -656,8 +686,11 @@ static int radio_sim_component_service(component_state_t* component_state,
     if (spi_bytes > 0)
     {
         work = COMPONENT_WORK;
-        int request_status = SIMULITH_TRANSPORT_ERROR;
-        if (state->power_gpio.value)
+        int request_status = RADIO_REQUEST_REJECTED;
+        pthread_mutex_lock(&state->buffer_mutex);
+        int ready = state->power_gpio.value && simulith_power_ready(&state->power, tick_time_ns);
+        pthread_mutex_unlock(&state->buffer_mutex);
+        if (ready)
         {
             request_status = radio_sim_handle_spi_command(
                 state, spi_rx_buf, (size_t)spi_bytes);
@@ -666,6 +699,7 @@ static int radio_sim_component_service(component_state_t* component_state,
         {
             printf("Radio powered off - dropping %d bytes from SPI\n", spi_bytes);
         }
+        simulith_power_record(&state->power, request_status == RADIO_REQUEST_SUCCESS, tick_time_ns);
         if (simulith_transport_complete_request(&state->spi_device, transaction_id,
                                                 request_status == RADIO_REQUEST_SUCCESS ?
                                                     SIMULITH_TRANSPORT_SUCCESS :
@@ -908,6 +942,66 @@ static void radio_sim_component_destroy(component_state_t* state)
     free(radio_state);
 }
 
+static void radio_power_reset(radio_sim_state_t *s)
+{
+    radio_discard_udp(s);
+    s->spi_device.rx_buf_len = 0;
+    memset(s->spi_device.rx_buf, 0, sizeof(s->spi_device.rx_buf));
+    memset(&s->config, 0, sizeof(s->config));
+    memset(&s->hk, 0, sizeof(s->hk));
+    s->config.Mode = s->hk.Mode = RADIO_MODE_DUPLEX;
+    s->rx_buffer_head = s->rx_buffer_tail = 0;
+    s->tx_buffer_head = s->tx_buffer_tail = 0;
+    s->interrupt_asserted = 0; s->interrupt_gpio.value = 0;
+    s->bytes_received = s->bytes_sent = 0;
+}
+
+static int radio_power_configure(component_state_t *state, const simulith_power_load_config_t *config)
+{
+    if (!state || !config) return COMPONENT_ERROR;
+    radio_sim_state_t *s = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&s->buffer_mutex);
+    simulith_power_configure(&s->power, config);
+    s->power.enabled = (uint8_t)s->power_gpio.value;
+    pthread_mutex_unlock(&s->buffer_mutex);
+    return COMPONENT_SUCCESS;
+}
+
+static int radio_power_reset_component(component_state_t *state, uint64_t ns)
+{
+    if (!state) return COMPONENT_ERROR;
+    radio_sim_state_t *s = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&s->buffer_mutex);
+    s->power_time_ns = ns;
+    radio_power_reset(s);
+    pthread_mutex_unlock(&s->buffer_mutex);
+    return COMPONENT_SUCCESS;
+}
+
+static int radio_power_set(component_state_t *state, int on, uint64_t ns)
+{
+    if (!state || (on != 0 && on != 1)) return COMPONENT_ERROR;
+    radio_sim_state_t *s = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&s->buffer_mutex);
+    s->power_time_ns = ns;
+    if (simulith_power_set(&s->power, on, ns)) radio_power_reset(s);
+    pthread_mutex_unlock(&s->buffer_mutex);
+    return COMPONENT_SUCCESS;
+}
+
+static int radio_power_snapshot(component_state_t *state, uint64_t ns, simulith_power_snapshot_t *snapshot)
+{
+    if (!state || !snapshot) return COMPONENT_ERROR;
+    radio_sim_state_t *s = (radio_sim_state_t *)state;
+    pthread_mutex_lock(&s->buffer_mutex);
+    s->power_time_ns = ns;
+    simulith_power_snapshot(&s->power, s->config.Mode, ns, snapshot);
+    snapshot->rf_received = s->rf_received_total;
+    snapshot->rf_sent = s->rf_sent_total;
+    pthread_mutex_unlock(&s->buffer_mutex);
+    return COMPONENT_SUCCESS;
+}
+
 static const component_interface_t radio_sim_interface = {
     .api_version = SIMULITH_COMPONENT_API_VERSION,
     .struct_size = sizeof(component_interface_t),
@@ -919,7 +1013,11 @@ static const component_interface_t radio_sim_interface = {
     .service = radio_sim_component_service,
     .actuate = NULL,
     .destroy = radio_sim_component_destroy,
-    .backdoor = NULL
+    .backdoor = NULL,
+    .power_configure = radio_power_configure,
+    .power_set = radio_power_set,
+    .power_reset = radio_power_reset_component,
+    .power_snapshot = radio_power_snapshot
 };
 
 // Component registration function - exported for dynamic loading

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import socket
 import subprocess
@@ -22,6 +23,7 @@ import time
 import yaml
 
 from shire_provenance import ROOT
+from shire_eps_config import normalize_eps, merge_component_config
 
 
 def container_names(mission: str, spacecraft: str, instance: str | None = None) -> dict[str, str]:
@@ -84,7 +86,10 @@ def parse_marker(log: str, marker: str) -> dict[str, object]:
         if marker in line:
             start = line.find("{", line.find(marker))
             if start >= 0:
-                return json.loads(line[start:])
+                # Docker adds a timestamp to each 16 KiB partial log frame, even
+                # when those frames belong to one application JSON record.
+                payload = re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z ", "", line[start:])
+                return json.loads(payload)
     raise RuntimeError(f"process exited without {marker}")
 
 
@@ -93,7 +98,7 @@ def try_parse_marker(log: str, marker: str) -> dict[str, object] | None:
     missing marker as one signal among several rather than a hard error."""
     try:
         return parse_marker(log, marker)
-    except RuntimeError:
+    except (RuntimeError, ValueError):
         return None
 
 
@@ -131,17 +136,21 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
             if fallback_data and fallback_data.get(comp_name):
                 comp_cfg = dict(fallback_data[comp_name])
 
-        comp_cfg.update(global_cfg.get(comp_name, {}) or {})
-        comp_cfg.update(mission_cfg.get(comp_name, {}) or {})
+        merge_component_config(comp_name, comp_cfg, global_cfg.get(comp_name, {}) or {})
+        merge_component_config(comp_name, comp_cfg, mission_cfg.get(comp_name, {}) or {})
         if spacecraft_cfg:
-            comp_cfg.update(spacecraft_cfg.get(comp_name, {}) or {})
-        comp_cfg.update((ic_cfg.get("component_overrides") or {}).get(comp_name, {}) or {})
-        comp_cfg.update(scenario_cfg.get(comp_name, {}) or {})
-        comp_cfg.update(scenario_cfg.get("overrides", {}) or {})
+            merge_component_config(comp_name, comp_cfg, spacecraft_cfg.get(comp_name, {}) or {})
+        merge_component_config(comp_name, comp_cfg, (ic_cfg.get("component_overrides") or {}).get(comp_name, {}) or {})
+        merge_component_config(comp_name, comp_cfg, scenario_cfg.get(comp_name, {}) or {})
+        merge_component_config(comp_name, comp_cfg, scenario_cfg.get("overrides", {}) or {})
         if cli_debug:
             comp_cfg["debug"] = True
 
+        if comp_name == "eps":
+            comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
         resolved[comp_name] = comp_cfg
+    if scenario_cfg.get('retain_all_events'):
+        resolved['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
     return resolved
 
 

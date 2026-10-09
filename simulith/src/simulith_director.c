@@ -169,45 +169,109 @@ static int ensure_backdoor_socket(void)
     return 0;
 }
 
-static void process_backdoor_once(director_config_t* config)
+int director_dispatch_backdoor(director_config_t *config, const uint8_t *buf, size_t n)
+{
+    if (!config || !buf || n < 13 || memcmp(buf, "BACKDOOR", 8)) return -1;
+    uint8_t tlen = buf[8];
+    if (!tlen || tlen > 64 || 9U + tlen + 4U > n) return -1;
+    size_t off = 9U + tlen;
+    uint16_t cmd = (uint16_t)(((uint16_t)buf[off] << 8) | buf[off + 1]);
+    uint16_t plen = (uint16_t)(((uint16_t)buf[off + 2] << 8) | buf[off + 3]);
+    if (off + 4U + plen != n) return -1;
+    for (int i = 0; i < config->component_count; i++) {
+        component_entry_t *e = &config->components[i];
+        if (e->active && e->interface && e->interface->name && e->interface->backdoor &&
+            strlen(e->interface->name) == tlen && !memcmp(e->interface->name, buf + 9, tlen)) {
+            e->interface->backdoor(e->state, cmd, buf + off + 4, plen);
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static void process_backdoor_once(director_config_t *config)
 {
     if (ensure_backdoor_socket() != 0) return;
     uint8_t buf[1500];
-    struct sockaddr_in src;
-    socklen_t slen = sizeof(src);
-    ssize_t n = recvfrom(g_backdoor_sock, buf, sizeof(buf), 0, (struct sockaddr*)&src, &slen);
-    if (n <= 0) return; // nothing to do
-
-    static const uint8_t MAGIC[8] = { 'B','A','C','K','D','O','O','R' };
-    if ((size_t)n < 8 + 1 + 2 + 2) return;
-    if (memcmp(buf, MAGIC, 8) != 0) return;
-    size_t off = 8;
-    uint8_t tlen = buf[off++];
-    if (tlen == 0 || tlen > 64) return;
-    if (off + tlen + 2 + 2 > (size_t)n) return;
-    char target[65];
-    memcpy(target, &buf[off], tlen);
-    target[tlen] = '\0';
-    off += tlen;
-    uint16_t cmd_id = (uint16_t)((buf[off] << 8) | buf[off+1]);
-    off += 2;
-    uint16_t plen = (uint16_t)((buf[off] << 8) | buf[off+1]);
-    off += 2;
-    if (off + plen > (size_t)n) return;
-    const uint8_t* payload = &buf[off];
-
-    // dispatch to component by name
-    for (int i = 0; i < config->component_count; i++) {
-        component_entry_t* ce = &config->components[i];
-        if (!ce->active || !ce->interface) continue;
-        if (!ce->interface->name) continue;
-        if (strcmp(ce->interface->name, target) != 0) continue;
-        if (ce->interface->backdoor) {
-            ce->interface->backdoor(ce->state, cmd_id, payload, plen);
-        }
-        break;
-    }
+    ssize_t n = recvfrom(g_backdoor_sock, buf, sizeof(buf), MSG_TRUNC, NULL, NULL);
+    if (n > 0 && (size_t)n <= sizeof(buf) &&
+        director_dispatch_backdoor(config, buf, (size_t)n) != 0)
+        printf("SIMULITH_BACKDOOR rejected framing or target\n");
 }
+
+static component_entry_t *power_consumer(director_config_t *config, const char *name)
+{
+    for (int i = 0; i < config->component_count; i++) {
+        component_entry_t *e = &config->components[i];
+        if (e->active && e->interface && e->state && e->interface->name &&
+            !strcmp(e->interface->name, name)) return e;
+    }
+    return NULL;
+}
+
+static int snapshot_power(director_config_t *config, uint64_t ns)
+{
+    for (int i = 0; i < config->component_count; i++) {
+        component_entry_t *provider = &config->components[i];
+        if (!provider->active || !provider->state || !provider->interface ||
+            !provider->interface->power_supply) continue;
+        simulith_power_supply_t *p = provider->interface->power_supply(provider->state);
+        if (!p || !p->configured) continue;
+        for (unsigned int j = 0; j < SIMULITH_POWER_LOADS; j++) {
+            if (!p->loads[j].component[0]) continue;
+            component_entry_t *e = power_consumer(config, p->loads[j].component);
+            if (!e || !e->interface->power_snapshot ||
+                e->interface->power_snapshot(e->state, ns, &p->snapshots[j]) != COMPONENT_SUCCESS)
+                return COMPONENT_ERROR;
+        }
+    }
+    return COMPONENT_SUCCESS;
+}
+
+int director_commit_power(director_config_t *config, uint64_t ns)
+{
+    if (!config) return COMPONENT_ERROR;
+    unsigned int providers = 0;
+    for (int i = 0; i < config->component_count; i++) {
+        component_entry_t *provider = &config->components[i];
+        if (!provider->active || !provider->state || !provider->interface ||
+            !provider->interface->power_supply) continue;
+        if (++providers > 1) return COMPONENT_ERROR;
+        simulith_power_supply_t *p = provider->interface->power_supply(provider->state);
+        if (!p || p->overflow) return COMPONENT_ERROR;
+        for (unsigned int j = 0; j < SIMULITH_POWER_LOADS; j++) {
+            const simulith_power_load_config_t *l = &p->loads[j];
+            if (!l->component[0]) continue;
+            component_entry_t *e = power_consumer(config, l->component);
+            if (!e || !e->interface->power_configure || !e->interface->power_set ||
+                !e->interface->power_snapshot || !e->interface->power_reset || l->switch_id >= SIMULITH_POWER_SWITCHES ||
+                e->interface->power_configure(e->state, l) != COMPONENT_SUCCESS)
+            {
+                fprintf(stderr, "Power topology: provider %s requires available, power-capable consumer %s on switch %u\n",
+                        provider->interface->name, l->component, (unsigned int)l->switch_id);
+                return COMPONENT_ERROR;
+            }
+            if (!p->configured && e->interface->power_set(e->state,
+                    p->effective[l->switch_id], ns) != COMPONENT_SUCCESS) return COMPONENT_ERROR;
+        }
+        for (size_t k = 0; k < p->transition_count; k++) {
+            const simulith_power_transition_t *t = &p->transitions[k];
+            if (!t->reset) p->effective[t->switch_id] = t->on;
+            for (unsigned int j = 0; j < SIMULITH_POWER_LOADS; j++) {
+                const simulith_power_load_config_t *l = &p->loads[j];
+                if (!l->component[0] || l->switch_id != t->switch_id) continue;
+                component_entry_t *e = power_consumer(config, l->component);
+                if ((t->reset ? e->interface->power_reset(e->state, ns) :
+                     e->interface->power_set(e->state, t->on, ns)) != COMPONENT_SUCCESS)
+                    return COMPONENT_ERROR;
+            }
+        }
+        p->transition_count = 0;
+        p->configured = 1;
+    }
+    return snapshot_power(config, ns);
+}
+
 int parse_args(int argc, char *argv[], director_config_t *config)
 {
     if (!config)
@@ -542,6 +606,7 @@ int initialize_components(director_config_t* config)
         }
     }
     
+    if (director_commit_power(config, 0) != COMPONENT_SUCCESS) return -1;
     printf("All components initialized successfully\n");
 
     /* Spawn one worker per component for concurrent EXECUTE device service. */
@@ -1136,9 +1201,7 @@ static int process_42_commands(simulith_42_command_t *commands, uint32_t *count)
 {
     int cmd_count = 0;
     
-    if (!g_director_config.enable_42)
-        return 0;
-    if (!g_director_config.fortytwo_initialized)
+    if (g_director_config.enable_42 && !g_director_config.fortytwo_initialized)
         return -1;
     
     /* Collect all commands from queue into batch buffer */
@@ -1147,6 +1210,12 @@ static int process_42_commands(simulith_42_command_t *commands, uint32_t *count)
         cmd_count++;
     }
     
+    /* Component-only runs still consume this tick's complete output batch. */
+    if (!g_director_config.enable_42) {
+        *count = (uint32_t)cmd_count;
+        return 0;
+    }
+
     /* Send all commands in a single message to 42 */
     if (cmd_count > 0) {
         if (simulith_42_send_command_batch(commands, cmd_count) != 0) {
@@ -1311,8 +1380,22 @@ static int component_phase_succeeded(const char *phase)
     return status;
 }
 
+/* Power transitions run before ACTUATE. Earlier emissions are an invalid
+ * component lifecycle, not a reason to filter commands by device or power. */
+static int require_empty_command_queue(const char *phase)
+{
+    int pending = simulith_42_pending_commands();
+    if (pending == 0) return COMPONENT_SUCCESS;
+    g_director_config.component_phase_errors++;
+    simulith_log("Director rejected %s: %d commands queued outside ACTUATE\n",
+                 phase, pending);
+    return COMPONENT_ERROR;
+}
+
 int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
 {
+    if (require_empty_command_queue("PREPARE") != COMPONENT_SUCCESS)
+        return COMPONENT_ERROR;
     g_prepare_count++;
     g_timing_active = tick_time_ns >= g_timing_warmup_ns;
     /* Fetch 42 state. 42 has been stepping since the previous tick's command
@@ -1331,6 +1414,8 @@ int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
     for (int i = 0; i < g_director_config.component_count; ++i)
         g_director_config.components[i].phase_status = COMPONENT_SUCCESS;
     pthread_mutex_unlock(&g_director_config.tick_mutex);
+
+    if (snapshot_power(&g_director_config, tick_time_ns) != COMPONENT_SUCCESS) return COMPONENT_ERROR;
 
     /* PREPARE callbacks are deliberately ordered and run in the director.
      * They are small and do not perform device transactions. */
@@ -1352,6 +1437,8 @@ int director_prepare_tick(uint64_t sequence, uint64_t tick_time_ns)
     }
     director_record_timing(TIMING_ON_TICK, started_ns);
 
+    if (require_empty_command_queue("PREPARE") != COMPONENT_SUCCESS)
+        return COMPONENT_ERROR;
     return component_phase_succeeded("PREPARE");
 }
 
@@ -1393,6 +1480,14 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
     if (component_phase_succeeded("COMMIT") != COMPONENT_SUCCESS)
         return COMPONENT_ERROR;
 
+    if (require_empty_command_queue("COMMIT before power transitions") != COMPONENT_SUCCESS)
+        return COMPONENT_ERROR;
+    process_backdoor_once(&g_director_config);
+    if (director_commit_power(&g_director_config, tick_time_ns) != COMPONENT_SUCCESS) return COMPONENT_ERROR;
+
+    if (require_empty_command_queue("COMMIT after power transitions") != COMPONENT_SUCCESS)
+        return COMPONENT_ERROR;
+
     /* ACTUATE observes a quiescent service layer and emits one ordered command
      * batch after every component has consumed the latest FSW output. */
     started_ns = director_now_ns();
@@ -1414,8 +1509,7 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
     if (component_phase_succeeded("COMMIT") != COMPONENT_SUCCESS)
         return COMPONENT_ERROR;
 
-    /* Device handlers enqueue actuator changes during FSW execute. Commit the
-     * complete batch only after SCH reports that slot finished. */
+    /* Commit only outputs emitted during ACTUATE after power transitions. */
     started_ns = director_now_ns();
     simulith_42_command_t commands[SIMULITH_42_CMD_QUEUE_SIZE];
     uint32_t command_count = 0;
@@ -1424,8 +1518,7 @@ int director_commit_tick(uint64_t sequence, uint64_t tick_time_ns)
     if (command_status != 0)
         return COMPONENT_ERROR;
 
-    // Service backdoor packets
-    process_backdoor_once(&g_director_config);
+
 
     // Publish telemetry
     if (g_udp_sock >= 0 && g_director_config.shared_context_42.valid &&

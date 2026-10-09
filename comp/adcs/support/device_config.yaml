@@ -4,3 +4,7 @@ adcs:
   baudrate_hz: 115200
   ms_timeout: 250
   debug: true
+  # Bit N assigns actuator index N to this simulator, including shutdown output.
+  spacecraft_id: 0
+  wheel_mask: 15
+  mtb_mask: 7

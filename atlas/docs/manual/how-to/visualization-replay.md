@@ -28,6 +28,27 @@ At 100 Hz it covers about 2 minutes.
 Solid violet marks archived eclipse truth.
 Dotted violet is an approximate Earth-shadow forecast.
 The forecast is a diagnostic overlay and does not replace 42 truth.
+The **EPS** box below the ground-track map shows the eight switch states and their configured labels.
+Labels come from the active Yamcs mission database and show the connected device names.
+The default DRM shows DEMO on switch 0, ADCS on switch 4, RADIO on switch 6, and the passive load bank on switch 5.
+Shared rails list every mapped device, and custom rail labels are retained alongside device names.
+Hover over a switch to see its load mapping, rail voltage, and startup state.
+The battery graph plots calibrated `/EPS/BATTERY_VOLTAGE` from FSW housekeeping in volts.
+Battery reporting uses the configured voltage span divided by 255, about 0.03137 V per count for the default 16 to 24 V range.
+Rebuild the simulator and Yamcs together after changing this range so raw counts and calibration agree.
+Use the corner minimize button to collapse the EPS box, and the plus button to expand it.
+Telemetry collection continues while collapsed.
+Set **Past** to a whole number from 1 to 120 simulated minutes.
+The default is ten minutes.
+The viewer backfills available Yamcs battery history when opened or when the window changes.
+History is bounded to 7,200 samples and twelve archive pages, so a longer window can contain less coverage at higher telemetry rates.
+The horizontal axis spans the selected window even when only a few samples are available.
+Live mode subscribes to the existing EPS FSW parameters, and Replay reads their Yamcs Parameter Archive history at or before the displayed UTC timestamp.
+Missing, invalid, expired, or reports older than 15 simulated seconds at the replay cursor show an unavailable marker rather than an inferred switch state.
+The graph leaves gaps between readings more than 15 seconds apart.
+Its timestamp identifies the latest battery report, so cached FSW housekeeping should not be used as proof of device responsiveness.
+These readings do not expose EPS simulator state or estimate battery state of charge.
+
 The scene includes Cesium's offline star map and Moon, a dashed grey orbit trail, solid body axes, a translucent Sun vector, eclipse state, and angular rates.
 The body axes and Sun vector start at the same spacecraft truth position used by the orbit trail.
 The credits under the controls show the configured spacecraft model filename.

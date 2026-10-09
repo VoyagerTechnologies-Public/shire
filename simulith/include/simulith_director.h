@@ -132,6 +132,8 @@ int load_components(director_config_t* config);
  * @return 0 on success, -1 on error
  */
 int initialize_components(director_config_t* config);
+int director_commit_power(director_config_t *config, uint64_t ns);
+int director_dispatch_backdoor(director_config_t *config, const uint8_t *packet, size_t length);
 
 /**
  * Cleanup all components and close libraries

@@ -14,6 +14,17 @@ This example ADCS in a box manages the following hardware suite:
 * Three orthogonal reaction wheels (RWs)
 * A star tracker (ST)
 
+The simulator owns the actuator indices selected by `wheel_mask` and `mtb_mask` in `support/device_config.yaml`, on `spacecraft_id`.
+Bit N selects actuator index N.
+Defaults retain the existing ownership of wheel indices 0–3 and magnetorquer indices 0–2 on spacecraft 0.
+The three-axis controller operates wheel indices 0–2, while shutdown also zeros an owned wheel at index 3.
+Set a mask to zero when the simulator owns no actuators of that type.
+Invalid masks or a negative spacecraft ID prevent simulator initialization.
+When assigning outputs to independent component simulators, their masks must not overlap.
+Actuator output is generated only during ACTUATE, after EPS power transitions and service completion.
+Power loss clears this simulator's private state and writes zero to its owned outputs, without removing another component's queued commands.
+The generic Simulith control trace records committed commands for all spacecraft. EPS stack acceptance checks FSW mode and device transactions, without a separate actuator trace.
+
 The interface to the ADCS is a UART that is speak when spoken to.
 Each command that is successfully interpreted is echoed back.
 If additional telemetry is to be generated, it will follow.

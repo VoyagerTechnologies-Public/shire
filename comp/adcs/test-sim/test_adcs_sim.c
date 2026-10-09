@@ -2176,7 +2176,7 @@ static void test_convergence_mode0_commands_zero_actuators(void)
 
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_WHEEL_TORQUE, cmd_wheel.type);
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE,   cmd_mtb.type);
-    TEST_ASSERT_EQUAL_INT(0x07, cmd_wheel.cmd.wheel.enable_mask);
+    TEST_ASSERT_EQUAL_INT(0x0F, cmd_wheel.cmd.wheel.enable_mask);
     TEST_ASSERT_EQUAL_INT(0x07, cmd_mtb.cmd.mtb.enable_mask);
     TEST_ASSERT_TRUE(fabs(cmd_wheel.cmd.wheel.torque[0]) < 1e-9);
     TEST_ASSERT_TRUE(fabs(cmd_wheel.cmd.wheel.torque[1]) < 1e-9);
@@ -2477,6 +2477,163 @@ static void test_convergence_mode5_inertial_wheel_torque_reduces_error(void)
 /* -------------------------------------------------------------------------
  * main
  * -------------------------------------------------------------------------*/
+static void test_powered_off_and_booting_requests_complete_without_payload(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    adcs_sim_state_t *device = (adcs_sim_state_t *)state;
+    simulith_power_load_config_t config = {0};
+    config.scale = 1; config.boot_delay_s = 2; config.boot_w = 1;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_configure(state, &config));
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client,"power_test_client"));
+    uint8_t command[ADCS_DEVICE_CMD_SIZE], response[128];
+    encode_command(command, ADCS_DEVICE_REQ_HK_CMD, 0);
+    const uint64_t times[] = {0,1000000000ULL,3000000000ULL,4000000000ULL,5000000000ULL,7000000000ULL};
+    for (unsigned i=0; i<6; i++) {
+        if (i==1 || i==4) TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state,1,times[i]));
+        if (i==3) TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state,0,times[i]));
+        TEST_ASSERT_EQUAL_INT((int)sizeof(command),simulith_transport_send(&client,command,sizeof(command)));
+        usleep(2000);
+        TEST_ASSERT_EQUAL_INT(COMPONENT_WORK,g_iface->service(state,times[i],NULL));
+        size_t count=drain_all(&client,response,sizeof(response));
+        TEST_ASSERT_EQUAL_size_t((i==2 || i==5) ? ADCS_DEVICE_CMD_SIZE + ADCS_DEVICE_HK_SIZE : 0,count);
+    }
+    TEST_ASSERT_EQUAL_UINT64(2,device->power.successful_requests);
+    TEST_ASSERT_EQUAL_UINT64(4,device->power.rejected_requests);
+    TEST_ASSERT_EQUAL_UINT64(2,device->power.cycles);
+    simulith_transport_close(&client);
+    g_iface->destroy(state);
+}
+
+static void test_power_callback_contract_and_off_prepare(void)
+{
+    simulith_power_load_config_t cfg = {0};
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(NULL, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_reset(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(NULL, 1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(NULL, 0, &snapshot));
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(state, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(state, 0, NULL));
+    cfg.boot_delay_s = 1; cfg.boot_w = 4; cfg.mode_w[0] = 2; cfg.scale = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, -1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, 2, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_prepare_tick(state, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 0, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_reset(state, 100));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 100, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    g_iface->destroy(state);
+}
+
+static void test_eps_power_cycle_boot_and_mode_demand(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    adcs_sim_state_t *s = (adcs_sim_state_t *)state;
+    simulith_power_load_config_t cfg = {0};
+    cfg.scale = 0.5; cfg.boot_delay_s = 2; cfg.boot_w = 10;
+    for (unsigned int m = 0; m < SIMULITH_POWER_MODES; m++) cfg.mode_w[m] = 1 + m;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 1000000000ULL));
+    simulith_power_snapshot_t snap;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 2000000000ULL, &snap));
+    TEST_ASSERT_EQUAL_UINT8(0, snap.ready);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 5, snap.watts);
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 2000000000ULL));
+    TEST_ASSERT_EQUAL_UINT64(1, s->power.cycles);
+    for (int mode = 0; mode < 6; mode++) {
+        s->current_mode = mode;
+        TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 3000000000ULL, &snap));
+        TEST_ASSERT_EQUAL_UINT8(1, snap.ready);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6, (1 + mode) * 0.5, snap.watts);
+    }
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 0, 3000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 4000000000ULL, &snap));
+    TEST_ASSERT_EQUAL_UINT8(0, snap.ready);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0, snap.watts);
+    TEST_ASSERT_EQUAL_INT(0, s->current_mode);
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 4000000000ULL));
+    TEST_ASSERT_EQUAL_UINT64(2, s->power.cycles);
+    g_iface->destroy(state);
+}
+
+static void test_owned_actuators_survive_power_cycles_without_affecting_peers(void)
+{
+    component_state_t *state=NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,g_iface->create(&state));
+    g_state_under_test=state;
+    adcs_sim_state_t *device=(adcs_sim_state_t *)state;
+    device->spacecraft_id=7;
+    device->wheel_mask=2;
+    device->mtb_mask=4;
+    drain_command_queue();
+    simulith_42_context_t context={0};
+    context.valid=1;context.spacecraft_id=7;context.qn[3]=1;
+    context.sun_vector_body[1]=1;context.mag_field_body[2]=1;
+    context.wn[0]=0.6;context.pos_n[1]=7000000;
+    for (int mode=0;mode<=5;mode++) {
+        uint64_t ns=(uint64_t)(mode+1)*1000000000ULL;
+        device->current_mode=mode;device->controller_active=1;
+        device->control_deadline_valid=1;device->next_control_update_ns=ns;
+        device->actuator_reset_pending=(uint8_t)(mode==0);
+        TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,g_loaded_iface->actuate(state,ns,&context));
+        simulith_42_command_t command;
+        int count=0;
+        while (dequeue_command(&command)==0) {
+            TEST_ASSERT_EQUAL_INT(7,command.spacecraft_id);
+            if (command.type==SIMULITH_42_CMD_WHEEL_TORQUE)
+                TEST_ASSERT_EQUAL_INT(2,command.cmd.wheel.enable_mask);
+            else {
+                TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE,command.type);
+                TEST_ASSERT_EQUAL_INT(4,command.cmd.mtb.enable_mask);
+            }
+            count++;
+        }
+        TEST_ASSERT_GREATER_THAN_INT(0,count);
+    }
+    simulith_power_load_config_t cfg={0};cfg.scale=1;cfg.boot_delay_s=2;
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_configure(state,&cfg));
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,1,7000000000ULL));
+    /* An independent powered wheel remains in the generic queue on reset. */
+    const double peer[4]={0.75,0,0,0};
+    TEST_ASSERT_EQUAL_INT(0,simulith_42_send_wheel_command(7,peer,1));
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,0,8000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0,device->controller_active);
+    TEST_ASSERT_EQUAL_INT(2,device->wheel_mask);
+    TEST_ASSERT_EQUAL_INT(4,device->mtb_mask);
+    TEST_ASSERT_EQUAL_INT(0,g_loaded_iface->actuate(state,8000000000ULL,&context));
+    simulith_42_command_t command;
+    TEST_ASSERT_EQUAL_INT(0,dequeue_command(&command));
+    TEST_ASSERT_EQUAL_INT(1,command.cmd.wheel.enable_mask);
+    TEST_ASSERT_FLOAT_WITHIN(1e-8,0.75,command.cmd.wheel.torque[0]);
+    TEST_ASSERT_EQUAL_INT(0,dequeue_command(&command));
+    TEST_ASSERT_EQUAL_INT(2,command.cmd.wheel.enable_mask);
+    TEST_ASSERT_FLOAT_WITHIN(1e-8,0,command.cmd.wheel.torque[1]);
+    TEST_ASSERT_EQUAL_INT(0,dequeue_command(&command));
+    TEST_ASSERT_EQUAL_INT(4,command.cmd.mtb.enable_mask);
+    TEST_ASSERT_FLOAT_WITHIN(1e-8,0,command.cmd.mtb.dipole[2]);
+    TEST_ASSERT_EQUAL_INT(-1,dequeue_command(&command));
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,1,9000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0,g_loaded_iface->actuate(state,9000000000ULL,&context));
+    drain_command_queue();
+    TEST_ASSERT_EQUAL_INT(0,g_loaded_iface->actuate(state,10000000000ULL,&context));
+    TEST_ASSERT_EQUAL_INT(-1,dequeue_command(&command));
+    /* No owned actuators means no output, including shutdown. */
+    device->wheel_mask=0;device->mtb_mask=0;
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_reset(state,11000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0,g_loaded_iface->actuate(state,11000000000ULL,&context));
+    TEST_ASSERT_EQUAL_INT(-1,dequeue_command(&command));
+}
+
 int main(void)
 {
     g_handle = dlopen(ADCS_SIM_SO_PATH, RTLD_NOW);
@@ -2513,6 +2670,10 @@ int main(void)
     UNITY_BEGIN();
 
     /* Lifecycle / Loader */
+    RUN_TEST(test_powered_off_and_booting_requests_complete_without_payload);
+    RUN_TEST(test_power_callback_contract_and_off_prepare);
+    RUN_TEST(test_eps_power_cycle_boot_and_mode_demand);
+    RUN_TEST(test_owned_actuators_survive_power_cycles_without_affecting_peers);
     RUN_TEST(test_dlopen_adcs_sim_so);
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_init_returns_success_and_state);

@@ -14,6 +14,17 @@
 // Configuration parameters
 #define ADCS_SIM_UPDATE_RATE_HZ 10
 
+/* Keep older mission configurations compatible with the original ownership. */
+#ifndef ADCS_CFG_SPACECRAFT_ID
+#define ADCS_CFG_SPACECRAFT_ID 0
+#endif
+#ifndef ADCS_CFG_WHEEL_MASK
+#define ADCS_CFG_WHEEL_MASK 15
+#endif
+#ifndef ADCS_CFG_MTB_MASK
+#define ADCS_CFG_MTB_MASK 7
+#endif
+
 // Status codes
 #define ADCS_SIM_SUCCESS 0
 #define ADCS_SIM_ERROR  1
@@ -53,6 +64,10 @@ typedef struct
 {
     // Resources and model state are instance-owned; no callback globals.
     transport_port_t uart_port;
+    simulith_power_runtime_t power;
+    int spacecraft_id;
+    int wheel_mask;
+    int mtb_mask;
     // Simulator specifics
     uint64_t next_sensor_update_ns;
     // Device specifics

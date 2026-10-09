@@ -512,9 +512,11 @@ static void test_spi_send_cmd_zero_payload_no_counter(void)
     encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_SEND_CMD, NULL, 0);
     simulith_transport_send(&spi, frame, 5);
     usleep(2000);
-    g_iface->on_tick(state, 0ULL, NULL);
+    g_prepare_tick(state, 0ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_WORK, g_iface->service(state, 0ULL, NULL));
 
     radio_sim_state_t *rs = (radio_sim_state_t *)state;
+    TEST_ASSERT_EQUAL_UINT64(1, rs->power.rejected_requests);
     TEST_ASSERT_EQUAL_UINT16(0, rs->hk.CommandCounter);
 
     simulith_transport_close(&spi);
@@ -1455,6 +1457,139 @@ static void test_register_component_alias(void)
 /* -------------------------------------------------------------------------
  * main
  * -------------------------------------------------------------------------*/
+static void test_power_callback_contract_and_off_prepare(void)
+{
+    simulith_power_load_config_t cfg = {0};
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(NULL, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_reset(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(NULL, 1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(NULL, 0, &snapshot));
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(state, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(state, 0, NULL));
+    cfg.boot_delay_s = 1; cfg.boot_w = 4; cfg.mode_w[0] = 2; cfg.scale = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, -1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, 2, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_prepare_tick(state, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 0, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_reset(state, 100));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 100, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    g_iface->destroy(state);
+}
+
+static void test_eps_power_cycle_boot_and_mode_demand(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    radio_sim_state_t *s = (radio_sim_state_t *)state;
+    simulith_power_load_config_t cfg = {0};
+    cfg.scale = 0.5; cfg.boot_delay_s = 2; cfg.boot_w = 10;
+    for (unsigned int m = 0; m < SIMULITH_POWER_MODES; m++) cfg.mode_w[m] = 1 + m;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 1000000000ULL));
+    simulith_power_snapshot_t snap;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 2000000000ULL, &snap));
+    TEST_ASSERT_EQUAL_UINT8(0, snap.ready);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 5, snap.watts);
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 2000000000ULL));
+    TEST_ASSERT_EQUAL_UINT64(1, s->power.cycles);
+    for (int mode = 0; mode < 4; mode++) {
+        s->config.Mode = (uint8_t)mode;
+        TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 3000000000ULL, &snap));
+        TEST_ASSERT_EQUAL_UINT8(1, snap.ready);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6, (1 + mode) * 0.5, snap.watts);
+    }
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 0, 3000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 4000000000ULL, &snap));
+    TEST_ASSERT_EQUAL_UINT8(0, snap.ready);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0, snap.watts);
+    TEST_ASSERT_EQUAL_UINT32(0, s->rx_buffer_head);
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 4000000000ULL));
+    TEST_ASSERT_EQUAL_UINT64(2, s->power.cycles);
+    g_iface->destroy(state);
+}
+
+static void test_rf_input_requires_eps_supply_and_completed_boot(void)
+{
+    component_state_t *state=NULL;
+    TEST_ASSERT_EQUAL_INT(0,g_iface->create(&state));
+    g_state_under_test=state;
+    radio_sim_state_t *s=(radio_sim_state_t *)state;
+    simulith_power_load_config_t cfg={.scale=1,.boot_delay_s=1};
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_configure(state,&cfg));
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,1,0));
+    const uint8_t payload[]={1,2,3,4};
+    TEST_ASSERT_EQUAL_INT(sizeof(payload),inject_udp(payload,sizeof(payload)));
+    int queued=0;
+    for (unsigned int i=0; i<200; i++) {
+        uint8_t peek[8];
+        pthread_mutex_lock(&s->buffer_mutex);
+        queued=(int)recv(s->udp_rx_socket,peek,sizeof(peek),MSG_PEEK|MSG_DONTWAIT);
+        pthread_mutex_unlock(&s->buffer_mutex);
+        if (queued<0) break;
+        usleep(1000);
+    }
+    TEST_ASSERT_LESS_THAN_INT(0,queued);
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,0,&snapshot));
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0,snapshot.rf_received);
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,1000000000ULL,&snapshot));
+    TEST_ASSERT_TRUE(snapshot.ready);
+    TEST_ASSERT_EQUAL_INT(sizeof(payload),inject_udp(payload,sizeof(payload)));
+    for (unsigned int i=0; i<200; i++) {
+        TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,1000000000ULL,&snapshot));
+        if (snapshot.rf_received==sizeof(payload)) break;
+        usleep(1000);
+    }
+    TEST_ASSERT_EQUAL_UINT64(sizeof(payload),snapshot.rf_received);
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_set(state,0,2000000000ULL));
+    TEST_ASSERT_EQUAL_INT(sizeof(payload),inject_udp(payload,sizeof(payload)));
+    usleep(50000);
+    TEST_ASSERT_EQUAL_INT(0,g_iface->power_snapshot(state,2000000000ULL,&snapshot));
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(sizeof(payload),snapshot.rf_received);
+    g_state_under_test=NULL;
+    g_iface->destroy(state);
+}
+
+static void test_eps_power_cycle_discards_queued_udp_datagrams(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    radio_sim_state_t *s = (radio_sim_state_t *)state;
+    /* Stop only the receiver so input remains queued at the power boundary. */
+    pthread_mutex_lock(&s->buffer_mutex);
+    s->udp_thread_running = 0;
+    pthread_mutex_unlock(&s->buffer_mutex);
+    pthread_join(s->udp_thread, NULL);
+    simulith_power_load_config_t cfg = {0};
+    cfg.scale = 1;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 0));
+    const uint8_t payload[] = {1,2,3,4};
+    TEST_ASSERT_EQUAL_INT(sizeof(payload), inject_udp(payload, sizeof(payload)));
+    uint8_t received[8];
+    TEST_ASSERT_EQUAL_INT(sizeof(payload), recv(s->udp_rx_socket, received, sizeof(received), MSG_PEEK|MSG_DONTWAIT));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 0, 1000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 1000000000ULL));
+    int stale_bytes = recv(s->udp_rx_socket, received, sizeof(received), MSG_DONTWAIT);
+    TEST_ASSERT_EQUAL_UINT64(2, s->power.cycles);
+    /* The endpoint remains usable for fresh input after recovery. */
+    TEST_ASSERT_EQUAL_INT(sizeof(payload), inject_udp(payload, sizeof(payload)));
+    TEST_ASSERT_EQUAL_INT(sizeof(payload), recv(s->udp_rx_socket, received, sizeof(received), MSG_DONTWAIT));
+    g_iface->destroy(state);
+    TEST_ASSERT_EQUAL_INT(-1, stale_bytes);
+}
+
 int main(void)
 {
     /* Bypass gethostbyname("shire-cryptolib") which blocks for DNS timeout in CI/test envs. */
@@ -1496,6 +1631,10 @@ int main(void)
     UNITY_BEGIN();
 
     /* Lifecycle */
+    RUN_TEST(test_power_callback_contract_and_off_prepare);
+    RUN_TEST(test_eps_power_cycle_boot_and_mode_demand);
+    RUN_TEST(test_rf_input_requires_eps_supply_and_completed_boot);
+    RUN_TEST(test_eps_power_cycle_discards_queued_udp_datagrams);
     RUN_TEST(test_dlopen_radio_sim_so);
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_init_returns_success_and_initial_state);

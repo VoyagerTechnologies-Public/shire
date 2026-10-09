@@ -22,6 +22,7 @@ import argparse
 import datetime as dt
 import fcntl
 import json
+import math
 import os
 import pathlib
 import re
@@ -31,9 +32,12 @@ import sys
 import time
 
 import yaml
+import requests
 
 from shire_provenance import ROOT, run, git_head_sha
-from shire_runner_lib import container_names, run_streaming, try_parse_marker
+from shire_runner_lib import container_names, run_streaming, try_parse_marker, resolve_component_configs
+from shire_eps_stacks import write_stacks
+from shire_eps_analysis import event_gate
 from shire_archive_check import coverage as archive_coverage
 
 SIMULATED_TIME_RE = re.compile(r"Simulation time:\s*([0-9.]+)\s*seconds")
@@ -242,7 +246,8 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
                                 deadline_s: float, report_dir: pathlib.Path,
                                 port_offset: int = 0,
                                 director_container: str | None = None,
-                                sim_time_parameter: str | None = None) -> dict[str, object]:
+                                sim_time_parameter: str | None = None,
+                                require_fresh: bool = False) -> dict[str, object]:
     """Runs each {stack, at_s} entry in ascending at_s order, waiting for
     the run to reach each one's simulated time before firing it. Every
     entry is attempted regardless of earlier failures (same "run to
@@ -281,6 +286,11 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
         report_path = report_dir / f"verify-{stem}.json"
         remaining_s = deadline_s - (time.monotonic() - started)
         yamcs_url = f"http://localhost:{8090 + port_offset}"
+        if require_fresh:
+            # Enable telemetry reception here. EPS stacks themselves select
+            # uplinks, so automated runs exercise the same setup as the browser.
+            response = requests.post(f'{yamcs_url}/api/links/shire/debug-in:enable',timeout=5)
+            response.raise_for_status()
         print(f"[scenario] running verify stack: {stack_path} "
               f"(scheduled at simulated t={at_s:.0f}s)...", flush=True)
         try:
@@ -291,6 +301,8 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
             command = [sys.executable, str(ROOT / "yamcs" / "yamcs_commander.py"),
                        "--stack", str(ROOT / stack_path), "--report", str(report_path),
                        "--yamcs-url", yamcs_url]
+            if require_fresh:
+                command += ["--require-fresh"]
             if sim_time_parameter:
                 command += ["--sim-time-parameter", sim_time_parameter]
             returncode, stdout = run_streaming(command, timeout=max(1.0, remaining_s))
@@ -323,11 +335,6 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
 
 def finish(result: dict[str, object], passed: bool, reason: str,
           report_dir: pathlib.Path) -> int:
-    snapshot_src = (ROOT / "build" / str(result["mission"]) / "scenario" /
-                    f"{result['scenario']}.snapshot.yaml")
-    if snapshot_src.exists():
-        shutil.copy2(snapshot_src, report_dir / snapshot_src.name)
-        result["initial_conditions_snapshot"] = snapshot_src.name
 
     result["pass"] = passed
     result["reason"] = reason
@@ -371,6 +378,7 @@ def main() -> int:
     parser.add_argument("--initial-conditions-file",
                         help="Absolute path to a generated IC bin yaml to use instead of the "
                              "scenario's named initial_conditions bin.")
+    parser.add_argument("--simulith-speed", type=float, help="Override runtime speed (0 = maximum; 1 = real time)")
     parser.add_argument("--no-build", action="store_true",
                         help="Skip `make build`; run `make cfg-compose-only` instead. Assumes an "
                              "image matching --image-tag was already built (see tools/shire-campaign.py).")
@@ -444,6 +452,26 @@ def main() -> int:
             # needs (re-)rendering here.
             build_target = "cfg-compose-only" if args.no_build else "build"
             build_returncode, build_stdout = run_streaming(["make", build_target])
+            if build_returncode == 0:
+                global_cfg = load_yaml(GLOBAL_CONFIG)
+                mission_entry = next(m for m in global_cfg['build']['missions'] if m['name'] == mission)
+                mission_cfg = load_yaml(CFG_DIR / mission_entry['config_file'])
+                spacecraft_entry = next(s for s in mission_cfg['spacecraft'] if s['name'] == spacecraft)
+                spacecraft_cfg = load_yaml(CFG_DIR / spacecraft_entry['config_file'])
+                run_scenario_cfg = load_scenario_cfg(mission, args.scenario)
+                ic_path = pathlib.Path(args.initial_conditions_file) if args.initial_conditions_file else CFG_DIR / 'drm' / 'initial_conditions' / (run_scenario_cfg.get('initial_conditions','nominal-baseline')+'.yaml')
+                resolved_components = resolve_component_configs(global_cfg, mission_cfg, spacecraft_cfg, run_scenario_cfg, load_yaml(ic_path))
+                (report_dir / 'resolved-settings.yaml').write_text(yaml.safe_dump(resolved_components, sort_keys=False))
+                shutil.copy2(ic_path, report_dir / 'initial-conditions.yaml')
+                snapshot_name=f'{args.scenario}.snapshot.yaml'
+                snapshot={'scenario_name':args.scenario,'scenario_config':run_scenario_cfg,
+                          'initial_conditions':str(ic_path),'resolved_ic':load_yaml(ic_path),
+                          'resolved_components':resolved_components,'git_sha':result['git_sha'],
+                          'image_tag':args.image_tag or spacecraft}
+                (report_dir/snapshot_name).write_text(yaml.safe_dump(snapshot,sort_keys=False))
+                result['initial_conditions_snapshot']=snapshot_name
+                if run_scenario_cfg.get('eps_validation'):
+                    write_stacks(resolved_components['eps'], report_dir / 'stacks')
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
@@ -453,7 +481,10 @@ def main() -> int:
 
     scenario_cfg = load_scenario_cfg(mission, args.scenario)
     run_duration_s = float(scenario_cfg.get("run_duration_s", 900))
-    simulith_speed = scenario_cfg.get("simulith_speed")
+    simulith_speed = args.simulith_speed if args.simulith_speed is not None else scenario_cfg.get("simulith_speed")
+    if simulith_speed is not None and (not math.isfinite(simulith_speed) or simulith_speed < 0):
+        return finish(result, False, "simulith-speed must be finite and nonnegative", report_dir)
+    result["simulith_speed"] = simulith_speed
     director_command_scenario = scenario_cfg.get("director_command_scenario")
     result["run_duration_s"] = run_duration_s
 
@@ -464,6 +495,7 @@ def main() -> int:
     compose_cmd = ["docker", "compose", "-f", str(compose)]
 
     image_tag = args.image_tag or spacecraft
+    result["image_tag"] = image_tag
     archive = subprocess.run(
         [sys.executable, str(ROOT / "tools" / "shire-archives.py"), "create",
          "--mission", mission, "--spacecraft", spacecraft, "--scenario", args.scenario,
@@ -477,6 +509,15 @@ def main() -> int:
     trial_env["SHIRE_YAMCS_VOLUME"] = archive_info["volume"]
     trial_env["SHIRE_RUN_ID"] = archive_info["run_id"]
     trial_env["SIMULITH_DURATION"] = str(run_duration_s)
+    if 'synchronize_ground_output' in scenario_cfg:
+        trial_env.setdefault('SHIRE_SYNCHRONIZE_GROUND_OUTPUT',
+                             '1' if scenario_cfg['synchronize_ground_output'] else '0')
+    result['synchronized_ground_output'] = trial_env.get('SHIRE_SYNCHRONIZE_GROUND_OUTPUT', '0') == '1'
+    if scenario_cfg.get('eps_validation'):
+        result['eps_acceptance_basis'] = 'fresh FSW stack results'
+    if scenario_cfg.get('ground_output_hz'):
+        trial_env['SHIRE_GROUND_OUTPUT_HZ'] = str(scenario_cfg['ground_output_hz'])
+        result['ground_output_hz'] = scenario_cfg['ground_output_hz']
     if simulith_speed is not None:
         # Only safe to raise unconditionally for scenarios with no
         # verify_stacks: for those, run_duration_s just bounds how much
@@ -507,19 +548,31 @@ def main() -> int:
 
         deadline_s = max(60.0, run_duration_s * 3.0 + 60.0)
 
-        verify_stacks = scenario_cfg.get("verify_stacks", [])
+        verify_stacks = [dict(entry) for entry in scenario_cfg.get("verify_stacks", [])]
+        if scenario_cfg.get('eps_validation'):
+            for entry in verify_stacks:
+                entry['stack'] = str(report_dir / 'stacks' / pathlib.Path(entry['stack']).name)
         if verify_stacks:
             result["verification"] = run_scheduled_verify_stacks(
                 verify_stacks, names["server"], deadline_s, report_dir,
                 port_offset=port_offset, director_container=names["director"],
-                sim_time_parameter=scenario_cfg.get("verification_clock_parameter"))
+                sim_time_parameter=scenario_cfg.get("verification_clock_parameter"),
+                require_fresh=bool(scenario_cfg.get("eps_validation")))
 
+        if scenario_cfg.get('accelerate_after_verification'):
+            speed_command = [sys.executable,str(ROOT/'yamcs/yamcs_commander.py'),
+                             '--yamcs-url',f'http://localhost:{8090+port_offset}',
+                             '--command','/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED','--args',f"SPEED={scenario_cfg.get('post_verification_speed',0)}"]
+            speed_result = run(speed_command,check=False)
+            (report_dir/'post-verification-speed.log').write_text(speed_result.stdout)
+            result['post_verification_speed_requested'] = speed_result.returncode == 0
+            result['post_verification_speed'] = scenario_cfg.get('post_verification_speed',0)
         completed = wait_for_completion(names["server"], deadline_s,
                                         names["director"])
 
         logs: dict[str, str] = {}
         for role, container in names.items():
-            value = run(["docker", "logs", container], check=False).stdout
+            value = run(["docker", "logs", "--timestamps", container], check=False).stdout
             logs[role] = value
             (report_dir / f"{container}.log").write_text(value, encoding="utf-8")
         fortytwo_output = run(["docker", "logs", names["42"]], check=False)
@@ -556,6 +609,15 @@ def main() -> int:
             except (OSError, ValueError, KeyError) as exc:
                 result["archive"] = {"replay_ready": False, "error": str(exc)}
 
+        if scenario_cfg.get('eps_validation'):
+            operations=[]
+            for line in logs['director'].splitlines():
+                if 'EPS_BACKDOOR {' in line:
+                    operations.append(json.loads(line[line.index('{',line.index('EPS_BACKDOOR')):]))
+            (report_dir/'backdoor-operations.json').write_text(json.dumps(operations,indent=2)+'\n')
+            result['event_gate'] = event_gate(logs, result.get('verification',{}), ROOT)
+            (report_dir/'events.json').write_text(json.dumps(result['event_gate'],indent=2)+'\n')
+
         fault_lines = [line for log in logs.values() for line in log.splitlines()
                        if " ERROR" in line or " CRITICAL" in line]
         result["fault_scan"] = {
@@ -583,6 +645,15 @@ def main() -> int:
                           f"stack {first['stack']!r} step {first['index']} "
                           f"({first['type']} {first.get('name')}): "
                           f"{first.get('detail') or first.get('actual')}")
+        if scenario_cfg.get('eps_validation'):
+            if director_terminal and any(director_terminal.get(key,0) for key in ('component_service_errors','component_phase_errors','telemetry_errors','fortytwo_errors')):
+                passed=False;reason='director reported infrastructure errors'
+            if fsw_terminal and fsw_terminal.get('participants_canceled',0):
+                passed=False;reason='FSW transactions were canceled'
+            if not result.get('event_gate',{}).get('passed'):
+                passed=False;reason='unexpected flight or infrastructure events; see events.json'
+            if not result.get('archive',{}).get('replay_ready'):
+                passed=False;reason='Yamcs telemetry archive is incomplete or unavailable'
     finally:
         run(down_cmd, check=False)
 

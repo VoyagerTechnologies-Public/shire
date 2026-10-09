@@ -6,11 +6,14 @@ Loads global, mission, and scenario YAMLs, merges them, and writes to active.yam
 import argparse
 import sys
 import os
+import re
 import uuid
 from jinja2 import Environment, FileSystemLoader
 import yaml
 
 from shire_provenance import ROOT, git_head_sha
+from shire_eps_config import normalize_eps, merge_component_config
+from shire_eps_stacks import write_stacks, write_xtce
 
 CFG_DIR = str(ROOT / "cfg")
 BUILD_DIR = str(ROOT / "build")
@@ -31,6 +34,23 @@ def load_yaml(path):
         return None
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+def retain_runtime_events(platform_config):
+    """Raise runtime limits while preserving EVS unit-test squelch boundaries.
+
+    cFE compiles both coverage subjects and test runners with _UNIT_TEST_.
+    Its squelch tests require a burst below the 8-bit counter's saturation
+    value; runtime scenarios retain the larger limits to archive all events.
+    """
+    def override(match):
+        definition, baseline = match.groups()
+        return (f"#if defined(_UNIT_TEST_)\n{definition} {baseline}\n"
+                f"#else\n{definition} 1000000\n#endif")
+
+    return re.sub(
+        r"(#define CFE_PLATFORM_EVS_(?:MAX_APP_EVENT_BURST|APP_EVENTS_PER_SEC))\s+(\d+)",
+        override, platform_config)
 
 
 def main():
@@ -184,6 +204,7 @@ def main():
             # Fallback to mission-level components for backward compatibility
             components = merged["mission_cfg"].get("components", [])
 
+        resolved_components = {}
         for comp in components:
             comp_name = comp.get("name")
             if not comp_name:
@@ -197,37 +218,45 @@ def main():
 
             # 2. Global config
             global_cfg_comp = merged["global"].get(comp_name, {})
-            comp_cfg.update(global_cfg_comp)
+            merge_component_config(comp_name, comp_cfg, global_cfg_comp)
 
             # 3. Mission config
             mission_cfg_comp = merged["mission_cfg"].get(comp_name, {})
-            comp_cfg.update(mission_cfg_comp)
+            merge_component_config(comp_name, comp_cfg, mission_cfg_comp)
 
             # 4. Spacecraft config (NEW LAYER)
             if merged["spacecraft_cfg"]:
                 spacecraft_cfg_comp = merged["spacecraft_cfg"].get(comp_name, {})
-                comp_cfg.update(spacecraft_cfg_comp)
+                merge_component_config(comp_name, comp_cfg, spacecraft_cfg_comp)
 
             # 5. Initial condition bin's per-component state (NEW LAYER: EPS SOC,
             #    ADCS starting mode, fault-injection flags, etc.) — applied
             #    before the scenario's own component config so a scenario can
             #    still override an IC's component state if it needs to.
             ic_comp_overrides = (ic_cfg.get("component_overrides") or {}).get(comp_name, {})
-            comp_cfg.update(ic_comp_overrides)
+            merge_component_config(comp_name, comp_cfg, ic_comp_overrides)
 
             # 6. Scenario config
             scenario_cfg_comp = merged["scenario_cfg"].get(comp_name, {})
-            comp_cfg.update(scenario_cfg_comp)
+            merge_component_config(comp_name, comp_cfg, scenario_cfg_comp)
 
             # 7. Scenario-level 'overrides' dict
             overrides = merged["scenario_cfg"].get("overrides", {})
             if overrides is None:
                 overrides = {}
-            comp_cfg.update(overrides)
+            merge_component_config(comp_name, comp_cfg, overrides)
 
             # 8. CLI debug override (highest priority)
             if args.cli_debug:
                 comp_cfg["debug"] = True
+
+            if comp_name == "eps":
+                try:
+                    comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
+                except ValueError as exc:
+                    fail(str(exc))
+
+            resolved_components[comp_name] = comp_cfg
 
             # Try to find a template for this component
             template_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support'))
@@ -322,6 +351,13 @@ def main():
             else:
                 print(f"[orchestrator] {template_file} template not found, skipping {output_name} generation.")
 
+        if scenario_cfg.get('retain_all_events'):
+            resolved_components['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
+
+        if 'eps' in resolved_components:
+            write_stacks(resolved_components['eps'], os.path.join(BUILD_DIR, mission, 'scenario', 'eps-stacks'))
+            write_xtce(resolved_components['eps'], os.path.join(ROOT, 'comp', 'eps', 'gsw', 'eps.xtce'), os.path.join(BUILD_DIR, mission, 'scenario', 'eps.xtce'))
+
         # Snapshot the scenario + resolved IC selection for this build, so a
         # specific run's exact starting state stays traceable even after
         # build/active.yaml later points at something else. Cheap git SHA only
@@ -334,6 +370,7 @@ def main():
             "scenario_name": scenario,
             "initial_conditions": ic_name,
             "resolved_ic": ic_cfg,
+            "resolved_components": resolved_components,
             "git_sha": git_head_sha(),
         }
         with open(snapshot_path, "w") as f:
@@ -358,6 +395,13 @@ def main():
             else:
                 shutil.copy2(s, d)
         print(f"[orchestrator] Baseline FSW config files copied to {build_cfg_dir}")
+        if scenario_cfg.get('retain_all_events'):
+            for cpu in (1,2):
+                path = os.path.join(build_cfg_dir, f'cpu{cpu}_platform_cfg.h')
+                with open(path) as stream: text=stream.read()
+                text = retain_runtime_events(text)
+                with open(path,'w') as stream: stream.write(text)
+            print('[orchestrator] Runtime event limits raised; unit tests retain baseline squelch limits')
 
         # Manipulate cpu1_cfe_es_startup.scr to remove lines for components not enabled for the spacecraft
         startup_scr_path = os.path.join(build_cfg_dir, "cpu1_cfe_es_startup.scr")

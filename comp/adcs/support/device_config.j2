@@ -10,6 +10,9 @@
 #define ADCS_CFG_HANDLE      {{ config.handle }}
 #define ADCS_CFG_BAUDRATE_HZ {{ config.baudrate_hz }}
 #define ADCS_CFG_MS_TIMEOUT  {{ config.ms_timeout }}
+#define ADCS_CFG_SPACECRAFT_ID {{ config.get('spacecraft_id', 0) }}
+#define ADCS_CFG_WHEEL_MASK {{ config.get('wheel_mask', 15) }}
+#define ADCS_CFG_MTB_MASK {{ config.get('mtb_mask', 7) }}
 {% if config.debug %}#define ADCS_CFG_DEBUG{% endif %}
 #endif
 

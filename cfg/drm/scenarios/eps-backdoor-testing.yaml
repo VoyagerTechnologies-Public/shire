@@ -1,0 +1,17 @@
+scenario_name: eps-backdoor-testing
+description: EPS simulator backdoor application, fault observation and recovery
+initial_conditions: nominal-baseline
+overrides:
+  debug: false
+run_duration_s: 1200
+simulith_speed: 2
+eps_validation: true
+verify_stacks:
+- stack: comp/eps/gsw/procedures/EpsBackdoorFunctional.ycs
+  at_s: 0
+- stack: comp/eps/gsw/procedures/EpsFaultInjection.ycs
+  at_s: 0
+accelerate_after_verification: true
+retain_all_events: true
+post_verification_speed: 0
+synchronize_ground_output: true

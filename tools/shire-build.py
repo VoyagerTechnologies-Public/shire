@@ -444,8 +444,11 @@ def build_cli(config):
     print(f"[build] Building Simulith core...")
     build_simulith(config, builddirs)
     
-    # Build component simulations for each CLI component
-    for comp_name in cli_components:
+    # Device headers describe the mission topology, including EPS consumers.
+    # Build that same topology even when only one component has a CLI client.
+    sim_components = list(dict.fromkeys(get_enabled_components(config) + cli_components))
+    print(f"[build] CLI simulation components: {', '.join(sim_components)}")
+    for comp_name in sim_components:
         build_component_sim(comp_name, builddirs)
     
     # Build simulith-director Docker image

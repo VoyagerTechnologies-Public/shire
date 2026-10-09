@@ -11,6 +11,21 @@
 ** Include Files
 */
 #include "eps_cli.h"
+#include <errno.h>
+#include <stdlib.h>
+
+static int parse_switch(const char *token, uint8_t *number)
+{
+    char *end;
+    if (memchr(token, '\0', MAX_INPUT_TOKEN_SIZE) == NULL)
+        return OS_ERROR;
+    errno = 0;
+    long value = strtol(token, &end, 10);
+    if (errno || end == token || *end || value < 0 || value >= EPS_NUM_SWITCHES)
+        return OS_ERROR;
+    *number = (uint8_t)value;
+    return OS_SUCCESS;
+}
 
 /*
 ** Global Variables
@@ -42,6 +57,7 @@ int EPS_get_command(const char *str)
     int  status = CMD_UNKNOWN;
     char lcmd[MAX_INPUT_TOKEN_SIZE + 1];
     strncpy(lcmd, str, MAX_INPUT_TOKEN_SIZE);
+    lcmd[MAX_INPUT_TOKEN_SIZE] = '\0';
 
     /* Convert command to lower case */
     EPS_to_lower(lcmd);
@@ -107,7 +123,11 @@ int EPS_process_command(int cc, int num_tokens, char tokens[MAX_INPUT_TOKENS][MA
         case CMD_SWITCH_ON:
             if (EPS_check_number_arguments(num_tokens, 1) == OS_SUCCESS)
             {
-                switch_num = (uint8_t) atoi(tokens[0]);
+                if (parse_switch(tokens[0], &switch_num) != OS_SUCCESS)
+                {
+                    OS_printf("Invalid switch number; expected 0 through 7\n");
+                    break;
+                }
                 status = EPS_SetSwitch(&EpsI2c, switch_num, true);
                 if (status == OS_SUCCESS)
                     OS_printf("Switch %d ON command success\n", switch_num);
@@ -119,7 +139,11 @@ int EPS_process_command(int cc, int num_tokens, char tokens[MAX_INPUT_TOKENS][MA
         case CMD_SWITCH_OFF:
             if (EPS_check_number_arguments(num_tokens, 1) == OS_SUCCESS)
             {
-                switch_num = (uint8_t) atoi(tokens[0]);
+                if (parse_switch(tokens[0], &switch_num) != OS_SUCCESS)
+                {
+                    OS_printf("Invalid switch number; expected 0 through 7\n");
+                    break;
+                }
                 status = EPS_SetSwitch(&EpsI2c, switch_num, false);
                 if (status == OS_SUCCESS)
                     OS_printf("Switch %d OFF command success\n", switch_num);
@@ -186,7 +210,14 @@ int main(int argc, char *argv[])
             }
             else
             {
-                strncpy(input_tokens[num_input_tokens], token_ptr, MAX_INPUT_TOKEN_SIZE);
+                if (strlen(token_ptr) >= MAX_INPUT_TOKEN_SIZE)
+                {
+                    cmd = CMD_UNKNOWN;
+                    num_input_tokens = 0;
+                    break;
+                }
+                strncpy(input_tokens[num_input_tokens], token_ptr, MAX_INPUT_TOKEN_SIZE - 1);
+                input_tokens[num_input_tokens][MAX_INPUT_TOKEN_SIZE - 1] = '\0';
             }
             token_ptr = strtok(NULL, " \t\n");
             num_input_tokens++;

@@ -28,6 +28,7 @@ import copy
 import datetime as dt
 import fcntl
 import json
+import os
 import pathlib
 import random
 import signal
@@ -69,6 +70,7 @@ DEFAULT_MODE_BY_DISTRIBUTION = {"uniform": "additive", "normal": "additive", "ch
 
 INSTANCE_LOCK = threading.Lock()
 ASSIGNED_INSTANCES: set[str] = set()
+ACTIVE_TRIAL_PROCESSES: dict[str, subprocess.Popen] = {}
 # Set by _signal_cleanup on SIGINT/SIGTERM. A worker thread checks this
 # before launching its trial's subprocess -- without it, a SIGINT only
 # cleans up whatever was already running at that instant; the thread pool
@@ -257,6 +259,11 @@ def validate_campaign_metrics(campaign_cfg: dict) -> None:
             if required not in metric:
                 fail(f"campaign metric {metric!r} is missing required field {required!r}")
         name = metric["name"]
+        if 'elapsed_since' in metric:
+            origin = metric['elapsed_since']
+            if not isinstance(origin, dict) or not all(isinstance(origin.get(key), str) and origin[key]
+                                                      for key in ('step_name', 'field')):
+                fail(f"campaign metric {name!r} elapsed_since requires step_name and field")
         if name in RESERVED_OUTCOME_FIELDS:
             fail(f"campaign metric name {name!r} collides with a fixed outcome field")
         if name in parameter_paths:
@@ -415,7 +422,22 @@ def extract_metrics(trial_dir: pathlib.Path, metrics_cfg: list[dict]) -> dict[st
                 step = steps[index]
         else:
             step = next((s for s in steps if s.get("name") == metric["step_name"]), None)
-        values[name] = step.get(metric["field"]) if step is not None else None
+        value = step.get(metric["field"]) if step is not None else None
+        if 'elapsed_since' in metric and step is not None:
+            origin = metric['elapsed_since']
+            preceding = steps[:steps.index(step)+1]
+            start = next((row for row in reversed(preceding)
+                          if row.get('name') == origin['step_name']), None)
+            try:
+                begin = dt.datetime.fromisoformat(start[origin['field']])
+                end = dt.datetime.fromisoformat(value)
+                value = (end-begin).total_seconds()
+                if value < 0: value = None
+            except (KeyError, TypeError, ValueError):
+                value = None
+        if 'parameter' in metric:
+            value = value.get(metric['parameter']) if isinstance(value,dict) else None
+        values[name] = value
     return values
 
 
@@ -455,8 +477,19 @@ def _signal_cleanup(signum: int, frame: object) -> None:
     ABORT_EVENT.set()
     with INSTANCE_LOCK:
         tokens = list(ASSIGNED_INSTANCES)
+        processes = list(ACTIVE_TRIAL_PROCESSES.values())
     print(f"\n[campaign] interrupted (signal {signum}); cleaning up {len(tokens)} "
          f"in-flight instance(s)... no further trials will start", flush=True)
+    # Each scenario owns a process group including its commander and build
+    # children. Stop that whole group before ports/container names can be reused.
+    for proc in processes:
+        try: os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError: pass
+    for proc in processes:
+        try: proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try: os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
     for token in tokens:
         cleanup_by_label(token)
     reset_active_campaign_fields()
@@ -485,9 +518,15 @@ def run_trial(index: int, token: str, port_offset: int, mission: str, spacecraft
           "--initial-conditions-file", str(ic_path), "--report-dir", str(trial_dir)]
     log_path = trial_dir / "campaign-trial.log"
     try:
-        proc = subprocess.run(cmd, cwd=ROOT, text=True,
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        log_path.write_text(proc.stdout, encoding="utf-8")
+        # Write while the subprocess runs so interruption retains its evidence.
+        with log_path.open('w', encoding='utf-8') as log:
+            with INSTANCE_LOCK:
+                if ABORT_EVENT.is_set():
+                    raise RuntimeError('campaign interrupted before subprocess launch')
+                proc = subprocess.Popen(cmd, cwd=ROOT, text=True, start_new_session=True,
+                                        stdout=log, stderr=subprocess.STDOUT)
+                ACTIVE_TRIAL_PROCESSES[token] = proc
+            proc.wait()
     except Exception as exc:
         log_path.write_text(f"trial subprocess failed to launch: {exc}\n", encoding="utf-8")
         print(f"[campaign] trial {index} (instance={token}) errored: {exc}", flush=True)
@@ -497,6 +536,7 @@ def run_trial(index: int, token: str, port_offset: int, mission: str, spacecraft
     finally:
         with INSTANCE_LOCK:
             ASSIGNED_INSTANCES.discard(token)
+            ACTIVE_TRIAL_PROCESSES.pop(token,None)
 
     result_path = trial_dir / "result.json"
     if not result_path.exists():
@@ -516,6 +556,10 @@ def run_trial(index: int, token: str, port_offset: int, mission: str, spacecraft
         "metrics": extract_metrics(trial_dir, metrics_cfg),
         "error": None,
     }
+    missing_metrics = [m['name'] for m in metrics_cfg if m.get('required') and outcome['metrics'].get(m['name']) is None]
+    if missing_metrics:
+        outcome['pass'] = False
+        outcome['reason'] = 'missing required metrics: '+', '.join(missing_metrics)
     print(f"[campaign] trial {index} (instance={token}) finished: pass={outcome['pass']}, "
          f"metrics={outcome['metrics']}", flush=True)
     return outcome
@@ -709,6 +753,7 @@ def main() -> int:
         trial_results: list[dict | None] = [None] * trial_count
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel) as pool:
             futures = {}
+            reserved_port_offsets = set()
             for trial in trials_meta:
                 index = trial["trial_index"]
                 build_key = trial["build_key"]
@@ -727,7 +772,12 @@ def main() -> int:
                     }
                     continue
                 image_tag = f"{args.spacecraft}-mc-{build_key}"
-                port_offset = find_free_port_offset(BASE_PORTS, index * PORT_STRIDE)
+                candidate = index * PORT_STRIDE
+                while True:
+                    port_offset = find_free_port_offset(BASE_PORTS, candidate)
+                    if port_offset not in reserved_port_offsets: break
+                    candidate = port_offset + PORT_STRIDE
+                reserved_port_offsets.add(port_offset)
                 future = pool.submit(run_trial, index, trial["token"], port_offset,
                                      args.mission, args.spacecraft, scenario_name, image_tag,
                                      trial["ic_path"], report_dir, metrics_cfg)
