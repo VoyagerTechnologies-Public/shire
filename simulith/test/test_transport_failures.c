@@ -2,6 +2,7 @@
 #include "unity.h"
 
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/eventfd.h>
@@ -18,12 +19,24 @@ typedef enum
     FAIL_POLL,
     POLL_ERROR_READY,
     POLL_EMPTY_READY,
-    REPLY_BYTE
+    REPLY_BYTE,
+    FAIL_ADDRESS_FORMAT
 } failure_t;
 
 static failure_t failure;
 static int poll_calls;
 static int message_receive_calls;
+
+int __wrap_snprintf(char *buffer, size_t size, const char *format, ...)
+{
+    if (failure == FAIL_ADDRESS_FORMAT)
+        return -1;
+    va_list arguments;
+    va_start(arguments, format);
+    int result = vsnprintf(buffer, size, format, arguments);
+    va_end(arguments);
+    return result;
+}
 
 void simulith_log(const char *format, ...)
 {
@@ -263,6 +276,20 @@ static void test_transport_wait_runtime_failures(void)
     close(interrupt_fd);
 }
 
+static void test_transport_endpoint_format_failure_does_not_initialize_port(void)
+{
+    transport_port_t port = {0};
+    strcpy(port.address, "ipc:///tmp/format-failure");
+    failure = FAIL_ADDRESS_FORMAT;
+    char address[128];
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
+        simulith_transport_resolve_address(port.address, 0, address, sizeof(address)));
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR, simulith_transport_init(&port));
+    TEST_ASSERT_NULL(port.zmq_ctx);
+    TEST_ASSERT_NULL(port.zmq_sock);
+    TEST_ASSERT_EQUAL_STRING("ipc:///tmp/format-failure", port.address);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -271,5 +298,6 @@ int main(void)
     RUN_TEST(test_transport_public_argument_guards);
     RUN_TEST(test_transport_request_runtime_failures);
     RUN_TEST(test_transport_wait_runtime_failures);
+    RUN_TEST(test_transport_endpoint_format_failure_does_not_initialize_port);
     return UNITY_END();
 }

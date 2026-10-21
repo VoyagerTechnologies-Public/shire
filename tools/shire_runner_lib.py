@@ -116,7 +116,8 @@ def try_parse_marker(log: str, marker: str) -> dict[str, object] | None:
 
 def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[str, object],
                               spacecraft_cfg: dict[str, object], scenario_cfg: dict[str, object],
-                              ic_cfg: dict[str, object], *, cli_debug: bool = False) -> dict[str, dict]:
+                              ic_cfg: dict[str, object], *, cli_debug: bool = False,
+                              cli_component: str = 'demo') -> dict[str, dict]:
     """Reproduces shire-orchestrator.py's per-component cascading merge
     (fallback -> global -> mission -> spacecraft -> IC component_overrides
     -> scenario -> scenario overrides) standalone, without Jinja/Docker, so
@@ -155,7 +156,7 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
         merge_component_config(comp_name, comp_cfg, (ic_cfg.get("component_overrides") or {}).get(comp_name, {}) or {})
         merge_component_config(comp_name, comp_cfg, scenario_cfg.get(comp_name, {}) or {})
         merge_component_config(comp_name, comp_cfg, scenario_cfg.get("overrides", {}) or {})
-        if cli_debug:
+        if cli_debug and comp_name == cli_component:
             comp_cfg["debug"] = True
 
         if comp_name == "eps":

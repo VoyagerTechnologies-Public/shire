@@ -30,7 +30,7 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make replay-list` | List retained native Yamcs run databases. |
 | `make replay RUN=<run-id> PORT=<port>` | Open one retained database without starting the simulation. |
 | `make replay-delete RUN=<run-id>` | Explicitly delete one retained Yamcs archive. |
-| `make cli` | Regenerate with CLI debugging enabled and build 42, Simulith, the selected simulator, Director, Server, and focused CLI image. |
+| `make cli` | Enable debugging for the selected CLI component and build 42, Simulith, mission simulators, Director, Server, and the selected CLI image. |
 | `make cli-start` | Regenerate normal configuration and start the focused CLI Compose environment attached to the terminal. |
 | `make mold COMP=<name>` | Create a component scaffold from the Demo component. |
 | `make test-sim` | Clean and run simulator tests selected by the existing `build/build.yaml` snapshot. |

@@ -102,6 +102,7 @@ add_executable(test_transport_failures test_transport_failures.c ../src/simulith
 target_link_libraries(test_transport_failures ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_transport_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_transport_failures PRIVATE
+    -Wl,--wrap=snprintf
     -Wl,--wrap=zmq_ctx_new
     -Wl,--wrap=zmq_ctx_term
     -Wl,--wrap=zmq_socket

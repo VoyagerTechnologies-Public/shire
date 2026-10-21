@@ -222,8 +222,9 @@ int simulith_transport_resolve_address(const char *logical_address, int is_serve
         strncmp(logical_address, prefix, sizeof(prefix) - 1) == 0)
     {
         char *end = NULL;
-        long port = strtol(logical_address + sizeof(prefix) - 1, &end, 10);
-        if (!end || *end || port < 1 || port > 65535)
+        const char *digits = logical_address + sizeof(prefix) - 1;
+        long port = strtol(digits, &end, 10);
+        if (end == digits || *end || port < 1 || port > 65535)
             return SIMULITH_TRANSPORT_ERROR;
         const char *host = getenv(is_server ? "SIMULITH_DEVICE_BIND" : "SIMULITH_DEVICE_HOST");
         if ((!host || !host[0]) && is_server)

@@ -207,7 +207,7 @@ help:
 	@echo "  build          - Build the full runtime environment"
 	@echo "  campaign       - Run CAMPAIGN=<name> Monte Carlo trials and aggregate results (optional MAX_PARALLEL=N)"
 	@echo "  cfg            - Run orchestrator to configure environment"
-	@echo "  cfg-cli        - Run orchestrator with debug=true for CLI builds"
+	@echo "  cfg-cli        - Enable debug for the selected CLI component and configure its environment"
 	@echo "  cli            - Build CLI components"
 	@echo "  cli-start      - Start CLI compose"
 	@echo "  clean          - Remove build artifacts and stop compose"

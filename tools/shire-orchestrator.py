@@ -56,7 +56,7 @@ def retain_runtime_events(platform_config):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cli-debug", action="store_true", help="Force debug=True for all components (CLI builds)")
+    parser.add_argument("--cli-debug", action="store_true", help="Force debug=True for the active CLI component")
     parser.add_argument("--compose-only", action="store_true",
                         help="Only (re-)render cli-compose.yaml/shire-compose.yaml; skip device_cfg.h, "
                              "42_config, the scenario snapshot, and the FSW startup script edit. Used by "
@@ -250,7 +250,7 @@ def main():
             merge_component_config(comp_name, comp_cfg, overrides)
 
             # 8. CLI debug override (highest priority)
-            if args.cli_debug:
+            if args.cli_debug and comp_name == cli_component:
                 comp_cfg["debug"] = True
 
             if comp_name == "eps":
