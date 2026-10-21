@@ -11,14 +11,15 @@ tears everything down, and exits 0 (pass) / 1 (fail). This is the path
 `make scenario SCENARIO=<name>` and CI use to confirm a scenario passes;
 `make start` remains the manual path for a developer using the Yamcs viewer.
 
-Pass/fail is "clean completion only". This script
-does not assert anything about telemetry values, only that every
-participant reached its terminal marker without crashing or timing out.
+Pass/fail requires clean completion plus any verification stacks and
+mission-specific gates configured by the scenario. The board launcher
+reuses this runner with target cFS and host simulation/ground services.
 """
 
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import datetime as dt
 import fcntl
 import json
@@ -143,7 +144,7 @@ def exited_container_code(container: str) -> int | None:
 
 
 def wait_for_completion(server_container: str, deadline_s: float,
-                        director_container: str | None = None) -> bool:
+                        director_container: str | None = None, *, check_running=None) -> bool:
     """Blocks until `server_container` exits, or returns False if it hasn't
     by `deadline_s` seconds (a hung participant never lets Simulith's
     server container exit on its own)."""
@@ -154,6 +155,8 @@ def wait_for_completion(server_container: str, deadline_s: float,
     next_director_check_s = 0.0
     try:
         while waiter.poll() is None:
+            if check_running:
+                check_running()
             elapsed_s = time.monotonic() - started
             if elapsed_s > deadline_s:
                 waiter.terminate()
@@ -175,6 +178,11 @@ def wait_for_completion(server_container: str, deadline_s: float,
     finally:
         if waiter.poll() is None:
             waiter.terminate()
+            try:
+                waiter.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                waiter.kill()
+                waiter.wait()
     return waiter.returncode == 0 and waiter.communicate()[0].strip() == "0"
 
 
@@ -204,7 +212,7 @@ FSW_BOOT_SETTLE_S = 15.0
 
 def wait_for_simulated_time(server_container: str, target_s: float, deadline_s: float,
                             min_real_settle_s: float = 0.0,
-                            director_container: str | None = None) -> bool:
+                            director_container: str | None = None, *, check_running=None) -> bool:
     """Blocks until the run has reached `target_s` simulated seconds AND
     at least `min_real_settle_s` real seconds have elapsed, or returns
     False if `deadline_s` wall-clock seconds elapse first (the run ended,
@@ -223,6 +231,8 @@ def wait_for_simulated_time(server_container: str, target_s: float, deadline_s: 
     started = time.monotonic()
     last_report_s = 0.0
     while time.monotonic() - started < deadline_s:
+        if check_running:
+            check_running()
         if director_container:
             director_code = exited_container_code(director_container)
             if director_code is not None and director_code != 0:
@@ -247,7 +257,7 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
                                 port_offset: int = 0,
                                 director_container: str | None = None,
                                 sim_time_parameter: str | None = None,
-                                require_fresh: bool = False) -> dict[str, object]:
+                                require_fresh: bool = False, check_running=None) -> dict[str, object]:
     """Runs each {stack, at_s} entry in ascending at_s order, waiting for
     the run to reach each one's simulated time before firing it. Every
     entry is attempted regardless of earlier failures (same "run to
@@ -273,7 +283,7 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
         min_real_settle_s = FSW_BOOT_SETTLE_S if index == 0 else 0.0
         reached = remaining_s > 0 and wait_for_simulated_time(
             server_container, at_s, remaining_s, min_real_settle_s,
-            director_container)
+            director_container, check_running=check_running)
         if not reached:
             stack_results.append({
                 "stack": stack_path, "at_s": at_s, "passed": False,
@@ -305,7 +315,8 @@ def run_scheduled_verify_stacks(verify_stacks: list[dict[str, object]], server_c
                 command += ["--require-fresh"]
             if sim_time_parameter:
                 command += ["--sim-time-parameter", sim_time_parameter]
-            returncode, stdout = run_streaming(command, timeout=max(1.0, remaining_s))
+            returncode, stdout = run_streaming(command, timeout=max(1.0, remaining_s),
+                                               check_running=check_running)
         except subprocess.TimeoutExpired as e:
             stdout, returncode = (e.output or ""), None
         (report_dir / f"verify-{stem}.log").write_text(stdout, encoding="utf-8")
@@ -352,7 +363,7 @@ def finish(result: dict[str, object], passed: bool, reason: str,
     return 0 if passed else 1
 
 
-def main() -> int:
+def main(argv=None, *, backend=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario",
                         help="Name of a scenario in cfg/drm/scenarios/*.yaml (scenario_name field). "
@@ -382,7 +393,7 @@ def main() -> int:
     parser.add_argument("--no-build", action="store_true",
                         help="Skip `make build`; run `make cfg-compose-only` instead. Assumes an "
                              "image matching --image-tag was already built (see tools/shire-campaign.py).")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.list_scenarios:
         mission = args.mission or str((load_yaml(ACTIVE_PATH) or {}).get("mission", "drm"))
@@ -403,6 +414,14 @@ def main() -> int:
               f"^[a-z0-9]{{1,8}}$ (it's also used as a container-name/DNS-hostname suffix)",
               file=sys.stderr)
         return 2
+
+    if args.simulith_speed is not None and (not math.isfinite(args.simulith_speed) or args.simulith_speed < 0):
+        parser.error('--simulith-speed must be finite and nonnegative')
+
+    if backend:
+        backend.preflight()
+        if args.instance_id or args.port_offset or args.image_tag or args.no_build:
+            parser.error('Board scenarios require their own target build and use the shared lab ports')
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report_dir = pathlib.Path(args.report_dir).expanduser().resolve() if args.report_dir \
@@ -451,7 +470,8 @@ def main() -> int:
             # this trial's --image-tag; only the per-instance compose file
             # needs (re-)rendering here.
             build_target = "cfg-compose-only" if args.no_build else "build"
-            build_returncode, build_stdout = run_streaming(["make", build_target])
+            build_command = backend.build_command() if backend else ["make", build_target]
+            build_returncode, build_stdout = run_streaming(build_command)
             if build_returncode == 0:
                 global_cfg = load_yaml(GLOBAL_CONFIG)
                 mission_entry = next(m for m in global_cfg['build']['missions'] if m['name'] == mission)
@@ -477,11 +497,28 @@ def main() -> int:
 
     (report_dir / "build.log").write_text(build_stdout, encoding="utf-8")
     if build_returncode != 0:
-        return finish(result, False, f"make {build_target} failed; see build.log", report_dir)
+        return finish(result, False, f"Build failed: {build_command}; see build.log", report_dir)
 
+    try:
+        with backend.session() if backend else nullcontext(None) as runtime:
+            return execute_scenario(args, mission, spacecraft, result, report_dir, runtime=runtime)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        return finish(result, False, str(error), report_dir)
+    except KeyboardInterrupt:
+        return finish(result, False, 'Scenario interrupted', report_dir)
+
+
+def execute_scenario(args, mission, spacecraft, result, report_dir, *, runtime=None):
+    port_offset = args.port_offset or 0
+    runtime = runtime or {}
+    if runtime.get('target'):
+        result['target'] = runtime['target']
+        (report_dir / 'target.json').write_text(json.dumps(runtime['target'], indent=2) + '\n')
+    check_running = runtime.get('check_running')
     scenario_cfg = load_scenario_cfg(mission, args.scenario)
     run_duration_s = float(scenario_cfg.get("run_duration_s", 900))
-    simulith_speed = args.simulith_speed if args.simulith_speed is not None else scenario_cfg.get("simulith_speed")
+    speed = args.simulith_speed if args.simulith_speed is not None else scenario_cfg.get("simulith_speed")
+    simulith_speed = 0.0 if speed == 'max' else float(speed) if speed is not None else None
     if simulith_speed is not None and (not math.isfinite(simulith_speed) or simulith_speed < 0):
         return finish(result, False, "simulith-speed must be finite and nonnegative", report_dir)
     result["simulith_speed"] = simulith_speed
@@ -491,7 +528,7 @@ def main() -> int:
     names = container_names(mission, spacecraft, instance=args.instance_id)
     compose_dir = ROOT / "build" / mission / args.instance_id if args.instance_id \
         else ROOT / "build" / mission
-    compose = compose_dir / "shire-compose.yaml"
+    compose = runtime.get("compose", compose_dir / "shire-compose.yaml")
     compose_cmd = ["docker", "compose", "-f", str(compose)]
 
     image_tag = args.image_tag or spacecraft
@@ -502,6 +539,8 @@ def main() -> int:
          "--image", f"shire-gsw-{mission}:{image_tag}"],
         capture_output=True, text=True, check=True)
     archive_info = json.loads(archive.stdout)
+    if runtime.get('record_archive'):
+        runtime['record_archive'](archive_info)
     result["run_id"] = archive_info["run_id"]
     result["yamcs_volume"] = archive_info["volume"]
     print(f"[scenario] Yamcs archive: run={result['run_id']} volume={result['yamcs_volume']}")
@@ -528,13 +567,17 @@ def main() -> int:
         # telemetry mid-stack, see wait_for_simulated_time's docstring) --
         # confirmed empirically, not something to set blindly.
         trial_env["SIMULITH_SPEED"] = str(simulith_speed)
+    trial_env["SIMULITH_SCENARIO_ENABLED"] = "0"
+    trial_env.pop("SIMULITH_SCENARIO_FILE", None)
     if director_command_scenario:
         trial_env["SIMULITH_SCENARIO_ENABLED"] = "1"
         trial_env["SIMULITH_SCENARIO_FILE"] = str(ROOT / director_command_scenario)
 
     # -v removes only transient Compose volumes. The Yamcs archive is an
     # external, separately labeled volume and survives every normal teardown.
-    down_cmd = compose_cmd + ["down", "--remove-orphans", "--timeout", "2", "-v"]
+    down_cmd = compose_cmd + ["down", "--timeout", "2"]
+    if not runtime:
+        down_cmd += ["--remove-orphans", "-v"]
     run(down_cmd, check=False)
 
     passed = False
@@ -557,7 +600,7 @@ def main() -> int:
                 verify_stacks, names["server"], deadline_s, report_dir,
                 port_offset=port_offset, director_container=names["director"],
                 sim_time_parameter=scenario_cfg.get("verification_clock_parameter"),
-                require_fresh=bool(scenario_cfg.get("eps_validation")))
+                require_fresh=bool(scenario_cfg.get("eps_validation")), check_running=check_running)
 
         if scenario_cfg.get('accelerate_after_verification'):
             speed_command = [sys.executable,str(ROOT/'yamcs/yamcs_commander.py'),
@@ -568,7 +611,7 @@ def main() -> int:
             result['post_verification_speed_requested'] = speed_result.returncode == 0
             result['post_verification_speed'] = scenario_cfg.get('post_verification_speed',0)
         completed = wait_for_completion(names["server"], deadline_s,
-                                        names["director"])
+                                        names["director"], check_running=check_running)
 
         logs: dict[str, str] = {}
         for role, container in names.items():
@@ -655,7 +698,11 @@ def main() -> int:
             if not result.get('archive',{}).get('replay_ready'):
                 passed=False;reason='Yamcs telemetry archive is incomplete or unavailable'
     finally:
-        run(down_cmd, check=False)
+        # Retain diagnostic logs even when startup, transport, or verification raises.
+        for container in names.values():
+            value = run(["docker", "logs", "--timestamps", container], check=False).stdout
+            (report_dir / f"{container}.log").write_text(value, encoding="utf-8")
+        run(down_cmd, env=trial_env, check=bool(runtime))
 
     return finish(result, passed, reason, report_dir)
 

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -19,7 +20,8 @@ def prepare_repository(temporary, scenario=None):
     (root / "tools").mkdir()
     shutil.copytree(ROOT / "comp/eps/support", root / "comp/eps/support")
     shutil.copytree(ROOT / "comp/eps/gsw", root / "comp/eps/gsw")
-    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_eps_stacks.py"):
+    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_eps_stacks.py",
+                 "shire_board_config.py"):
         shutil.copy2(ROOT / "tools" / name, root / "tools" / name)
     if scenario:
         (root / "build").mkdir()
@@ -31,6 +33,59 @@ def prepare_repository(temporary, scenario=None):
 
 
 class ConfigurationPathsTests(unittest.TestCase):
+    def test_cli_switch_after_cleaned_mission_output_selects_only_demo_client(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = prepare_repository(temporary, 'nominal')
+            for name in ('adcs', 'demo', 'radio'):
+                shutil.copytree(ROOT / f'comp/{name}/support', root / f'comp/{name}/support')
+            active_path = root / 'build/active.yaml'
+            selection = yaml.safe_load(active_path.read_text())
+            for component, scenario in (('eps', 'nominal'), ('demo', 'nominal'), ('demo', 'debug')):
+                selection['cli'] = component
+                selection['scenario'] = scenario
+                active_path.write_text(yaml.safe_dump(selection))
+                mission_output = root / 'build/drm'
+                if mission_output.exists():
+                    shutil.rmtree(mission_output)
+                result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py'), '--cli-debug'],
+                                        cwd=root, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                config = yaml.safe_load((root / 'build/build.yaml').read_text())
+                self.assertEqual(config['global']['build']['cli'], [{'name': component}])
+                compose = yaml.safe_load((mission_output / 'cli-compose.yaml').read_text())
+                clients = {name: service for name, service in compose['services'].items() if name.endswith('-cli')}
+                self.assertEqual(set(clients), {f'shire-comp-{component}-cli'})
+                self.assertEqual(clients[f'shire-comp-{component}-cli']['image'], f'shire-comp-{component}-cli:0.0.0')
+                snapshot = yaml.safe_load((mission_output / f'scenario/{scenario}.snapshot.yaml').read_text())
+                resolved = snapshot['resolved_components']
+                for name in ('adcs', 'demo', 'eps', 'radio'):
+                    self.assertEqual(resolved[name]['debug'], name == component or scenario == 'debug')
+                for name in ('eps', 'demo'):
+                    header = (root / f'comp/{name}/shared/device_cfg.h').read_text()
+                    enabled = re.search(rf'^#define {name.upper()}_CFG_DEBUG\b', header, re.MULTILINE) is not None
+                    self.assertEqual(enabled, name == component or scenario == 'debug')
+                with patch.object(sys, 'path', [str(ROOT / 'tools'), *sys.path]):
+                    from shire_runner_lib import resolve_component_configs
+                self.assertEqual(resolve_component_configs(config['global'], config['mission_cfg'],
+                    config['spacecraft_cfg'], config['scenario_cfg'], snapshot['resolved_ic'],
+                    cli_debug=True, cli_component=component), resolved)
+                # Changing clients must retain the mission's power topology.
+                self.assertIn({'name': 'eps'}, config['spacecraft_cfg']['components'])
+
+    def test_initial_configuration_keeps_a_previously_selected_board(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = prepare_repository(temporary)
+            active = root / 'build/active.yaml'
+            active.parent.mkdir()
+            active.write_text('board: rpi5\n')
+            result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py')],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            selection = yaml.safe_load(active.read_text())
+            self.assertEqual(selection['board'], 'rpi5')
+            self.assertEqual(selection['mission'], 'drm')
+            self.assertEqual(selection['spacecraft'], 'sat-1')
+
     def test_configuration_generation_from_root_tools_and_outside(self):
         for location in ("root", "tools", "outside"):
             with self.subTest(location=location), tempfile.TemporaryDirectory() as temporary:
@@ -42,6 +97,7 @@ class ConfigurationPathsTests(unittest.TestCase):
                     cwd=cwd, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(yaml.safe_load((root / 'build/active.yaml').read_text())['board'], 'qemu-zynq')
                 config = yaml.safe_load((root / "build/build.yaml").read_text())
                 self.assertEqual(config["global"], yaml.safe_load(
                     (root / "cfg/shire-config.yaml").read_text()))

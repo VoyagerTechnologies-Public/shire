@@ -14,6 +14,7 @@ import yaml
 from shire_provenance import ROOT, git_head_sha
 from shire_eps_config import normalize_eps, merge_component_config
 from shire_eps_stacks import write_stacks, write_xtce
+from shire_board_config import DEFAULT_PROFILE
 
 CFG_DIR = str(ROOT / "cfg")
 BUILD_DIR = str(ROOT / "build")
@@ -55,7 +56,7 @@ def retain_runtime_events(platform_config):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cli-debug", action="store_true", help="Force debug=True for all components (CLI builds)")
+    parser.add_argument("--cli-debug", action="store_true", help="Force debug=True for the active CLI component")
     parser.add_argument("--compose-only", action="store_true",
                         help="Only (re-)render cli-compose.yaml/shire-compose.yaml; skip device_cfg.h, "
                              "42_config, the scenario snapshot, and the FSW startup script edit. Used by "
@@ -66,10 +67,12 @@ def main():
     # Ensure build directory exists
     os.makedirs(BUILD_DIR, exist_ok=True)
     
-    # If active.yaml does not exist, create with defaults from global config
+    # A board command may have saved only its selection before the first cfg.
+    # Fill normal mission defaults while retaining that explicit board choice.
     active = load_yaml(ACTIVE_PATH)
     global_cfg = load_yaml(GLOBAL_CONFIG)
-    if active is None:
+    if active is None or (isinstance(active, dict) and set(active) <= {'board'}):
+        board = (active or {}).get('board', DEFAULT_PROFILE)
         # Use first mission and scenario as defaults
         missions = global_cfg["build"]["missions"]
         if not missions:
@@ -99,7 +102,7 @@ def main():
         else:
             gsw_dir = mission_cfg.get("gsw", DEFAULT_GSW_DIR)
         
-        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir}
+        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir, "board": board}
         with open(ACTIVE_PATH, "w") as f:
             yaml.safe_dump(active, f)
         print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}")
@@ -247,7 +250,7 @@ def main():
             merge_component_config(comp_name, comp_cfg, overrides)
 
             # 8. CLI debug override (highest priority)
-            if args.cli_debug:
+            if args.cli_debug and comp_name == cli_component:
                 comp_cfg["debug"] = True
 
             if comp_name == "eps":

@@ -1,0 +1,34 @@
+schema_version: 1
+name: rpi5
+description: Raspberry Pi 5 AArch64 Linux PIL example, hardware unvalidated
+work_dir: build/boards/rpi5
+ssh:
+  target: jpl@192.168.6.194
+  port: 22
+  connect_timeout: 30
+runtime:
+  architecture: aarch64
+  kernel_machines: [aarch64]
+  cfs_system: aarch64-shire
+  cpu: cpu1
+  executable: core-cpu1
+  loader: /lib/ld-linux-aarch64.so.1
+  staging_prefix: /tmp/shire-pil-
+  mqueue_max: 10000
+  rtprio: 99
+artifacts:
+  buildroot_config: cfg/boards/aarch64_defconfig
+  bundle: build/board-targets/rpi5/{mission}/{spacecraft}/bundle
+  rootfs: build/board-targets/rpi5/rootfs.tar
+  sdk: build/board-targets/rpi5/sdk-16k
+  compiler: build/board-targets/rpi5/sdk-16k/bin/aarch64-none-linux-gnu-gcc
+  compiler_flags: [-O2]
+  tools_image: shire-qemu-tools:0.0.0
+network:
+  sync_pub: 50000
+  sync_rep: 50001
+  tunnel: 50198
+  command: 1234
+  telemetry: 1235
+  gsw_host: shire-gsw
+  device_ports: auto

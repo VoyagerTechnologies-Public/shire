@@ -416,8 +416,8 @@ int simulith_client_complete_tick(uint64_t sequence, simulith_phase_t phase)
     else
     {
         char completion[128];
-        int length = snprintf(completion, sizeof(completion), "COMPLETE %lu %u %s",
-                              (unsigned long)sequence, (unsigned)phase, client_id);
+        int length = snprintf(completion, sizeof(completion), "COMPLETE %" PRIu64 " %u %s",
+                              sequence, (unsigned)phase, client_id);
         status = -1;
         if (length > 0 && (size_t)length < sizeof(completion) &&
             zmq_send(requester, completion, (size_t)length, 0) != -1)

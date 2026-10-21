@@ -14,6 +14,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #define TRANSPORT_REQUEST_MAGIC   0x53525154U /* "SRQT" */
 #define TRANSPORT_REQUEST_VERSION 1U
@@ -207,10 +208,50 @@ static void transport_cleanup_sockets(transport_port_t *port)
     }
 }
 
+int simulith_transport_resolve_address(const char *logical_address, int is_server,
+                                      char *address, size_t capacity)
+{
+    if (!logical_address || !address || capacity == 0)
+        return SIMULITH_TRANSPORT_ERROR;
+    const char *mode = getenv("SIMULITH_DEVICE_TRANSPORT");
+    if (mode && mode[0] && strcmp(mode, "ipc") != 0 && strcmp(mode, "tcp") != 0)
+        return SIMULITH_TRANSPORT_ERROR;
+    const char prefix[] = "ipc:///tmp/simulith_pub:";
+    int length;
+    if (mode && strcmp(mode, "tcp") == 0 &&
+        strncmp(logical_address, prefix, sizeof(prefix) - 1) == 0)
+    {
+        char *end = NULL;
+        const char *digits = logical_address + sizeof(prefix) - 1;
+        long port = strtol(digits, &end, 10);
+        if (end == digits || *end || port < 1 || port > 65535)
+            return SIMULITH_TRANSPORT_ERROR;
+        const char *host = getenv(is_server ? "SIMULITH_DEVICE_BIND" : "SIMULITH_DEVICE_HOST");
+        if ((!host || !host[0]) && is_server)
+            host = "0.0.0.0";
+        if (!host || !host[0])
+            return SIMULITH_TRANSPORT_ERROR;
+        for (const unsigned char *cursor = (const unsigned char *)host; *cursor; ++cursor)
+            if (!isalnum(*cursor) && *cursor != '.' && *cursor != '-' && *cursor != '_')
+                return SIMULITH_TRANSPORT_ERROR;
+        length = snprintf(address, capacity, "tcp://%s:%ld", host, port);
+    }
+    else
+        length = snprintf(address, capacity, "%s", logical_address);
+    return length >= 0 && (size_t)length < capacity ?
+        SIMULITH_TRANSPORT_SUCCESS : SIMULITH_TRANSPORT_ERROR;
+}
+
 int simulith_transport_init(transport_port_t *port)
 {
     if (!port) return SIMULITH_TRANSPORT_ERROR;
     if (port->init == SIMULITH_TRANSPORT_INITIALIZED) return SIMULITH_TRANSPORT_SUCCESS;
+
+    char address[sizeof(port->address)];
+    if (simulith_transport_resolve_address(port->address, port->is_server,
+                                          address, sizeof(address)) != SIMULITH_TRANSPORT_SUCCESS)
+        return SIMULITH_TRANSPORT_ERROR;
+    memcpy(port->address, address, strlen(address) + 1);
 
     port->zmq_ctx = transport_context_acquire();
     if (!port->zmq_ctx) {

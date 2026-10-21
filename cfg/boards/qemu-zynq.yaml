@@ -1,0 +1,6 @@
+schema_version: 1
+name: qemu-zynq
+description: Open-source ARMv7 Zynq ZC702 reference platform in QEMU
+backend: qemu
+work_dir: build/qemu
+platform: zynq-zc702

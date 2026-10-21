@@ -1,0 +1,35 @@
+schema_version: 1
+name: zybo7020
+description: Validated Zybo 7020 Linux processor PIL
+work_dir: build/zybo
+ssh:
+  target: petalinux@169.254.55.55
+  port: 22
+  connect_timeout: 30
+runtime:
+  architecture: armv7hf
+  kernel_machines: [armv7l]
+  cfs_system: armv7l-shire
+  cpu: cpu1
+  executable: core-cpu1
+  loader: /lib/ld-linux-armhf.so.3
+  staging_prefix: /tmp/shire-pil-
+  mqueue_max: 10000
+  rtprio: 99
+  # Optional demo mirror; leave unset for performance measurements.
+  # serial_console: /dev/ttyPS0
+artifacts:
+  bundle: build/zybo/{mission}/{spacecraft}/bundle
+  rootfs: build/qemu/output/images/rootfs.tar
+  sdk: build/qemu/output/host
+  compiler: build/qemu/output/host/bin/arm-linux-gcc
+  compiler_flags: [-O2]
+  tools_image: shire-qemu-tools:0.0.0
+network:
+  sync_pub: 50000
+  sync_rep: 50001
+  tunnel: 50198
+  command: 1234
+  telemetry: 1235
+  gsw_host: shire-gsw
+  device_ports: auto

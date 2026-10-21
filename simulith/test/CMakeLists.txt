@@ -3,6 +3,15 @@ set(UNITY_SRC ./unity/unity.c)
 set(UNITY_INC ./unity)
 
 # Include paths for tests
+add_executable(test_network_config test_network_config.c ${UNITY_SRC})
+target_include_directories(test_network_config PRIVATE ${UNITY_INC} ../include)
+target_link_libraries(test_network_config simulith)
+target_compile_definitions(test_network_config PRIVATE
+    SIMULITH_SERVER_PATH="$<TARGET_FILE:simulith_server_standalone>")
+add_dependencies(test_network_config simulith_server_standalone)
+add_test(NAME NetworkConfigurationTests COMMAND test_network_config)
+set_tests_properties(NetworkConfigurationTests PROPERTIES TIMEOUT 20)
+
 include_directories(
     ${UNITY_INC}
     ../include
@@ -70,7 +79,7 @@ target_link_libraries(test_time simulith ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_time PRIVATE SIMULITH_TESTING)
 add_test(NAME TimeTests COMMAND test_time)
 
-add_executable(test_time_failures test_time_failures.c ../src/simulith_time.c ${UNITY_SRC})
+add_executable(test_time_failures test_time_failures.c ../src/simulith_time.c ../src/simulith_common.c ${UNITY_SRC})
 target_link_libraries(test_time_failures ${ZeroMQ_LIBRARIES})
 target_compile_definitions(test_time_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_time_failures PRIVATE
@@ -93,6 +102,7 @@ add_executable(test_transport_failures test_transport_failures.c ../src/simulith
 target_link_libraries(test_transport_failures ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_transport_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_transport_failures PRIVATE
+    -Wl,--wrap=snprintf
     -Wl,--wrap=zmq_ctx_new
     -Wl,--wrap=zmq_ctx_term
     -Wl,--wrap=zmq_socket
@@ -183,7 +193,7 @@ add_test(NAME ControlTraceTests COMMAND test_control_trace)
 # service stubs. Renaming main is confined to this object target.
 add_library(director_main_test_object OBJECT ../src/simulith_director_main.c)
 target_compile_definitions(director_main_test_object PRIVATE main=simulith_director_main)
-add_executable(test_director_main test_director_main.c
+add_executable(test_director_main test_director_main.c ../src/simulith_common.c
     $<TARGET_OBJECTS:director_main_test_object> ${UNITY_SRC})
 target_link_libraries(test_director_main pthread)
 target_link_options(test_director_main PRIVATE -Wl,--wrap=sleep)

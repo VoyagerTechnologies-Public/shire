@@ -70,6 +70,7 @@ static uint64_t     measurement_end_real_ns    = 0;
 static uint64_t     active_tick_start_ns       = 0;
 static uint64_t     active_phase_start_ns      = 0;
 static simulith_phase_t current_phase           = SIMULITH_PHASE_PREPARE;
+static int step_pending = 0;
 static uint64_t     completion_count           = 0;
 static uint64_t     tick_latency_samples[MAX_LATENCY_SAMPLES];
 static size_t       tick_latency_sample_count  = 0;
@@ -193,6 +194,7 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     tick_interval_ns = interval_ns;
     current_time_ns = 0;
     current_sequence = 0;
+    step_pending = 0;
     completed_ticks = 0;
     measured_ticks_completed = 0;
     completion_count = 0;
@@ -418,11 +420,11 @@ static int record_shared_completions(uint32_t completed_mask)
 
 static const char *handle_completion(const char *message)
 {
-    unsigned long sequence = 0;
+    uint64_t sequence = 0;
     unsigned phase = 0;
     char client_id[64] = {0};
     int consumed = 0;
-    if (sscanf(message, "COMPLETE %lu %u %63s %n", &sequence, &phase,
+    if (sscanf(message, "COMPLETE %" SCNu64 " %u %63s %n", &sequence, &phase,
                client_id, &consumed) != 3 || message[consumed] != '\0')
     {
         protocol_errors++;
@@ -482,7 +484,22 @@ static int process_cli_command(const char *command, int *paused, double *speed)
     char extra[2] = {0};
     int fields = sscanf(command, " %15s %31s %1s", action, argument, extra);
 
-    if (fields == 1 && strcmp(action, "p") == 0)
+    if (fields == 1 && strcmp(action, "pause") == 0)
+    {
+        *paused = 1;
+        step_pending = 0;
+    }
+    else if (fields == 1 && strcmp(action, "resume") == 0)
+    {
+        *paused = 0;
+        step_pending = 0;
+    }
+    else if (fields == 1 && strcmp(action, "step") == 0)
+    {
+        *paused = 1;
+        step_pending = 1;
+    }
+    else if (fields == 1 && strcmp(action, "p") == 0)
     {
         *paused = !*paused;
         printf(*paused ? "Simulation paused.\n" : "Simulation resumed.\n");
@@ -542,7 +559,7 @@ static int process_cli_command(const char *command, int *paused, double *speed)
     }
     else
     {
-        printf("Unknown command. Use 'p', '+', '-', 'speed <factor|max>', or 'quit'.\n");
+        printf("Unknown command. Use 'pause', 'resume', 'step', 'p', '+', '-', 'speed <factor|max>', or 'quit'.\n");
     }
     return 0;
 }
@@ -567,7 +584,8 @@ enum
 {
     SERVER_BACKDOOR_CMD_PAUSE     = 0x0001,
     SERVER_BACKDOOR_CMD_PLAY      = 0x0002,
-    SERVER_BACKDOOR_CMD_SET_SPEED = 0x0003
+    SERVER_BACKDOOR_CMD_SET_SPEED = 0x0003,
+    SERVER_BACKDOOR_CMD_STEP      = 0x0004
 };
 
 static int ensure_backdoor_socket(void)
@@ -678,11 +696,19 @@ static void process_backdoor_command(const uint8_t *frame, size_t frame_len,
     {
         case SERVER_BACKDOOR_CMD_PAUSE:
             *paused = 1;
+            step_pending = 0;
             printf("Simulation paused (ground command).\n");
             break;
         case SERVER_BACKDOOR_CMD_PLAY:
             *paused = 0;
+            step_pending = 0;
             printf("Simulation resumed (ground command).\n");
+            break;
+        case SERVER_BACKDOOR_CMD_STEP:
+            if (payload_len != 0)
+                return;
+            *paused = 1;
+            step_pending = 1;
             break;
         case SERVER_BACKDOOR_CMD_SET_SPEED:
         {
@@ -950,7 +976,8 @@ void simulith_server_run(void)
     reset_responses();
 
     // CLI state
-    int paused = 0;
+    const char *start_paused = getenv("SIMULITH_START_PAUSED");
+    int paused = start_paused && strcmp(start_paused, "1") == 0;
     int running = 1;
     double speed = configured_speed; // zero means unbounded
     g_attempted_speed = speed;
@@ -975,8 +1002,9 @@ void simulith_server_run(void)
             break;
         }
 
-        if (!paused)
+        if (!paused || step_pending)
         {
+            step_pending = 0;
             uint64_t tick_start_ns = monotonic_ns();
             active_tick_start_ns = tick_start_ns;
             log_simulation_progress();

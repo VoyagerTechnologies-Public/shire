@@ -4,6 +4,8 @@
 #   Dockerfile.42 and Dockerfile.fsw both COPY files from build/ as part of their image assembly
 .git/
 .github/
+tmp/
+build/qemu/
 **/*.o
 **/*.a
 **/.DS_Store

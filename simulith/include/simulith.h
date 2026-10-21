@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -59,6 +60,12 @@ typedef struct
     uint64_t time_ns;
 } simulith_tick_message_t;
 
+/* Protocol v1 uses this layout on the supported little-endian host/ARM ABIs. */
+typedef char simulith_tick_layout_check[
+    sizeof(simulith_tick_message_t) == 24 &&
+    offsetof(simulith_tick_message_t, sequence) == 8 &&
+    offsetof(simulith_tick_message_t, time_ns) == 16 ? 1 : -1];
+
 #define SIMULITH_UART_BASE_PORT 51000
 #define SIMULITH_I2C_BASE_PORT  52000
 #define SIMULITH_SPI_BASE_PORT  53000
@@ -68,6 +75,10 @@ typedef struct
 extern "C"
 {
 #endif
+
+    /* Optional network endpoints; unset variables preserve local IPC defaults. */
+    const char *simulith_pub_address(int bind);
+    const char *simulith_rep_address(int bind);
 
     // Logging function
     void simulith_log(const char *fmt, ...);

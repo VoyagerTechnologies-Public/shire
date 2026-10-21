@@ -36,6 +36,7 @@ static int connect_calls;
 static int connect_failure_call;
 static int send_failure;
 static int send_calls;
+static char sent_message[128];
 static int receive_calls;
 static receive_mode_t receive_mode;
 static int shared_phase_receives;
@@ -97,8 +98,10 @@ int __wrap_zmq_close(void *socket)
 int __wrap_zmq_send(void *socket, const void *buffer, size_t length, int flags)
 {
     (void)socket;
-    (void)buffer;
     (void)flags;
+    size_t copied = length < sizeof(sent_message) - 1 ? length : sizeof(sent_message) - 1;
+    memcpy(sent_message, buffer, copied);
+    sent_message[copied] = '\0';
     send_calls++;
     return send_failure ? -1 : (int)length;
 }
@@ -576,7 +579,7 @@ static void test_receive_outputs_and_completion_identity_guards(void)
     TEST_ASSERT_EQUAL_INT(0, receive_calls);
     receive_mode = RECV_SCRIPTED;
     scripted_tick = (simulith_tick_message_t){.magic = SIMULITH_PROTOCOL_MAGIC,
-        .version = SIMULITH_PROTOCOL_VERSION, .sequence = 1, .time_ns = 100,
+        .version = SIMULITH_PROTOCOL_VERSION, .sequence = UINT64_C(4294967297), .time_ns = UINT64_C(9876543210),
         .phase = SIMULITH_PHASE_PREPARE};
     TEST_ASSERT_EQUAL_INT(0, simulith_client_receive_phase(&time_ns, &sequence, &phase));
     TEST_ASSERT_EQUAL_INT(-1, simulith_client_complete_tick(sequence, 0));
@@ -589,6 +592,7 @@ static void test_receive_outputs_and_completion_identity_guards(void)
     receive_mode = RECV_ACK;
     TEST_ASSERT_EQUAL_INT(0, simulith_client_complete_tick(sequence, phase));
     TEST_ASSERT_EQUAL_INT(1, send_calls);
+    TEST_ASSERT_NOT_NULL(strstr(sent_message, "COMPLETE 4294967297 1 "));
 }
 static void test_bad_header_sequence_and_rate_do_not_replace_last_valid_tick(void)
 {

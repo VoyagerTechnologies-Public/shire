@@ -49,14 +49,14 @@ Values for keys that are not mentioned carry forward unchanged.
 | 4 | Component values in the selected spacecraft file | Applies the device values for that spacecraft. |
 | 5 | Component values in the selected scenario file | Applies values specific to that component and scenario. |
 | 6 | The scenario `overrides` mapping | Applies the same named values to every selected component. |
-| 7 | `make cfg-cli` | Forces `debug: true` for every selected component before rendering its device header. |
+| 7 | `make cfg-cli` | Forces `debug: true` for the active `cli:` component before rendering its device header. |
 
 The current `sat-2` nominal Radio configuration provides a concrete example:
 
 * The Radio fallback supplies the UDP ports, buffer limits, timeout, and initial SPI and GPIO values.
 * `sat-2.yaml` supplies the spacecraft SPI and GPIO values, including chip select 1 and GPIO pins 12 and 13.
 * The nominal scenario replaces `debug: true` with `debug: false` for every selected component.
-* `make cfg-cli` changes only `debug` back to `true` after the scenario is applied.
+* With `cli: radio`, `make cfg-cli` changes Radio's `debug` back to `true` after the scenario is applied.
 
 The resolved Radio settings therefore combine values from several files rather than taking one complete configuration block from a single file.
 

@@ -1,0 +1,4 @@
+FROM shire-qemu-tools:0.0.0
+COPY uImage zynq-zc702.dtb rootfs.cpio.gz /boot/
+COPY shire-qemu-entrypoint.py /usr/local/bin/
+ENTRYPOINT ["python3", "/usr/local/bin/shire-qemu-entrypoint.py"]

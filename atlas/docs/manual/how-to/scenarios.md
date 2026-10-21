@@ -194,6 +194,10 @@ Director and FSW reached their terminal marker with no crash or timeout,
 tears everything down, and exits 0 (pass) or 1 (fail).
 Results, container logs, and a copy of the IC snapshot land in
 `build/scenario-runs/<scenario>-<UTC timestamp>/result.json`.
+To run the same scenario with cFS on a physical board or QEMU, use
+`make board-scenario SCENARIO=<name> BOARD=<profile>`.
+That command builds and deploys target cFS while retaining host simulators, Yamcs, and the same scenario verification.
+See [Board processor PIL](board-pil.md#run-a-named-scenario) for prerequisites and examples.
 This is not wired into `.github/workflows/ci.yml` yet, by choice: running
 the full Docker Compose stack in CI is new territory for this pipeline
 (no existing job does it), and the resource and timing behavior of a

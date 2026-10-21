@@ -31,6 +31,7 @@ static void              *(*PthreadStartRoutine)(void *);
 static void                *PthreadStartArg;
 static bool                 StopTickThreadOnThirdWait;
 static unsigned int         TickWaitCount;
+static int                  TickWaitResult;
 static int                  StartTicksResult;
 static int                  WaitParticipantsResult;
 static int                  CompleteTickResult;
@@ -67,7 +68,7 @@ int CFE_PSP_WaitForPendingSimulithTick(void)
     {
         SCH_CustomCleanup();
     }
-    return 0;
+    return TickWaitResult;
 }
 
 void CFE_PSP_EnableDeferredTickCompletion(void)
@@ -142,6 +143,7 @@ static void SCH_Test_Setup(void)
     PthreadStartArg           = NULL;
     StopTickThreadOnThirdWait  = false;
     TickWaitCount              = 0;
+    TickWaitResult             = 0;
     StartTicksResult           = 0;
     WaitParticipantsResult     = 0;
     CompleteTickResult         = 0;
@@ -541,6 +543,19 @@ static void Test_SCH_CustomTickThread(void)
     UtAssert_UINT32_EQ(StopTicksCount, 1);
 }
 
+static void Test_SCH_CustomTickStop(void)
+{
+    /* Bound a broken implementation too: it would spin until the third wait. */
+    StopTickThreadOnThirdWait = true;
+    TickWaitResult = -1;
+    UtAssert_INT32_EQ(SCH_CustomLateInit(), CFE_SUCCESS);
+    PthreadStartRoutine(PthreadStartArg);
+    UtAssert_UINT32_EQ(TickWaitCount, 1);
+    UtAssert_STUB_COUNT(OS_BinSemGive, 0);
+    SCH_CustomCleanup();
+    UtAssert_UINT32_EQ(StopTicksCount, 1);
+}
+
 static void Test_SCH_CustomCompletion(void)
 {
     CFE_MSG_Message_t         Message;
@@ -870,6 +885,7 @@ void UtTest_Setup(void)
     UtTest_Add(Test_SCH_AppMainFailures, SCH_Test_Setup, NULL, "SCH main runtime failures");
     UtTest_Add(Test_SCH_CustomLateInitFailures, SCH_Test_Setup, NULL, "SCH custom startup failures");
     UtTest_Add(Test_SCH_CustomTickThread, SCH_Test_Setup, NULL, "SCH custom tick thread");
+    UtTest_Add(Test_SCH_CustomTickStop, SCH_Test_Setup, NULL, "SCH custom tick stop exits without spinning");
     UtTest_Add(Test_SCH_CustomCompletion, SCH_Test_Setup, NULL, "SCH custom participant completion");
     UtTest_Add(Test_SCH_ScheduleExecution, SCH_Test_Setup, NULL, "SCH schedule execution");
     UtTest_Add(Test_SCH_ProcessScheduleTable, SCH_Test_Setup, NULL, "SCH schedule timing recovery");

@@ -43,7 +43,7 @@ def container_names(mission: str, spacecraft: str, instance: str | None = None) 
 
 
 def run_streaming(cmd: list[str], *, cwd: object = None, env: dict[str, str] | None = None,
-                  timeout: float | None = None) -> tuple[int, str]:
+                  timeout: float | None = None, check_running=None) -> tuple[int, str]:
     """Runs `cmd`, printing its combined stdout/stderr live (line by line,
     flushed immediately) to this process's stdout, while also capturing it
     to return for writing to a log file afterward -- so a long-running
@@ -69,13 +69,25 @@ def run_streaming(cmd: list[str], *, cwd: object = None, env: dict[str, str] | N
 
     started = time.monotonic()
     timed_out = False
-    while proc.poll() is None:
-        if timeout is not None and time.monotonic() - started > timeout:
+    try:
+        while proc.poll() is None:
+            if check_running:
+                check_running()
+            if timeout is not None and time.monotonic() - started > timeout:
+                timed_out = True
+                break
+            time.sleep(0.1)
+    finally:
+        if proc.poll() is None:
             proc.terminate()
-            timed_out = True
-            break
-        time.sleep(0.1)
-    pump.join(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        pump.join(timeout=5)
+        if not pump.is_alive() and proc.stdout is not None:
+            proc.stdout.close()
     if timed_out:
         raise subprocess.TimeoutExpired(cmd, timeout, output="".join(lines))
     return proc.returncode, "".join(lines)
@@ -104,7 +116,8 @@ def try_parse_marker(log: str, marker: str) -> dict[str, object] | None:
 
 def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[str, object],
                               spacecraft_cfg: dict[str, object], scenario_cfg: dict[str, object],
-                              ic_cfg: dict[str, object], *, cli_debug: bool = False) -> dict[str, dict]:
+                              ic_cfg: dict[str, object], *, cli_debug: bool = False,
+                              cli_component: str = 'demo') -> dict[str, dict]:
     """Reproduces shire-orchestrator.py's per-component cascading merge
     (fallback -> global -> mission -> spacecraft -> IC component_overrides
     -> scenario -> scenario overrides) standalone, without Jinja/Docker, so
@@ -143,7 +156,7 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
         merge_component_config(comp_name, comp_cfg, (ic_cfg.get("component_overrides") or {}).get(comp_name, {}) or {})
         merge_component_config(comp_name, comp_cfg, scenario_cfg.get(comp_name, {}) or {})
         merge_component_config(comp_name, comp_cfg, scenario_cfg.get("overrides", {}) or {})
-        if cli_debug:
+        if cli_debug and comp_name == cli_component:
             comp_cfg["debug"] = True
 
         if comp_name == "eps":

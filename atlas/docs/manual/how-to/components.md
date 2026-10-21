@@ -62,7 +62,12 @@ make cli
 make cli-start
 ```
 
-The CLI environment starts 42, one Simulith Server, one Director, the selected component simulator, and the selected CLI container.
+The CLI environment starts 42, one Simulith Server, one Director, the mission's configured component simulators, and the selected CLI container.
+The full simulator topology preserves EPS power wiring and its consumers even when `cli: demo` is selected.
+`make cli` forces debugging on for the selected CLI component only.
+Other simulators retain their resolved scenario and component debug settings.
+The active selection is preserved by `make clean`.
+To switch back to the default, set `cli: demo` in `build/active.yaml`, then run `make cli` and `make cli-start`.
 It does not start cFS, YAMCS, or CryptoLib.
 
 ## Full integration workflow

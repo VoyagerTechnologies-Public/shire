@@ -34,7 +34,7 @@ void* simulith_time_init(void)
     }
     
     // Connect to the Simulith PUB socket
-    if (zmq_connect(provider->sub_socket, LOCAL_PUB_ADDR) != 0) 
+    if (zmq_connect(provider->sub_socket, simulith_pub_address(0)) != 0)
     {
         zmq_close(provider->sub_socket);
         zmq_ctx_destroy(provider->context);
@@ -92,4 +92,4 @@ void simulith_time_cleanup(void* handle)
     }
     
     free(provider);
-} 
+}
