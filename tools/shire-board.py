@@ -17,6 +17,7 @@ import shutil
 import shlex
 import signal
 import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -265,13 +266,88 @@ def prepare_platform(args):
     print(f'[board] Configured SDK/userspace inputs present for {profile["name"]}; boot image unchanged.')
 
 
+class BoardScenarioBackend:
+    """Supply target build/deployment and transport to the shared scenario runner."""
+
+    def __init__(self, args):
+        self.args = args
+
+    def preflight(self):
+        if (work_directory(self.args) / 'active.json').exists():
+            raise RuntimeError('Run make board-stop before starting a board scenario.')
+        if (ROOT / 'build/build.yaml').exists():
+            config = qemu.active_config()
+            if (ROOT / 'build' / config['mission'] / 'shire-compose.yaml').exists():
+                require_idle(config)
+
+    def build_command(self):
+        args = self.args
+        return [sys.executable, str(ROOT / 'tools/shire-board.py'), 'build',
+                '--profile', args.profile, '--work-dir', str(work_directory(args)), '--jobs', str(args.jobs)]
+
+    @contextmanager
+    def session(self):
+        args = self.args
+        profile = settings(args)
+        if profile.get('backend', 'ssh') == 'qemu':
+            qemu.configure_work_directory(work_directory(args))
+            require_idle(qemu.active_config())
+            qemu.deploy()
+            compose = ROOT / 'build' / qemu.active_config()['mission'] / 'shire-qemu-compose.yaml'
+            qemu.require_runtime_images(compose)
+            yield {'compose': compose, 'target': {'profile': profile, 'bundle': qemu.validate_bundle(),
+                   'hardware': False, 'scope': 'QEMU processor PIL with host simulated devices'}}
+        else:
+            # Scenario overrides can change compiled configuration and tables.
+            # Always deploy the bundle built by this invocation.
+            require_idle(qemu.active_config())
+            prepare(args)
+            with board_session(args) as session:
+                def check_running():
+                    if (session['state'] / 'stop').exists():
+                        raise RuntimeError('Board scenario stopped by board-stop')
+                    check_board_running(session)
+
+                def record_archive(archive):
+                    metadata = {'target': args.target, 'state': str(session['state']),
+                                'compose': str(session['compose']), 'archive': archive,
+                                'deployment': session['deployment'], 'kind': 'scenario'}
+                    (session['state'] / 'session.json').write_text(json.dumps(metadata, indent=2) + '\n')
+                    with (work_directory(args) / 'active.json').open('x') as output:
+                        json.dump(metadata, output, indent=2)
+
+                try:
+                    yield {'compose': session['compose'], 'check_running': check_running,
+                           'record_archive': record_archive,
+                           'target': {'profile': profile, 'board': session['board'],
+                                      'deployment': session['deployment'], 'hardware': True,
+                                      'scope': 'Physical Linux processor PIL with host simulated devices'}}
+                finally:
+                    stop_host_services(session['compose'], session['state'])
+
+
+def scenario(args):
+    spec = importlib.util.spec_from_file_location('shire_scenario', ROOT / 'tools/shire-scenario.py')
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    argv = ['--scenario', args.scenario]
+    if args.report_dir:
+        argv += ['--report-dir', str(args.report_dir)]
+    if args.simulith_speed is not None:
+        argv += ['--simulith-speed', str(args.simulith_speed)]
+    if runner.main(argv, backend=BoardScenarioBackend(args)):
+        raise RuntimeError('Board scenario failed. See the scenario report and retained logs.')
+
+
 def qemu_command(args):
     """Adapt the shared public lifecycle to the Zynq emulator backend."""
     for key in ('target', 'ssh_control', 'password_auth', 'remote_root', 'serial_console'):
         if getattr(args, key, None) not in (None, False):
             raise RuntimeError(f'--{key.replace("_", "-")} is only supported by SSH board profiles')
     qemu.configure_work_directory(work_directory(args))
-    if args.command == 'prepare':
+    if args.command == 'scenario':
+        scenario(args)
+    elif args.command == 'prepare':
         qemu.prepare(args.jobs)
     elif args.command == 'build':
         subprocess.run(['make', '-C', str(ROOT), 'cfg'], check=True)
@@ -709,7 +785,10 @@ def stop(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('prepare', 'connect', 'inspect', 'build', 'deploy', 'test', 'start', 'stop'))
+    parser.add_argument('command', choices=('prepare', 'connect', 'inspect', 'build', 'deploy', 'scenario', 'test', 'start', 'stop'))
+    parser.add_argument('--scenario', help='Named mission scenario to run with the selected board')
+    parser.add_argument('--report-dir', type=Path, help='Override the scenario report directory')
+    parser.add_argument('--simulith-speed', type=float, help='Scenario runtime speed (0 = maximum, 1 = real time)')
     parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1))
     parser.add_argument('--profile', help='Select and save the active board profile name or YAML path')
     parser.add_argument('--target', help='Override profile SSH account and host')
@@ -727,6 +806,10 @@ def main():
     console_options.add_argument('--no-serial-console', dest='serial_console', action='store_const', const='',
                                  help='Disable the serial mirror configured in the board profile')
     args = parser.parse_args()
+    if args.command == 'scenario' and not args.scenario:
+        parser.error('SCENARIO=<name> is required for board-scenario. List names with python3 tools/shire-scenario.py --list-scenarios')
+    if args.simulith_speed is not None and (not math.isfinite(args.simulith_speed) or args.simulith_speed < 0):
+        parser.error('--simulith-speed must be finite and nonnegative')
     if args.jobs < 1:
         parser.error('--jobs must be positive')
     if not math.isfinite(args.duration) or args.duration < 1 or args.trials < 1:
@@ -763,7 +846,7 @@ def main():
         if args.command == 'connect':
             print(f'[board] SSH connection ready: {args.target}')
         else:
-            {'inspect': inspect, 'build': build, 'deploy': prepare, 'test': test,
+            {'inspect': inspect, 'build': build, 'deploy': prepare, 'scenario': scenario, 'test': test,
              'start': start, 'stop': stop}[args.command](args)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired) as error:

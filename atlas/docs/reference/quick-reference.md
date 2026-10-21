@@ -20,6 +20,7 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make board-inspect BOARD=<profile>` | Inspect board Linux over SSH, or local QEMU platform/bundle artifacts. |
 | `make board-build BOARD=<profile>` | Build the host simulation and ground images, then cross-build the cFS bundle with the selected SDK. |
 | `make board-deploy BOARD=<profile>` | Upload the hardware runtime or package the QEMU guest image and Compose. |
+| `make board-scenario SCENARIO=<name> BOARD=<profile>` | Build/deploy target cFS and run a named scenario with host simulators and Yamcs verification. |
 | `make board-start BOARD=<profile>` | Start physical or emulated cFS with host simulators and Yamcs. |
 | `make board-stop BOARD=<profile>` | Stop the selected board lab and retain its archive. |
 | `make board-test BOARD=<profile>` | Run repeated full processor PIL acceptance. |

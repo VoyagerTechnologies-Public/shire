@@ -105,6 +105,7 @@ Select `BOARD=qemu-zynq` for the emulator, or
 | `board-deploy` | Validate and upload to a fresh temporary board directory | Validate bundle and package the guest runtime image and Compose. |
 | `board-inspect` | Connect and inspect the actual board Linux environment | Inspect local platform/bundle provenance and validate bundle hashes/ABI. |
 | `board-connect` | Establish/reuse the SSH control connection | Open an SSH shell in a running guest. |
+| `board-scenario` | Build/deploy cFS and run a named scenario with host verification | Run the same scenario with the cross-built ARM32 guest. |
 | `board-start` / `board-stop` | Run/stop physical cFS with host services, retaining archives | Run/stop emulated cFS with the same host services and retained archives. |
 | `board-test` | Repeated processor acceptance plus physical telemetry checks | Repeated emulator acceptance, with hardware remaining unvalidated. |
 
@@ -167,6 +168,42 @@ A separate `make stop` is unnecessary.
 If the controller record was lost, it recovers host containers belonging to the selected board configuration.
 Shutdown failures are reported and recorded sessions remain available for retry.
 Logs and archive volumes are preserved.
+
+### Run a named scenario
+
+Use the same mission scenarios as `make scenario`, with cFS executing on the selected target:
+
+```bash
+make board-scenario SCENARIO=checkout BOARD=rpi5
+make board-scenario SCENARIO=adcs-modes-sweep BOARD=zybo7020
+make board-scenario SCENARIO=checkout BOARD=qemu-zynq
+```
+
+Run one lab at a time.
+An omitted `BOARD` uses the saved active selection.
+Prepare the target SDK/platform with `board-prepare` first and configure SSH for physical boards.
+The command selects the scenario and initial conditions, builds the matching target cFS and host images, deploys the bundle, then runs the scenario.
+Separate `board-build`, `board-deploy`, and `board-start` calls are unnecessary.
+Physical boards prompt for their sudo password before starting cFS.
+
+The host retains the simulators, scenario timing, Yamcs command stacks, telemetry verification, and archive handling.
+Only cFS executes on the physical board or QEMU guest.
+Scenario-specific component settings and tables are compiled for that target on every invocation.
+The runner checks completion markers and the scenario's configured verification and archive gates.
+This command runs the selected scenario rather than the fixed acceptance scenario used by `board-test`.
+
+Reports and logs appear under `build/scenario-runs/<scenario>-<UTC timestamp>/`.
+`target.json` records the board profile and bundle/deployment details alongside the initial conditions and verification results.
+Optional `BOARD_ARGS="--report-dir <path> --simulith-speed <number>"` overrides report placement and runtime speed.
+Leave the scenario's speed unchanged when its command stacks depend on wall-clock time.
+Ctrl-C stops the lab and retains diagnostics and the Yamcs archive.
+`board-stop` can also stop a physical-board scenario from another terminal.
+
+List the registered scenario names with:
+
+```bash
+python3 tools/shire-scenario.py --list-scenarios
+```
 
 For a 64-bit Linux RPi5, set `ssh.target` in `cfg/boards/rpi5.yaml`, then prepare its AArch64 artifacts:
 

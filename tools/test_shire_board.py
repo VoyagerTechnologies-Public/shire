@@ -30,6 +30,61 @@ bridge = module('shire_board_bridge', 'shire-board-bridge.py')
 
 
 class BoardTests(unittest.TestCase):
+    def test_scenario_requires_a_name_before_saving_selection_or_connecting(self):
+        with patch.object(sys, 'argv', ['shire-board.py', 'scenario', '--profile', 'rpi5']), \
+                patch.object(sys, 'stderr', io.StringIO()), \
+                patch.object(board.board_config, 'save_active_profile') as save, \
+                patch.object(board, 'connect') as connect:
+            with self.assertRaises(SystemExit) as error:
+                board.main()
+            self.assertEqual(error.exception.code, 2)
+            save.assert_not_called()
+            connect.assert_not_called()
+
+    def test_scenario_physical_runtime_deploys_and_records_archive_and_stop_request(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            state = work / 'session'
+            state.mkdir()
+            args = SimpleNamespace(work=work, target='user@board',
+                                   settings={'name': 'rpi5', 'backend': 'ssh'})
+            session = {'compose': work / 'board.yaml', 'state': state,
+                       'board': {'page_size': 16384}, 'deployment': {'bundle': {}}, 'errors': []}
+            with patch.object(board, 'prepare') as deploy, \
+                    patch.object(board, 'require_idle'), \
+                    patch.object(board.qemu, 'active_config', return_value={}), \
+                    patch.object(board, 'board_session') as context, \
+                    patch.object(board, 'stop_host_services') as stop:
+                context.return_value.__enter__.return_value = session
+                with board.BoardScenarioBackend(args).session() as runtime:
+                    deploy.assert_called_once_with(args)
+                    self.assertTrue(runtime['target']['hardware'])
+                    runtime['record_archive']({'run_id': 'retained', 'volume': 'archive-volume'})
+                    self.assertEqual(json.loads((work / 'active.json').read_text())['archive']['volume'], 'archive-volume')
+                    runtime['check_running']()
+                    (state / 'stop').touch()
+                    with self.assertRaisesRegex(RuntimeError, 'stopped by board-stop'):
+                        runtime['check_running']()
+                stop.assert_called_once_with(session['compose'], state)
+
+    def test_scenario_qemu_runtime_validates_target_and_never_uses_physical_ssh(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = SimpleNamespace(work=Path(temporary), settings={'name': 'qemu-zynq', 'backend': 'qemu'})
+            with patch.object(board.qemu, 'configure_work_directory'), \
+                    patch.object(board.qemu, 'active_config', return_value={'mission': 'drm'}), \
+                    patch.object(board, 'require_idle'), \
+                    patch.object(board.qemu, 'deploy') as deploy, \
+                    patch.object(board.qemu, 'require_runtime_images'), \
+                    patch.object(board.qemu, 'validate_bundle', return_value={'system': 'armv7l-shire'}) as validate, \
+                    patch.object(board, 'board_session') as physical:
+                with board.BoardScenarioBackend(args).session() as runtime:
+                    self.assertEqual(runtime['target']['bundle']['system'], 'armv7l-shire')
+                    self.assertFalse(runtime['target']['hardware'])
+                    self.assertEqual(runtime['compose'].name, 'shire-qemu-compose.yaml')
+                deploy.assert_called_once()
+                validate.assert_called_once()
+                physical.assert_not_called()
+
     def test_root_launcher_uses_prlimit_under_dash_and_preserves_child_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'root'
@@ -110,9 +165,10 @@ class BoardTests(unittest.TestCase):
             active = root / 'build/active.yaml'
             active.write_text('mission: drm\nboard: qemu-zynq\n')
             saved = active.read_bytes()
-            for command in ('prepare', 'connect', 'inspect', 'build', 'deploy', 'start', 'stop', 'test'):
+            for command in ('prepare', 'connect', 'inspect', 'build', 'deploy', 'scenario', 'start', 'stop', 'test'):
                 with self.subTest(command=command), patch.object(board, 'ROOT', root), \
-                        patch.object(sys, 'argv', ['shire-board.py', command]), \
+                        patch.object(sys, 'argv', ['shire-board.py', command] +
+                                     (['--scenario', 'checkout'] if command == 'scenario' else [])), \
                         patch.object(board, 'qemu_command') as dispatch, \
                         patch.object(board, 'connect') as ssh:
                     board.main()
@@ -158,12 +214,12 @@ class BoardTests(unittest.TestCase):
 
     def test_make_defers_saved_selection_and_forwards_explicit_board_for_all_commands(self):
         commands = [f'board-{name}' for name in
-                    ('prepare', 'connect', 'inspect', 'build', 'deploy', 'start', 'stop', 'test')]
+                    ('prepare', 'connect', 'inspect', 'build', 'deploy', 'scenario', 'start', 'stop', 'test')]
         environment = {key: value for key, value in os.environ.items()
                        if key not in ('BOARD', 'BOARD_ARGS', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES')}
         for arguments, expected in (([], None), (['BOARD=qemu-zynq'], 'qemu-zynq'),
                                     (['BOARD=rpi5'], 'rpi5')):
-            result = subprocess.run(['make', '--no-print-directory', '-n', *commands, *arguments],
+            result = subprocess.run(['make', '--no-print-directory', '-n', *commands, *arguments, 'SCENARIO=checkout'],
                                     cwd=board.ROOT, env=environment, capture_output=True, text=True, check=True)
             lines = result.stdout.splitlines()
             self.assertEqual(len(lines), len(commands))
@@ -174,10 +230,11 @@ class BoardTests(unittest.TestCase):
                     self.assertNotIn('--profile', line)
 
     def test_qemu_frontend_dispatch_never_requires_a_physical_ssh_profile(self):
-        for command in ('prepare', 'connect', 'inspect', 'build', 'deploy', 'start', 'stop', 'test'):
+        for command in ('prepare', 'connect', 'inspect', 'build', 'deploy', 'scenario', 'start', 'stop', 'test'):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as temporary, \
                     patch.object(board, 'ROOT', Path(temporary)), \
-                    patch.object(sys, 'argv', ['shire-board.py', command, '--profile', 'qemu-zynq']), \
+                    patch.object(sys, 'argv', ['shire-board.py', command, '--profile', 'qemu-zynq'] +
+                                 (['--scenario', 'checkout'] if command == 'scenario' else [])), \
                     patch.object(board, 'qemu_command') as dispatch, \
                     patch.object(board, 'connect') as physical_ssh:
                 board.main()
