@@ -55,13 +55,13 @@ def run(command, **kwargs):
     return subprocess.run(list(map(str, command)), check=True, **kwargs)
 
 
-def container(command, *, network=False, cwd=ROOT, environment=None):
+def container(command, *, network=False, cwd=ROOT, environment=None, image=None):
     variables = [item for key, value in (environment or {}).items()
                  for item in ("-e", f"{key}={value}")]
     return run(["docker", "run", "--rm", "--network", "bridge" if network else "none",
                 "--user", f"{os.getuid()}:{os.getgid()}",
                 "-e", "HOME=/tmp", "-v", f"{ROOT}:{ROOT}", "-w", cwd,
-                *variables, TOOLS_IMAGE, *command])
+                *variables, image or TOOLS_IMAGE, *command])
 
 
 def active_config():
@@ -301,11 +301,14 @@ def test(duration, trials, baseline_path=None, *, profile=None):
     try:
         for number in range(1, trials + 1):
             failures_before = len(report["failures"])
+            if profile.get('before_trial') is not None:
+                profile['before_trial']()
             def progress(message):
                 print(f"[{label}] Trial {number}/{trials}: {message}", flush=True)
 
             result = perf.one_trial(compose, directory, "max", duration, 0, number, False, names, scenario,
-                                    post_run=profile.get("post_run"), progress=progress)
+                                    post_run=profile.get("post_run"), progress=progress,
+                                    check_running=profile.get("check_running"))
             report["trials"].append(result)
             expected_ticks = math.ceil(round(duration * 1e9) / 10_000_000)
             if result["ticks"] != expected_ticks or result["fsw"]["sch_ticks"] != expected_ticks:
@@ -389,7 +392,8 @@ def test(duration, trials, baseline_path=None, *, profile=None):
         raise RuntimeError(profile.get('label', 'QEMU') + " acceptance failed: " + "; ".join(report["failures"]))
 
 
-def prepare(jobs):
+def prepare_source():
+    """Fetch the pinned, hash-checked public Buildroot source for any PIL SDK."""
     WORK.mkdir(parents=True, exist_ok=True)
     archive = WORK / "downloads" / f"buildroot-{VERSION}.tar.xz"
     archive.parent.mkdir(exist_ok=True)
@@ -405,6 +409,11 @@ def prepare(jobs):
     if not SOURCE.exists():
         with tarfile.open(archive) as source:
             source.extractall(WORK, filter="data")
+    return archive
+
+
+def prepare(jobs):
+    archive = prepare_source()
     run(["docker", "build", "-t", TOOLS_IMAGE, "-f", ROOT / "tools/Dockerfile.qemu", ROOT / "tools"])
     OUTPUT.mkdir(exist_ok=True)
     fragment = OUTPUT / "shire.fragment"

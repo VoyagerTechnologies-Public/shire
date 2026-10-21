@@ -32,6 +32,20 @@ def prepare_repository(temporary, scenario=None):
 
 
 class ConfigurationPathsTests(unittest.TestCase):
+    def test_initial_configuration_keeps_a_previously_selected_board(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = prepare_repository(temporary)
+            active = root / 'build/active.yaml'
+            active.parent.mkdir()
+            active.write_text('board: rpi5\n')
+            result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py')],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            selection = yaml.safe_load(active.read_text())
+            self.assertEqual(selection['board'], 'rpi5')
+            self.assertEqual(selection['mission'], 'drm')
+            self.assertEqual(selection['spacecraft'], 'sat-1')
+
     def test_configuration_generation_from_root_tools_and_outside(self):
         for location in ("root", "tools", "outside"):
             with self.subTest(location=location), tempfile.TemporaryDirectory() as temporary:

@@ -116,6 +116,7 @@ def inspect(args, *, quiet=False):
     work = work_directory(args)
     work.mkdir(parents=True, exist_ok=True)
     machine = remote(args, ['uname', '-m'], capture_output=True, text=True).stdout.strip()
+    page_size = int(remote(args, ['getconf', 'PAGE_SIZE'], capture_output=True, text=True).stdout.strip())
     expected = settings(args)['runtime']['kernel_machines']
     if machine not in expected:
         raise RuntimeError(f'Board kernel architecture mismatch: got {machine}, expected {expected}')
@@ -128,7 +129,7 @@ def inspect(args, *, quiet=False):
     path.write_text(result.stdout)
     if not quiet:
         print(result.stdout)
-    return {'target': args.target, 'kernel_machine': machine, 'inspection': result.stdout,
+    return {'target': args.target, 'kernel_machine': machine, 'page_size': page_size, 'inspection': result.stdout,
             'transport': 'SSH TCP forwards and framed UDP tunnel',
             'physical_buses_tested': False}
 
@@ -144,7 +145,8 @@ def prepare(args):
     for path in (rootfs, compiler):
         if not path.is_file():
             raise RuntimeError(f'Missing profile artifact: {path}. Build the matching SDK/userspace first.')
-    inspect(args, quiet=True)
+    identity = inspect(args, quiet=True)
+    board_config.validate_bundle(profile, bundle, config, page_size=identity['page_size'])
     directory = work / 'package'
     directory.mkdir(parents=True, exist_ok=True)
     binary = directory / 'shire-board-udp'
@@ -187,6 +189,17 @@ def prepare(args):
     print(f'[board] isolated runtime: {args.remote_root}')
 
 
+def fsw_build_directory(args, config, sdk):
+    # A changed SDK must not inherit a CPU's cached compiler/sysroot or object
+    # files. Keep prior builds for diagnosis rather than deleting their output.
+    profile = settings(args)
+    identity = json.dumps({'sdk': str(sdk.resolve()), 'system': profile['runtime']['cfs_system'],
+                           'flags': profile['artifacts']['compiler_flags']}, sort_keys=True).encode()
+    identity += (sdk / 'share/buildroot/toolchainfile.cmake').read_bytes()
+    digest = hashlib.sha256(identity).hexdigest()[:16]
+    return work_directory(args) / config['mission'] / config['spacecraft'] / f'fsw-{digest}'
+
+
 def build(args):
     profile = settings(args)
     # Resolve configuration through the normal host build path, including its
@@ -195,12 +208,15 @@ def build(args):
     config = qemu.active_config()
     sdk = board_config.artifact_path(profile, 'sdk', config)
     if not (sdk / 'share/buildroot/toolchainfile.cmake').is_file():
-        raise RuntimeError('The shipped ARM toolchains require a prepared Buildroot SDK. See the board profile artifacts.sdk.')
+        selection = shlex.quote(getattr(args, 'profile', profile['name']))
+        raise RuntimeError(f'Missing {profile["runtime"]["architecture"]} Buildroot SDK: {sdk}\n'
+                           f'Run make board-prepare BOARD={selection} first. '
+                           'The SDK and userspace must match the selected architecture.')
     # A physical processor replaces native FSW only. Its lab still needs 42,
     # Simulith, the configured device simulators, CryptoLib, and Yamcs.
     build_host_runtime()
     runtime = profile['runtime']
-    directory = work_directory(args) / config['mission'] / config['spacecraft'] / 'fsw'
+    directory = fsw_build_directory(args, config, sdk)
     container_run(profile, ['make', '-C', ROOT / config['global']['build'].get('fsw', 'cfs'),
         'build-fsw', f'BUILDDIR={directory}', f"MISSION={config['mission']}",
         f"SPACECRAFT={config['spacecraft']}", 'BUILDTYPE=release', f'-j{args.jobs}'],
@@ -233,6 +249,11 @@ def prepare_platform(args):
     subprocess.run(['make', '-C', str(ROOT), 'cfg'], check=True)
     config = qemu.active_config()
     profile = settings(args)
+    if 'buildroot_config' in profile['artifacts']:
+        spec = importlib.util.spec_from_file_location('shire_board_sdk', ROOT / 'tools/shire_board_sdk.py')
+        sdk_builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sdk_builder)
+        sdk_builder.prepare(profile, config, args.jobs, backend=qemu, board_config=board_config)
     sdk = board_config.artifact_path(profile, 'sdk', config)
     paths = [sdk / 'share/buildroot/toolchainfile.cmake',
              *(board_config.artifact_path(profile, key, config) for key in ('compiler', 'rootfs'))]
@@ -526,8 +547,23 @@ def board_session(args):
             subprocess.run([*ssh_base(args)[:-1], '-O', 'cancel', '-R', forwarding, args.target],
                            check=False)
         active = work_directory(args) / 'active.json'
-        if active.exists() and json.loads(active.read_text()).get('state') == str(state):
+        if ((state / 'host-stopped').exists() and active.exists()
+                and json.loads(active.read_text()).get('state') == str(state)):
             active.unlink(missing_ok=True)
+
+
+def check_board_running(session):
+    if session['errors']:
+        raise RuntimeError('; '.join(session['errors']))
+    request = session['state'] / 'request.json'
+    if not request.exists():
+        return
+    run_id = json.loads(request.read_text())['run_id']
+    status = session['state'] / f'{run_id}.exit'
+    code = status.read_text().strip() if status.exists() else ''
+    if code and int(code) != 0:
+        raise RuntimeError(f'Board runtime exited with status {code}; '
+                           f'see {session["state"] / (run_id + ".log")}')
 
 
 def test(args):
@@ -540,6 +576,8 @@ def test(args):
             'image': profile['artifacts']['tools_image'], 'physical_target': True,
             'command_port': profile['network']['command'], 'board': session['board'], 'label': 'board',
             'post_run': ground_links,
+            'check_running': lambda: check_board_running(session),
+            'before_trial': lambda: (session['state'] / 'request.json').unlink(missing_ok=True),
             'platform': {'board': profile['name'], 'kernel': 'Existing board Linux kernel, see inspection',
                          'userspace': 'Public Buildroot root filesystem in an isolated chroot',
                          'deployment': deployment},
@@ -549,10 +587,41 @@ def test(args):
             raise RuntimeError('; '.join(session['errors']))
 
 
-def save_logs(compose, state):
+def save_logs(compose, state, environment=None):
     with (state / 'compose.log').open('w') as log:
         subprocess.run(['docker', 'compose', '-f', str(compose), 'logs', '--no-color'],
-                       stdout=log, stderr=subprocess.STDOUT, check=False)
+                       stdout=log, stderr=subprocess.STDOUT, env=environment, check=False)
+
+
+def stop_host_services(compose, state, environment=None):
+    save_logs(compose, state, environment)
+    # A failed teardown must remain retryable; never discard its session record.
+    subprocess.run(['docker', 'compose', '-f', str(compose), 'down', '--timeout', '2'],
+                   env=environment, check=True)
+    (state / 'host-stopped').touch()
+
+
+def recover_host_services(args):
+    """Recover a lost controller record without stopping another configuration."""
+    if not (ROOT / 'build/build.yaml').exists():
+        return
+    compose = ROOT / 'build' / qemu.active_config()['mission'] / f"shire-board-{settings(args)['name']}-compose.yaml"
+    if not compose.exists():
+        return
+    owned = set(subprocess.check_output(['docker', 'ps', '-aq', '--no-trunc', '--filter',
+        f'label=com.docker.compose.project.config_files={compose}'], text=True).split())
+    if not owned:
+        return
+    project = set(subprocess.check_output(
+        ['docker', 'compose', '-f', str(compose), 'ps', '-a', '-q'], text=True).split())
+    if project != owned:
+        raise RuntimeError('Another SHIRE configuration shares this Compose project. '
+                           'Stop that lab with its own stop command before retrying board-stop.')
+    state = work_directory(args) / 'sessions' / ('cleanup-' + uuid.uuid4().hex)
+    state.mkdir(parents=True)
+    stop_host_services(compose, state)
+    print(f'[board] Recovered host services for {settings(args)["name"]}. Logs: {state}. Archives retained.')
+    return True
 
 
 def start(args):
@@ -607,10 +676,8 @@ def start(args):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
-            save_logs(compose, state)
             # Keep the per-run Yamcs archive. Only transient lab resources stop.
-            subprocess.run(['docker', 'compose', '-f', str(compose), 'down', '--timeout', '2'],
-                           env=environment, check=False)
+            stop_host_services(compose, state, environment)
             print(f'[board] Logs retained in {state}', flush=True)
         if not (stopped or (state / 'stop').exists()) and (process.returncode or session['errors']):
             raise RuntimeError('Board lab exited unexpectedly. See retained session logs.')
@@ -620,7 +687,8 @@ def stop(args):
     # Do not require working SSH to stop the host side after a link failure.
     active = work_directory(args) / 'active.json'
     if not active.exists():
-        print('[board] No interactive board lab is active.')
+        if not recover_host_services(args):
+            print('[board] No interactive board lab is active.')
         return
     metadata = json.loads(active.read_text())
     state, compose = Path(metadata['state']), Path(metadata['compose'])
@@ -632,8 +700,9 @@ def stop(args):
     while active.exists() and time.monotonic() < deadline:
         time.sleep(.1)
     if active.exists():
-        save_logs(compose, state)
-        subprocess.run(['docker', 'compose', '-f', str(compose), 'down', '--timeout', '2'], check=True)
+        environment = {**os.environ, 'SHIRE_YAMCS_VOLUME': metadata['archive']['volume'],
+                       'SHIRE_RUN_ID': metadata['archive']['run_id']}
+        stop_host_services(compose, state, environment)
         active.unlink(missing_ok=True)
     print(f'[board] Lab stopped. Logs: {state}. Archive retained: {metadata["archive"]["run_id"]}')
 
@@ -642,7 +711,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('prepare', 'connect', 'inspect', 'build', 'deploy', 'test', 'start', 'stop'))
     parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1))
-    parser.add_argument('--profile', help='Override build/active.yaml board selection with a profile name or YAML path')
+    parser.add_argument('--profile', help='Select and save the active board profile name or YAML path')
     parser.add_argument('--target', help='Override profile SSH account and host')
     parser.add_argument('--ssh-control', type=Path)
     parser.add_argument('--work-dir', type=Path, help='Override per-board generated artifacts directory')
@@ -663,8 +732,11 @@ def main():
     if not math.isfinite(args.duration) or args.duration < 1 or args.trials < 1:
         parser.error('--duration must be finite and at least 1 second; --trials must be positive')
     try:
+        explicit_profile = args.profile is not None
         args.profile = board_config.select_profile(args.profile, active_path=ROOT / 'build/active.yaml')
         args.settings = board_config.load_profile(args.profile)
+        if explicit_profile:
+            board_config.save_active_profile(args.profile, active_path=ROOT / 'build/active.yaml')
         path = args.work_dir or Path(args.settings['work_dir'])
         args.work = path if path.is_absolute() else ROOT / path
         if args.settings.get('backend', 'ssh') == 'qemu':

@@ -192,11 +192,11 @@ help:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
 	@echo "  42            - Build 42 simulator container"
-	@echo "  board-build   - Build host simulators/ground services and the selected target cFS bundle"
+	@echo "  board-build   - Build BOARD=<profile> host simulators/ground services and the selected target cFS bundle"
 	@echo "  board-connect - Establish board SSH or open a running QEMU guest shell"
 	@echo "  board-deploy  - Upload the board runtime or package the QEMU guest image and Compose"
 	@echo "  board-inspect - Inspect board Linux or local QEMU platform/bundle artifacts"
-	@echo "  board-prepare - Build the QEMU platform/SDK or check supplied hardware SDK/userspace inputs"
+	@echo "  board-prepare - Build the QEMU platform or configured board SDK/userspace; otherwise check supplied inputs"
 	@echo "  board-start   - Start physical or emulated cFS with host simulators and Yamcs"
 	@echo "  board-stop    - Stop the selected processor PIL lab, preserving logs and archives"
 	@echo "  board-test    - Run repeated processor PIL acceptance with the selected profile"
@@ -238,7 +238,8 @@ help:
 	@echo "  test-simulith - Build and run Simulith core tests"
 	@echo "  uninstall     - Remove containers, images, volumes, and networks"
 	@echo ""
-	@echo "Board selection: BOARD=<profile> overrides build/active.yaml board (fallback: qemu-zynq)."
+	@echo "Board selection: BOARD=<profile> selects and saves build/active.yaml board (fallback: qemu-zynq)."
+	@echo "Board profiles: qemu-zynq, zybo7020, rpi5, or a profile YAML path."
 	@echo "Board options: BOARD_ARGS=\"<launcher options>\" (emulator profile: qemu-zynq)."
 
 list: cfg

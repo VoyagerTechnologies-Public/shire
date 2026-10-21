@@ -15,7 +15,7 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make 42` | Configure SHIRE and build only the 42 runtime image. |
 | `make sim` | Configure SHIRE and build 42, Simulith, the selected component simulators, Director, and Server. |
 | `make fsw` | Configure SHIRE and build the selected cFS target and FSW runtime image. |
-| `make board-prepare BOARD=<profile>` | Build the QEMU platform/SDK or check supplied hardware SDK/userspace inputs. |
+| `make board-prepare BOARD=<profile>` | Build the QEMU platform or configured board SDK/userspace, or check supplied inputs. |
 | `make board-connect BOARD=<profile>` | Establish hardware SSH or open the running QEMU guest shell. |
 | `make board-inspect BOARD=<profile>` | Inspect board Linux over SSH, or local QEMU platform/bundle artifacts. |
 | `make board-build BOARD=<profile>` | Build the host simulation and ground images, then cross-build the cFS bundle with the selected SDK. |
@@ -48,7 +48,8 @@ Run `make cfg` after changing `build/active.yaml`.
 
 Run `make cfg` before `make test-sim` when the active selection has changed.
 Board commands use `board` from `build/active.yaml` immediately, without requiring `make cfg`.
-An explicit `BOARD=<profile>` overrides that selection for the invocation without changing the file.
+An explicit `BOARD=<profile>` validates and saves that selection for subsequent board commands.
+Other active settings are retained, and a failed operation still leaves the validated board selected.
 The fallback is `qemu-zynq` when the file or key is absent.
 Direct Python calls follow the same precedence using `--profile` as the override.
 Review [Docker](../manual/how-to/docker.md) before using cleanup commands that remove persisted state.

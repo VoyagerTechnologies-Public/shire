@@ -42,7 +42,7 @@ Physical buses and FPGA peripherals require separate configuration and qualifica
 | --- | --- | --- |
 | `qemu-zynq` | ARMv7 hard-float, `armv7l-shire`, public Zynq ZC702 Linux guest | Emulator acceptance with separate physical board and peripheral gates. |
 | `zybo7020` | ARMv7 little-endian hard-float, `armv7l-shire`, matching public Buildroot SDK/userspace | Physical Zybo PIL validated with command acceptance, telemetry, fidelity, and repeatability. |
-| `rpi5` | AArch64 little-endian, `aarch64-shire`, operator-supplied matching SDK/userspace | Example profile and architecture/configuration tests, with physical RPi execution unvalidated. |
+| `rpi5` | AArch64 little-endian, `aarch64-shire`, matching public SDK/userspace with 16 KiB page alignment | Physical RPi5 processor PIL validated with command acceptance, telemetry, fidelity, and repeatability using a 16 KiB-page kernel. |
 
 The RPi example selects 64-bit userspace.
 Select the actual OS and executable ABI rather than inferring it from the board name.
@@ -75,19 +75,32 @@ python3 tools/shire-board.py inspect --profile zybo7020
 ```
 
 The first command uses the saved selection immediately, without requiring `make cfg`.
-The other commands override it for that invocation and leave `active.yaml` unchanged.
-Use the same override across build, deploy, start, and stop for the intended target.
-For example, stop a QEMU run with `make board-stop BOARD=qemu-zynq` even if the saved selection is Zybo.
+An explicit `BOARD=<profile>` or Python `--profile` validates and saves that profile as the active board.
+Subsequent commands without an override reuse the last saved selection.
+The update preserves other active settings and replaces the YAML file atomically.
+Invalid profiles leave the saved selection unchanged.
+A valid selection remains saved if the later build, SSH connection, or runtime operation fails.
+Only the board profile selection is saved, while other launcher options remain per invocation.
+
+```bash
+make board-build BOARD=rpi5
+make board-deploy
+make board-inspect
+```
+
+All three commands select RPi5.
+An explicit selection on another command switches the active board again.
+To stop an older run after switching profiles, explicitly select its board with `BOARD=<profile>`.
 Deployment manifests and acceptance reports retain the effective profile for that run.
 The saved board selection affects only `board-*` commands.
 Native `make build`, `make start`, and `make perf` retain their existing behavior.
 
 Select `BOARD=qemu-zynq` for the emulator, or
-`BOARD=rpi5` after supplying that profile's matching artifacts and SSH target.
+`BOARD=rpi5` after setting its SSH target and preparing its matching artifacts.
 
 | Command | SSH hardware backend | QEMU backend |
 | --- | --- | --- |
-| `board-prepare` | Check supplied SDK/compiler/rootfs inputs locally | Build public SDK, kernel, rootfs, and license artifacts. |
+| `board-prepare` | Build SDK/userspace when configured, otherwise check supplied inputs locally | Build public SDK, kernel, rootfs, and license artifacts. |
 | `board-build` | Build host runtime and selected target cFS bundle | Build host runtime and ARM32 cFS bundle. |
 | `board-deploy` | Validate and upload to a fresh temporary board directory | Validate bundle and package the guest runtime image and Compose. |
 | `board-inspect` | Connect and inspect the actual board Linux environment | Inspect local platform/bundle provenance and validate bundle hashes/ABI. |
@@ -120,7 +133,8 @@ The remaining deployment details describe SSH hardware profiles.
 Prepare the selected SDK and userspace before building cFS.
 For the supplied Zybo profile, `make board-prepare BOARD=qemu-zynq` builds its shared
 public ARM32 SDK and root filesystem.
-Hardware `board-prepare` checks that the configured SDK, compiler, and userspace inputs exist.
+Hardware `board-prepare` builds a matching SDK/userspace when `artifacts.buildroot_config` is configured.
+Otherwise it checks that the supplied SDK, compiler, and userspace inputs exist.
 It does not install a board OS.
 A physical board deployment does not need a QEMU runtime image.
 `board-build` resolves configuration, builds 42, Simulith, the configured device
@@ -148,19 +162,46 @@ make board-stop BOARD=zybo7020
 Ctrl-C in the start terminal also stops the session.
 Logs and per-run Yamcs archives are retained.
 Stop can clean up the host side without requiring a working SSH connection.
+`board-stop` stops both target cFS and the host services.
+A separate `make stop` is unnecessary.
+If the controller record was lost, it recovers host containers belonging to the selected board configuration.
+Shutdown failures are reported and recorded sessions remain available for retry.
+Logs and archive volumes are preserved.
 
-Use the same workflow after configuring and supplying artifacts for the RPi example:
+For a 64-bit Linux RPi5, set `ssh.target` in `cfg/boards/rpi5.yaml`, then prepare its AArch64 artifacts:
 
 ```bash
+make board-prepare BOARD=rpi5
 make board-build BOARD=rpi5
 make board-deploy BOARD=rpi5
 make board-start BOARD=rpi5
 make board-stop BOARD=rpi5
 ```
 
-The shipped RPi SSH account is a placeholder that must be replaced.
-Its artifact paths are inputs to prepare, not downloads performed by these commands.
+Use the SSH account and IP address reachable from the host running SHIRE.
+The first preparation downloads public sources and the pinned Arm GNU AArch64 toolchain.
+It uses the same pinned Buildroot release and build-tools image as the Zynq workflow,
+but creates separate 64-bit SDK and userspace artifacts.
+It builds no RPi kernel, firmware, bootloader, or SD-card image.
+The Pi retains its installed Linux kernel and runs cFS in the temporary chroot.
+This userspace is built alongside the SDK, so the installed OS does not need matching libc or application libraries.
 The launcher cannot turn an existing ARM32 build into an AArch64 build.
+
+The default RPi preparation writes the SDK under `build/board-targets/rpi5/sdk-16k`,
+the matching userspace to `build/board-targets/rpi5/rootfs.tar`, and build output
+under `build/board-targets/rpi5/sdk-16k-buildroot`.
+The build output retains `preparation.json`, the resolved configuration,
+and `legal-info` with source/license artifacts and toolchain distribution notes.
+Preparation checks both a compiled probe and the userspace loader for the selected ELF architecture and page alignment.
+The shipped RPi5 definition builds for 16 KiB pages, matching the standard Pi5 kernel.
+Its Arm GNU loader supports this alignment, while the Bootlin 4 KiB loader used in an initial trial did not.
+Inspect the actual kernel with `getconf PAGE_SIZE` when using a different image.
+Deployment checks every bundled ELF against the observed kernel page size before executing it.
+For another kernel page size, supply a compatible SDK/userspace and rebuild the complete bundle.
+Changing the Buildroot definition requires a fresh SDK/output location to avoid mixing configurations.
+The prepared SDK is built at its configured location and must remain there.
+For an independently supplied SDK/userspace, omit `artifacts.buildroot_config`
+and set the existing artifact paths to that matching pair.
 
 After `make clean`, repeat `board-build`, `board-deploy`, and `board-test` or `board-start`.
 The SDK/userspace are separate profile inputs and must still be available.
@@ -192,7 +233,8 @@ make board-start BOARD=cfg/boards/my-board.yaml
 | `runtime.staging_prefix` | Absolute prefix for fresh deployment directories on writable board storage with enough capacity. |
 | `runtime.mqueue_max`, `runtime.rtprio` | Queue depth ceiling and real-time priority limit inside the isolated runtime. |
 | `runtime.serial_console` (optional) | Board character device for mirroring live output, with omission or null disabling it by default. |
-| `artifacts.sdk`, `artifacts.compiler`, `artifacts.compiler_flags` | Matching relocatable cross SDK and compiler for cFS and the UDP helper, mounted read-only when outside the checkout. |
+| `artifacts.buildroot_config` (optional) | Buildroot defconfig for public SDK/userspace generation during `board-prepare`, with omission selecting operator-supplied artifacts. |
+| `artifacts.sdk`, `artifacts.compiler`, `artifacts.compiler_flags` | Matching cross SDK and compiler for cFS and the UDP helper, mounted read-only when outside the checkout. |
 | `artifacts.tools_image` | Host build/bridge image with Python, PyYAML, Make, CMake, native build tools, SSH, and the SDK's host dependencies. |
 | `artifacts.bundle` | Bundle directory containing `manifest.json` and `app/`, with `{mission}` and `{spacecraft}` expanded from active configuration. |
 | `artifacts.rootfs` | Matching userspace tar archive, with the loader, libraries, shell, and basic utilities needed by cFS. |
@@ -204,6 +246,7 @@ make board-start BOARD=cfg/boards/my-board.yaml
 Profile validation rejects unknown fields, invalid ports, and conflicting TCP bindings.
 Changing the profile or runtime scripts invalidates the recorded deployment and requires redeployment.
 Changing the CPU ABI or SDK also requires rebuilding the cFS bundle.
+SDK identity and toolchain configuration select a separate cFS build directory, preserving old compiler caches.
 The report records the effective profile, its hash, application hashes, root filesystem hash,
 runtime source hashes, and observed board identity.
 
@@ -253,7 +296,7 @@ Complete startup and dynamically loaded application compatibility are verified b
 | --- | --- |
 | Host | Linux or suitable WSL environment, Docker Engine/Compose, Make, Python with PyYAML, OpenSSH client, matching build image, and resolved SHIRE mission artifacts. |
 | Board OS | Existing Linux with the selected CPU/userspace ABI and reachable SSH, without requiring board Docker or Python. |
-| Board utilities | Shell, sudo, util-linux `unshare` with mount/IPC/PID namespaces and `--kill-child`, mount, chroot, mknod, tar, sha256sum, uname, and ip. |
+| Board utilities | Shell, sudo, util-linux `unshare` with mount/IPC/PID namespaces and `--kill-child`, mount, chroot, mknod, tar, sha256sum, uname, ip, and preferably `prlimit` for resource limits. |
 | Board privilege | Sudo access for namespaces, mounts, device nodes, queue limits, and real-time scheduling, using an empty password response for passwordless sudo. |
 | Kernel services | PID, mount, and IPC namespaces, procfs, tmpfs, POSIX message queues, shared memory, futexes, sockets, and POSIX timing/scheduling services required by the selected OSAL. |
 | Message sizes | A Linux message-size ceiling at least as large as the cFS message size, with 8192 bytes on the validated board and a separate review required for larger packets. |
@@ -264,6 +307,9 @@ Complete startup and dynamically loaded application compatibility are verified b
 
 The launcher does not persistently alter board networking or replace its boot image.
 Queue-depth changes live in the new IPC namespace.
+The launcher uses `prlimit` to set message-queue and real-time priority limits for the chrooted process.
+This works with Debian's dash shell, whose `ulimit` builtin does not support `-q`.
+Images without `prlimit` can use the legacy shell path when both `ulimit -q` and `ulimit -r` are supported.
 Device and synchronization connections use SSH reverse forwards.
 The small UDP helper preserves datagram boundaries over a framed TCP connection.
 Host resource statistics describe the bridge container rather than board CPU utilization.
@@ -310,7 +356,7 @@ python3 tools/shire-board.py inspect --profile rpi5 --target user@actual-host
 ```
 
 `--ssh-control` and `--work-dir` allow explicit connection/state locations.
-Repeat the same overrides for subsequent commands.
+The board selection is remembered, while connection and work-directory overrides must be repeated for subsequent commands.
 Separate boards must not share a control socket or work directory.
 
 ## Acceptance and portability gate
@@ -325,6 +371,8 @@ participant accounting, device transactions, accepted commands, dynamics phases,
 control traces, advancing Yamcs truth, archives, and repeatability.
 Each trial starts a fresh cFS process, so three launches are expected for a default test.
 The terminal reports ground startup, trial progress, each trial's result, and the final acceptance result.
+If the board launcher exits with an error, acceptance stops early and reports its exit status and retained log path.
+This avoids waiting for the synchronization watchdog when cFS never started.
 Use `board-start` for one continuous interactive run instead of repeated acceptance trials.
 Physical acceptance also requires valid board telemetry on Yamcs's `debug-in` link.
 Allow enough simulated time for the startup RTS to enable telemetry.

@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -17,16 +18,77 @@ config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config)
 
 
-def elf(bits, machine, flags=0):
+def elf(bits, machine, flags=0, alignment=None):
     data = bytearray(64)
     data[:6] = b'\x7fELF' + bytes([1 if bits == 32 else 2, 1])
     struct.pack_into('<H', data, 18, machine)
     if bits == 32:
         struct.pack_into('<I', data, 36, flags)
+    if alignment is not None:
+        if bits == 64:
+            struct.pack_into('<Q', data, 32, 64)
+            struct.pack_into('<HH', data, 54, 56, 1)
+            entry = bytearray(56)
+            struct.pack_into('<Q', entry, 48, alignment)
+        else:
+            struct.pack_into('<I', data, 28, 64)
+            struct.pack_into('<HH', data, 42, 32, 1)
+            entry = bytearray(32)
+            struct.pack_into('<I', entry, 28, alignment)
+        struct.pack_into('<I', entry, 0, 1)
+        data.extend(entry)
     return data
 
 
 class ProfileTests(unittest.TestCase):
+    def test_saving_board_preserves_other_values_and_permissions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'build/active.yaml'
+            config.save_active_profile('rpi5', active_path=path)
+            self.assertEqual(config.select_profile(active_path=path), 'rpi5')
+            active = {'mission': 'custom', 'scenario': 'debug', 'board': 'rpi5',
+                      'extra': {'ports': [1234, 1235], 'flag': False}}
+            path.write_text(yaml.safe_dump(active))
+            path.chmod(0o640)
+            config.save_active_profile('cfg/boards/my-board.yaml', active_path=path)
+            self.assertEqual(yaml.safe_load(path.read_text()), {**active, 'board': 'cfg/boards/my-board.yaml'})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+
+    def test_atomic_save_failure_preserves_existing_file_and_removes_temporary_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'active.yaml'
+            path.write_text('board: rpi5\nmission: drm\n')
+            original = path.read_bytes()
+            with patch.object(config.os, 'replace', side_effect=OSError('cannot replace')):
+                with self.assertRaises(OSError):
+                    config.save_active_profile('qemu-zynq', active_path=path)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_saving_board_does_not_overwrite_malformed_yaml(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'active.yaml'
+            path.write_text('mission: [broken')
+            with self.assertRaises(RuntimeError):
+                config.save_active_profile('rpi5', active_path=path)
+            self.assertEqual(path.read_text(), 'mission: [broken')
+
+    def test_elf_page_alignment_matches_kernel_for_arm32_and_arm64(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'loader'
+            for bits, machine, architecture, flags in ((32, 40, 'armv7hf', 0x400), (64, 183, 'aarch64', 0)):
+                path.write_bytes(elf(bits, machine, flags, alignment=4096))
+                config.check_elf(path, architecture, page_size=4096)
+                with self.subTest(bits=bits), self.assertRaisesRegex(RuntimeError, 'page-size mismatch'):
+                    config.check_elf(path, architecture, page_size=16384)
+                path.write_bytes(elf(bits, machine, flags, alignment=65536))
+                config.check_elf(path, architecture, page_size=16384)
+                data = bytearray(path.read_bytes())
+                struct.pack_into('<Q' if bits == 64 else '<I', data, 80 if bits == 64 else 72, 4096)
+                path.write_bytes(data)
+                with self.assertRaisesRegex(RuntimeError, 'page-size mismatch'):
+                    config.check_elf(path, architecture, page_size=16384)
+
     def test_board_selection_precedence_and_saved_yaml_are_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'active.yaml'
@@ -118,6 +180,7 @@ class ProfileTests(unittest.TestCase):
             ('runtime', 'serial_console', '/tmp/output'),
             ('runtime', 'serial_console', '/dev/../etc/passwd'),
             ('runtime', 'serial_console', True),
+            ('artifacts', 'buildroot_config', False),
             ('runtime', 'cfs_system', '../another-target')]
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'profile.yaml'

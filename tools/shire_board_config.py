@@ -1,9 +1,11 @@
 """Validated processor PIL profiles and architecture checks."""
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import struct
+import tempfile
 
 import yaml
 
@@ -12,22 +14,48 @@ DEFAULT_PROFILE = 'qemu-zynq'
 ARCHITECTURES = {'armv7hf': (32, 40), 'aarch64': (64, 183), 'x86_64': (64, 62)}
 
 
+def read_active(path):
+    try:
+        active = yaml.safe_load(path.read_text())
+    except FileNotFoundError:
+        active = {}
+    except (OSError, yaml.YAMLError) as error:
+        raise RuntimeError(f'Cannot read active board selection from {path}: {error}') from error
+    if not isinstance(active, dict):
+        raise RuntimeError(f'{path} must contain a YAML mapping')
+    return active
+
+
 def select_profile(selection=None, *, active_path=None):
-    """Explicit invocation overrides the saved selection without rewriting it."""
+    """Resolve an explicit selection, saved board, or emulator fallback."""
     if selection is None:
         path = Path(active_path) if active_path is not None else ROOT / 'build/active.yaml'
-        try:
-            active = yaml.safe_load(path.read_text())
-        except FileNotFoundError:
-            active = {}
-        except (OSError, yaml.YAMLError) as error:
-            raise RuntimeError(f'Cannot read active board selection from {path}: {error}') from error
-        if not isinstance(active, dict):
-            raise RuntimeError(f'{path} must contain a YAML mapping')
-        selection = active.get('board', DEFAULT_PROFILE)
+        selection = read_active(path).get('board', DEFAULT_PROFILE)
     if not isinstance(selection, str) or not selection.strip() or '\n' in selection or '\x00' in selection:
         raise RuntimeError('Board selection must be a nonempty profile name or YAML path')
     return selection
+
+
+def save_active_profile(selection, *, active_path=None):
+    """Persist a validated profile selection while retaining other settings."""
+    path = (Path(active_path) if active_path is not None else ROOT / 'build/active.yaml').resolve()
+    active = read_active(path)
+    if active.get('board') == selection:
+        return
+    active['board'] = selection
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, prefix='.active-', suffix='.yaml',
+                                         delete=False) as output:
+            temporary = Path(output.name)
+            yaml.safe_dump(active, output, sort_keys=False)
+        if path.exists():
+            temporary.chmod(path.stat().st_mode & 0o777)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def integer(value, minimum, maximum, name):
@@ -75,7 +103,8 @@ def load_profile(selection):
     }
     for section, expected in fields.items():
         value = data if section == 'root' else data.get(section) if isinstance(data, dict) else None
-        optional = {'serial_console'} if section == 'runtime' else {'backend'} if section == 'root' else set()
+        optional = ({'serial_console'} if section == 'runtime' else {'backend'} if section == 'root'
+                    else {'buildroot_config'} if section == 'artifacts' else set())
         if not isinstance(value, dict) or expected - set(value) or set(value) - expected - optional:
             raise RuntimeError(f'Board profile {section} must contain exactly: {", ".join(sorted(expected))}')
     if type(data['schema_version']) is not int or data['schema_version'] != 1:
@@ -115,6 +144,10 @@ def load_profile(selection):
     integer(runtime['rtprio'], 1, 99, 'runtime.rtprio')
     validate_serial_console(runtime.get('serial_console'))
     flags = data['artifacts']['compiler_flags']
+    if 'buildroot_config' in data['artifacts']:
+        value = data['artifacts']['buildroot_config']
+        if not isinstance(value, str) or not value or '\n' in value or '\x00' in value:
+            raise RuntimeError('artifacts.buildroot_config must be a nonempty single-line path')
     if not isinstance(flags, list) or any(not isinstance(flag, str) or '\x00' in flag for flag in flags):
         raise RuntimeError('artifacts.compiler_flags must be a list of compiler arguments')
     network = data['network']
@@ -165,9 +198,9 @@ def artifact_path(profile, key, config):
     return path if path.is_absolute() else ROOT / path
 
 
-def check_elf(path, architecture, *, required=True):
+def check_elf(path, architecture, *, required=True, page_size=None):
     with Path(path).open('rb') as source:
-        header = source.read(52)
+        header = source.read(64)
     if not header.startswith(b'\x7fELF'):
         if required:
             raise RuntimeError(f'Not an ELF executable: {path}')
@@ -180,9 +213,39 @@ def check_elf(path, architecture, *, required=True):
         raise RuntimeError(f'ELF architecture mismatch for {path}: expected {architecture}, got {actual}')
     if architecture == 'armv7hf' and not (struct.unpack_from('<I', header, 36)[0] & 0x400):
         raise RuntimeError(f'ARM hard-float ABI required: {path}')
+    if page_size is not None:
+        if bits == 64:
+            if len(header) < 64:
+                raise RuntimeError(f'Truncated ELF header: {path}')
+            offset = struct.unpack_from('<Q', header, 32)[0]
+            entry_size, count = struct.unpack_from('<HH', header, 54)
+            minimum = 56
+        else:
+            offset = struct.unpack_from('<I', header, 28)[0]
+            entry_size, count = struct.unpack_from('<HH', header, 42)
+            minimum = 32
+        if count == 0 or entry_size < minimum:
+            raise RuntimeError(f'ELF lacks loadable segment headers: {path}')
+        loads = 0
+        with Path(path).open('rb') as source:
+            for index in range(count):
+                source.seek(offset + index * entry_size)
+                entry = source.read(minimum)
+                if len(entry) != minimum:
+                    raise RuntimeError(f'Truncated ELF segment header: {path}')
+                if struct.unpack_from('<I', entry)[0] != 1:
+                    continue
+                loads += 1
+                file_offset, address = struct.unpack_from('<QQ' if bits == 64 else '<II', entry, 8 if bits == 64 else 4)
+                alignment = struct.unpack_from('<Q' if bits == 64 else '<I', entry, 48 if bits == 64 else 28)[0]
+                if alignment < page_size or (address - file_offset) % page_size:
+                    raise RuntimeError(f'ELF page-size mismatch for {path}: segment alignment {alignment}, '
+                                       f'target page size {page_size}. Rebuild the SDK/userspace and all modules for this page size.')
+        if not loads:
+            raise RuntimeError(f'ELF lacks loadable segments: {path}')
 
 
-def validate_bundle(profile, bundle, config):
+def validate_bundle(profile, bundle, config, *, page_size=None):
     manifest = json.loads((bundle / 'manifest.json').read_text())
     if manifest.get('system') != profile['runtime']['cfs_system']:
         raise RuntimeError('Bundle cFS system does not match the board profile')
@@ -204,5 +267,5 @@ def validate_bundle(profile, bundle, config):
             raise RuntimeError(f'Bundle file escapes the bundle directory: {name}')
         if hashlib.sha256(source.read_bytes()).hexdigest() != digest:
             raise RuntimeError(f'Bundle hash mismatch: {name}. Rebuild and repackage it.')
-        check_elf(source, profile['runtime']['architecture'], required=name == executable)
+        check_elf(source, profile['runtime']['architecture'], required=name == executable, page_size=page_size)
     return manifest

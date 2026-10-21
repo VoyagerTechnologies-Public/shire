@@ -1,11 +1,9 @@
-# Example for a matching AArch64 cFS build and userspace. Hardware not validated.
-# Set your actual SSH account/address and supply these build artifacts first.
 schema_version: 1
 name: rpi5
 description: Raspberry Pi 5 AArch64 Linux PIL example, hardware unvalidated
 work_dir: build/boards/rpi5
 ssh:
-  target: YOUR_USER@YOUR_RPI_HOST
+  target: jpl@192.168.6.194
   port: 22
   connect_timeout: 30
 runtime:
@@ -19,10 +17,11 @@ runtime:
   mqueue_max: 10000
   rtprio: 99
 artifacts:
+  buildroot_config: cfg/boards/aarch64_defconfig
   bundle: build/board-targets/rpi5/{mission}/{spacecraft}/bundle
   rootfs: build/board-targets/rpi5/rootfs.tar
-  sdk: build/board-targets/rpi5/sdk
-  compiler: build/board-targets/rpi5/sdk/bin/aarch64-linux-gcc
+  sdk: build/board-targets/rpi5/sdk-16k
+  compiler: build/board-targets/rpi5/sdk-16k/bin/aarch64-none-linux-gnu-gcc
   compiler_flags: [-O2]
   tools_image: shire-qemu-tools:0.0.0
 network:

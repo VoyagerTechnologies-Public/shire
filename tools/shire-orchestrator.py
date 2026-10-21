@@ -67,10 +67,12 @@ def main():
     # Ensure build directory exists
     os.makedirs(BUILD_DIR, exist_ok=True)
     
-    # If active.yaml does not exist, create with defaults from global config
+    # A board command may have saved only its selection before the first cfg.
+    # Fill normal mission defaults while retaining that explicit board choice.
     active = load_yaml(ACTIVE_PATH)
     global_cfg = load_yaml(GLOBAL_CONFIG)
-    if active is None:
+    if active is None or (isinstance(active, dict) and set(active) <= {'board'}):
+        board = (active or {}).get('board', DEFAULT_PROFILE)
         # Use first mission and scenario as defaults
         missions = global_cfg["build"]["missions"]
         if not missions:
@@ -100,7 +102,7 @@ def main():
         else:
             gsw_dir = mission_cfg.get("gsw", DEFAULT_GSW_DIR)
         
-        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir, "board": DEFAULT_PROFILE}
+        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir, "board": board}
         with open(ACTIVE_PATH, "w") as f:
             yaml.safe_dump(active, f)
         print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}")

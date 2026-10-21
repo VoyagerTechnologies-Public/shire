@@ -396,7 +396,8 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
               names: dict[str, str], scenario: pathlib.Path,
               extra_compose_files: tuple[pathlib.Path, ...] = (),
               report_mode: str = "control", post_run=None,
-              progress: Callable[[str], None] | None = None) -> dict[str, object]:
+              progress: Callable[[str], None] | None = None,
+              check_running: Callable[[], None] | None = None) -> dict[str, object]:
     def announce(message: str) -> None:
         if progress is not None:
             progress(message)
@@ -495,6 +496,8 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
         next_scheduler_sample_s = 5.0
         next_progress_s = time.monotonic() + 10.0
         while waiter.poll() is None:
+            if check_running is not None:
+                check_running()
             if time.monotonic() > deadline:
                 waiter.terminate()
                 raise RuntimeError(f"trial {label} exceeded its watchdog deadline")

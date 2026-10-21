@@ -30,7 +30,80 @@ bridge = module('shire_board_bridge', 'shire-board-bridge.py')
 
 
 class BoardTests(unittest.TestCase):
-    def test_saved_profile_drives_every_board_command_and_explicit_override_is_temporary(self):
+    def test_root_launcher_uses_prlimit_under_dash_and_preserves_child_exit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'root'
+            binary = Path(temporary) / 'bin'
+            (root / 'etc').mkdir(parents=True)
+            (root / 'proc/sys/fs/mqueue').mkdir(parents=True)
+            (root / 'etc/shire-board-env').write_text('SHIRE_BOARD_MQUEUE_MAX=10000\nSHIRE_BOARD_RTPRIO=99\n')
+            binary.mkdir()
+            scripts = {'mount': 'exit 0', 'mknod': 'exit 0', 'mkdir': 'exec /bin/mkdir "$@"',
+                       'chroot': 'echo CHROOT_REACHED; exit 7',
+                       'prlimit': 'printf "%s\\n" "$@" > "$SHIRE_LIMIT_ARGS"; '
+                                  'while [ "$1" != -- ]; do shift; done; shift; exec "$@"'}
+            for name, contents in scripts.items():
+                path = binary / name
+                path.write_text('#!/bin/sh\n' + contents + '\n')
+                path.chmod(0o755)
+            arguments = Path(temporary) / 'limits.txt'
+            command = ['/bin/sh', str(board.ROOT / 'cfg/boards/run-root.sh'), str(root), 'a' * 32, '0']
+            environment = {**os.environ, 'PATH': str(binary), 'SHIRE_LIMIT_ARGS': str(arguments)}
+            result = subprocess.run(command, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 7, result.stderr)
+            self.assertIn('CHROOT_REACHED', result.stdout)
+            self.assertEqual(arguments.read_text().splitlines(), ['--msgqueue=unlimited:unlimited',
+                '--rtprio=99:99', '--', 'chroot', str(root), '/bin/sh', '/run-shire-inner.sh', 'a' * 32, '0'])
+            self.assertEqual((root / 'proc/sys/fs/mqueue/msg_max').read_text().strip(), '10000')
+            (binary / 'prlimit').unlink()
+            result = subprocess.run(command, env=environment, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('requires prlimit or a shell supporting', result.stderr)
+            self.assertNotIn('CHROOT_REACHED', result.stdout)
+
+    def test_runtime_failure_is_reported_from_the_current_launch_before_watchdog(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            session = {'state': state, 'errors': []}
+            board.check_board_running(session)
+            run_id = 'a' * 32
+            (state / 'request.json').write_text(json.dumps({'run_id': run_id}))
+            (state / f'{run_id}.exit').touch()
+            board.check_board_running(session)
+            (state / f'{run_id}.exit').write_text('0')
+            board.check_board_running(session)
+            (state / f'{run_id}.exit').write_text('2')
+            with self.assertRaisesRegex(RuntimeError, 'exited with status 2; see .*\\.log'):
+                board.check_board_running(session)
+
+    def test_trial_health_check_ignores_previous_request_and_retains_its_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            previous = 'a' * 32
+            (state / 'request.json').write_text(json.dumps({'run_id': previous}))
+            (state / f'{previous}.exit').write_text('2')
+            (state / f'{previous}.log').write_text('previous trial diagnostics')
+            session = {'state': state, 'errors': [], 'deployment': {'bundle': {}},
+                       'profile': board.board_config.load_profile('rpi5'), 'board': {},
+                       'compose': state / 'compose.yaml', 'work': state}
+
+            def acceptance(*args, profile):
+                profile['before_trial']()
+                profile['check_running']()
+                self.assertFalse((state / 'request.json').exists())
+                self.assertEqual((state / f'{previous}.log').read_text(), 'previous trial diagnostics')
+                current = 'b' * 32
+                (state / 'request.json').write_text(json.dumps({'run_id': current}))
+                (state / f'{current}.exit').write_text('2')
+                with self.assertRaisesRegex(RuntimeError, current):
+                    profile['check_running']()
+
+            with patch.object(board, 'board_session') as context, \
+                    patch.object(board.qemu, 'test', side_effect=acceptance):
+                context.return_value.__enter__.return_value = session
+                board.test(SimpleNamespace(duration=30, trials=3, baseline=None))
+
+    def test_saved_profile_drives_every_command_and_last_override_is_reused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'build').mkdir()
@@ -47,12 +120,41 @@ class BoardTests(unittest.TestCase):
                     self.assertEqual(args.profile, 'qemu-zynq')
                     self.assertEqual(args.settings['name'], 'qemu-zynq')
                     ssh.assert_not_called()
+            self.assertEqual(active.read_bytes(), saved)
             with patch.object(board, 'ROOT', root), \
                     patch.object(sys, 'argv', ['shire-board.py', 'prepare', '--profile', 'rpi5']), \
                     patch.object(board, 'prepare_platform') as prepare:
                 board.main()
                 self.assertEqual(prepare.call_args.args[0].profile, 'rpi5')
-            self.assertEqual(active.read_bytes(), saved)
+            self.assertEqual(yaml.safe_load(active.read_text()), {'mission': 'drm', 'board': 'rpi5'})
+            with patch.object(board, 'ROOT', root), \
+                    patch.object(sys, 'argv', ['shire-board.py', 'prepare']), \
+                    patch.object(board, 'prepare_platform') as prepare:
+                board.main()
+                self.assertEqual(prepare.call_args.args[0].profile, 'rpi5')
+
+    def test_invalid_explicit_profile_does_not_replace_the_active_board(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            active = root / 'build/active.yaml'
+            active.parent.mkdir()
+            active.write_text('mission: drm\nboard: rpi5\n')
+            original = active.read_bytes()
+            with patch.object(board, 'ROOT', root), \
+                    patch.object(sys, 'argv', ['shire-board.py', 'inspect', '--profile', 'missing-profile']), \
+                    patch.object(sys, 'stderr', io.StringIO()), self.assertRaises(SystemExit):
+                board.main()
+            self.assertEqual(active.read_bytes(), original)
+
+    def test_valid_selection_is_saved_even_when_the_subsequent_build_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(board, 'ROOT', root), \
+                    patch.object(sys, 'argv', ['shire-board.py', 'build', '--profile', 'rpi5']), \
+                    patch.object(board, 'build', side_effect=RuntimeError('SDK missing')), \
+                    patch.object(sys, 'stderr', io.StringIO()), self.assertRaises(SystemExit):
+                board.main()
+            self.assertEqual(yaml.safe_load((root / 'build/active.yaml').read_text()), {'board': 'rpi5'})
 
     def test_make_defers_saved_selection_and_forwards_explicit_board_for_all_commands(self):
         commands = [f'board-{name}' for name in
@@ -73,7 +175,8 @@ class BoardTests(unittest.TestCase):
 
     def test_qemu_frontend_dispatch_never_requires_a_physical_ssh_profile(self):
         for command in ('prepare', 'connect', 'inspect', 'build', 'deploy', 'start', 'stop', 'test'):
-            with self.subTest(command=command), \
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as temporary, \
+                    patch.object(board, 'ROOT', Path(temporary)), \
                     patch.object(sys, 'argv', ['shire-board.py', command, '--profile', 'qemu-zynq']), \
                     patch.object(board, 'qemu_command') as dispatch, \
                     patch.object(board, 'connect') as physical_ssh:
@@ -88,7 +191,8 @@ class BoardTests(unittest.TestCase):
         for option in (['--target', 'user@host'], ['--ssh-control', '/tmp/socket'],
                        ['--password-auth'], ['--remote-root', '/tmp/root'],
                        ['--serial-console', '/dev/ttyPS0'], ['--no-serial-console']):
-            with self.subTest(option=option), \
+            with self.subTest(option=option), tempfile.TemporaryDirectory() as temporary, \
+                    patch.object(board, 'ROOT', Path(temporary)), \
                     patch.object(sys, 'argv', ['shire-board.py', 'start', '--profile', 'qemu-zynq', *option]), \
                     patch.object(sys, 'stderr', io.StringIO()) as errors, \
                     patch.object(board.qemu, 'compose_command') as launch:
@@ -137,7 +241,8 @@ class BoardTests(unittest.TestCase):
             self.assertNotIn('physical_target', acceptance.call_args.kwargs['profile'])
 
     def test_physical_platform_prepare_checks_local_inputs_without_connecting(self):
-        with patch.object(sys, 'argv', ['shire-board.py', 'prepare', '--profile', 'rpi5']), \
+        with tempfile.TemporaryDirectory() as temporary, patch.object(board, 'ROOT', Path(temporary)), \
+                patch.object(sys, 'argv', ['shire-board.py', 'prepare', '--profile', 'rpi5']), \
                 patch.object(board, 'prepare_platform') as prepare, \
                 patch.object(board, 'connect') as ssh:
             board.main()
@@ -237,7 +342,8 @@ class BoardTests(unittest.TestCase):
                 operations.append('cross-build')
                 self.assertEqual([op[-1] for op in operations[:-1]], ['cfg', 'sim', 'gsw'])
                 self.assertEqual(kwargs['environment']['SHIRE_FSW_SYSTEM'], 'armv7l-shire')
-                directory = args.work / 'mission/vehicle/fsw'
+                directory = Path(next(str(item).split('=', 1)[1] for item in command
+                                      if str(item).startswith('BUILDDIR=')))
                 app = directory / 'exe/cpu1'
                 app.mkdir(parents=True)
                 header = bytearray(64)
@@ -273,6 +379,37 @@ class BoardTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     board.build(SimpleNamespace(settings=profile))
                 cross_build.assert_not_called()
+
+    def test_missing_rpi_sdk_points_to_the_profile_prepare_command_before_host_builds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            profile = board.board_config.load_profile('rpi5')
+            profile['artifacts']['sdk'] = temporary
+            with patch.object(board.subprocess, 'run'), \
+                    patch.object(board.qemu, 'active_config', return_value={'mission': 'drm', 'spacecraft': 'sat-1'}), \
+                    patch.object(board, 'build_host_runtime') as host, \
+                    patch.object(board, 'container_run') as cross:
+                with self.assertRaisesRegex(RuntimeError, 'make board-prepare BOARD=rpi5'):
+                    board.build(SimpleNamespace(settings=profile, profile='rpi5'))
+                host.assert_not_called()
+                cross.assert_not_called()
+
+    def test_changed_sdk_uses_a_separate_cfs_build_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            profile = board.board_config.load_profile('rpi5')
+            sdk = root / 'sdk'
+            toolchain = sdk / 'share/buildroot/toolchainfile.cmake'
+            toolchain.parent.mkdir(parents=True)
+            toolchain.write_text('first SDK')
+            args = SimpleNamespace(settings=profile, work=root)
+            config = {'mission': 'drm', 'spacecraft': 'sat-1'}
+            first = board.fsw_build_directory(args, config, sdk)
+            first.mkdir(parents=True)
+            (first / 'keep-this').write_text('old compiler output')
+            self.assertEqual(first, board.fsw_build_directory(args, config, sdk))
+            toolchain.write_text('second SDK')
+            self.assertNotEqual(first, board.fsw_build_directory(args, config, sdk))
+            self.assertEqual((first / 'keep-this').read_text(), 'old compiler output')
 
     def test_profile_ports_reach_both_compose_and_board_environment(self):
         profile = board.board_config.load_profile('rpi5')
@@ -324,6 +461,7 @@ class BoardTests(unittest.TestCase):
 
     def test_stop_without_active_lab_needs_no_ssh_connection(self):
         with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(board, 'ROOT', Path(temporary)), \
                 patch.object(board, 'WORK', Path(temporary)), \
                 patch.object(sys, 'argv', ['shire-board.py', 'stop', '--profile', 'zybo7020', '--work-dir', temporary]), \
                 patch.object(board, 'connect') as connect:
@@ -337,7 +475,8 @@ class BoardTests(unittest.TestCase):
             state.mkdir()
             (state / 'request.json').write_text('{"run_id":"test-run"}')
             (directory / 'active.json').write_text(json.dumps({'state': str(state),
-                'compose': str(directory / 'compose.yaml'), 'archive': {'run_id': 'retained-archive'}}))
+                'compose': str(directory / 'compose.yaml'),
+                'archive': {'run_id': 'retained-archive', 'volume': 'retained-volume'}}))
             with patch.object(board, 'WORK', directory), \
                     patch.object(board.time, 'monotonic', side_effect=[0, 46]), \
                     patch.object(board.subprocess, 'run') as run:
@@ -349,6 +488,96 @@ class BoardTests(unittest.TestCase):
             self.assertIn('down', command)
             self.assertNotIn('-v', command)
             self.assertNotIn('--volumes', command)
+            self.assertTrue(run.call_args.kwargs['check'])
+            self.assertEqual(run.call_args.kwargs['env']['SHIRE_YAMCS_VOLUME'], 'retained-volume')
+            self.assertTrue((state / 'host-stopped').exists())
+
+    def test_stop_failure_keeps_session_for_retry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            state = directory / 'session'
+            state.mkdir()
+            active = directory / 'active.json'
+            active.write_text(json.dumps({'state': str(state), 'compose': 'compose.yaml',
+                'archive': {'run_id': 'kept', 'volume': 'kept-volume'}}))
+            with patch.object(board, 'WORK', directory), \
+                    patch.object(board.time, 'monotonic', side_effect=[0, 46]), \
+                    patch.object(board, 'save_logs'), \
+                    patch.object(board.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['docker'])):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    board.stop(SimpleNamespace())
+            self.assertTrue(active.exists())
+            self.assertFalse((state / 'host-stopped').exists())
+
+    def test_controller_removes_record_only_after_successful_host_teardown(self):
+        for fail in (False, True):
+            with self.subTest(failed_teardown=fail), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                profile = board.board_config.load_profile('rpi5')
+                args = SimpleNamespace(work=directory, settings=profile, target='user@board',
+                                       ssh_control=directory / 'ssh-control')
+
+                def command_result(command, **kwargs):
+                    if fail and 'down' in command:
+                        raise subprocess.CalledProcessError(1, command)
+                    return subprocess.CompletedProcess(command, 0)
+
+                with patch.object(board.qemu, 'active_config', return_value={'spacecraft_cfg': {}}), \
+                        patch.object(board, 'require_idle'), \
+                        patch.object(board, 'deployment_for', return_value={}), \
+                        patch.object(board, 'inspect', return_value={}), \
+                        patch.object(board, 'render_compose', return_value=directory / 'compose.yaml'), \
+                        patch.object(board.qemu, 'require_runtime_images'), \
+                        patch.object(board.getpass, 'getpass', return_value='not-used'), \
+                        patch.object(board.subprocess, 'run', side_effect=command_result), \
+                        patch.object(board, 'save_logs'):
+                    try:
+                        with board.board_session(args) as session:
+                            state = session['state']
+                            (directory / 'active.json').write_text(json.dumps({'state': str(state)}))
+                            board.stop_host_services(session['compose'], state)
+                    except subprocess.CalledProcessError:
+                        if not fail:
+                            raise
+                self.assertEqual((directory / 'active.json').exists(), fail)
+                self.assertEqual((state / 'host-stopped').exists(), not fail)
+
+    def test_stop_recovers_host_containers_after_controller_record_is_lost(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            compose = root / 'build/drm/shire-board-rpi5-compose.yaml'
+            compose.parent.mkdir(parents=True)
+            compose.write_text('services: {}\n')
+            (root / 'build/build.yaml').write_text('mission: drm\n')
+            args = SimpleNamespace(work=root / 'work', settings={'name': 'rpi5'})
+            with patch.object(board, 'ROOT', root), \
+                    patch.object(board.qemu, 'active_config', return_value={'mission': 'drm'}), \
+                    patch.object(board.subprocess, 'check_output', side_effect=['abc\ndef\n', 'def\nabc\n']) as query, \
+                    patch.object(board.subprocess, 'run') as run:
+                board.stop(args)
+            self.assertIn(f'label=com.docker.compose.project.config_files={compose}', query.call_args_list[0].args[0])
+            command = run.call_args.args[0]
+            self.assertEqual(command, ['docker', 'compose', '-f', str(compose), 'down', '--timeout', '2'])
+            self.assertTrue(run.call_args.kwargs['check'])
+            self.assertEqual(len(list((args.work / 'sessions').glob('*/host-stopped'))), 1)
+            self.assertEqual(len(list((args.work / 'sessions').glob('*/compose.log'))), 1)
+
+    def test_stop_recovery_does_not_stop_a_different_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            compose = root / 'build/drm/shire-board-rpi5-compose.yaml'
+            compose.parent.mkdir(parents=True)
+            compose.touch()
+            (root / 'build/build.yaml').touch()
+            args = SimpleNamespace(work=root / 'work', settings={'name': 'rpi5'})
+            for project in ('other\n', 'abc\nother\n'):
+                with patch.object(board, 'ROOT', root), \
+                        patch.object(board.qemu, 'active_config', return_value={'mission': 'drm'}), \
+                        patch.object(board.subprocess, 'check_output', side_effect=['abc\n', project]), \
+                        patch.object(board.subprocess, 'run') as run:
+                    with self.assertRaisesRegex(RuntimeError, 'Another SHIRE configuration'):
+                        board.stop(args)
+                    run.assert_not_called()
 
     def test_start_refuses_to_replace_a_recorded_session(self):
         with tempfile.TemporaryDirectory() as temporary:
