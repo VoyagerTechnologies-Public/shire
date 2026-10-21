@@ -19,7 +19,8 @@ def prepare_repository(temporary, scenario=None):
     (root / "tools").mkdir()
     shutil.copytree(ROOT / "comp/eps/support", root / "comp/eps/support")
     shutil.copytree(ROOT / "comp/eps/gsw", root / "comp/eps/gsw")
-    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_eps_stacks.py"):
+    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_eps_stacks.py",
+                 "shire_board_config.py"):
         shutil.copy2(ROOT / "tools" / name, root / "tools" / name)
     if scenario:
         (root / "build").mkdir()
@@ -42,6 +43,7 @@ class ConfigurationPathsTests(unittest.TestCase):
                     cwd=cwd, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(yaml.safe_load((root / 'build/active.yaml').read_text())['board'], 'qemu-zynq')
                 config = yaml.safe_load((root / "build/build.yaml").read_text())
                 self.assertEqual(config["global"], yaml.safe_load(
                     (root / "cfg/shire-config.yaml").read_text()))

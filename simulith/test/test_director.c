@@ -305,7 +305,7 @@ static int partial_failing_init(component_state_t **state)
 static int fake_wait_for_service(component_state_t *state, int interrupt_fd)
 {
     (void)state;
-    if (fail_wait)
+    if (__atomic_load_n(&fail_wait, __ATOMIC_ACQUIRE))
         return COMPONENT_ERROR;
     if (__atomic_exchange_n(&fake_wait_ready, 0, __ATOMIC_ACQ_REL))
         return COMPONENT_WORK;
@@ -972,13 +972,20 @@ static void test_component_phase_boundaries_and_failures(void)
     g_director_config.components[0].active = 1;
     g_director_config.components[0].interface = &interface;
     fail_service = 0;
-    fail_wait = 1;
+    fail_wait = 0;
     fake_wait_ready = 0;
     TEST_ASSERT_EQUAL_INT(0, initialize_components(&g_director_config));
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
                           director_prepare_tick(10, 1264));
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
                           director_execute_tick(10, 1264));
+    /* Fail inside EXECUTE, after PREPARE has reset the phase status. An
+     * immediate startup failure could race that reset and leave this test
+     * waiting forever for an error from a worker that had already exited. */
+    __atomic_store_n(&fail_wait, 1, __ATOMIC_RELEASE);
+    uint64_t interrupt = 1;
+    TEST_ASSERT_EQUAL_INT(sizeof(interrupt), write(
+        g_director_config.component_interrupt_fds[0], &interrupt, sizeof(interrupt)));
     pthread_mutex_lock(&g_director_config.tick_mutex);
     while (g_director_config.components[0].phase_status == COMPONENT_SUCCESS)
         pthread_cond_wait(&g_director_config.tick_cond,

@@ -395,7 +395,12 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
               trial_number: int, resource_snapshot: bool,
               names: dict[str, str], scenario: pathlib.Path,
               extra_compose_files: tuple[pathlib.Path, ...] = (),
-              report_mode: str = "control") -> dict[str, object]:
+              report_mode: str = "control", post_run=None,
+              progress: Callable[[str], None] | None = None) -> dict[str, object]:
+    def announce(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
     label = f"{speed.replace('.', '_')}x-trial-{trial_number}"
     if report_mode == "full":
         label += "-full-reference"
@@ -430,6 +435,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
     yamcs_samples: list[dict[str, object]] = []
     observer_stop = threading.Event()
     observer: threading.Thread | None = None
+    announce("Starting Yamcs; waiting for ground readiness (up to 120 seconds).")
     gsw_output = run(compose_cmd + ["up", "-d", "shire-gsw"],
                      env=trial_env, check=False)
     (trial_dir / "compose-gsw.log").write_text(gsw_output.stdout, encoding="utf-8")
@@ -452,6 +458,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
     observer = threading.Thread(target=observe_yamcs_truth,
                                 args=(observer_stop, yamcs_samples), daemon=True)
     observer.start()
+    announce("Yamcs ready; starting simulators and a fresh cFS instance.")
     output = run(compose_cmd + ["up", "-d"], env=trial_env, check=False)
     (trial_dir / "compose-up.log").write_text(output.stdout, encoding="utf-8")
     if output.returncode != 0:
@@ -486,11 +493,15 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
         deadline = time.monotonic() + max(60.0, duration * 3.0 + 30.0)
         scheduler_samples: list[dict[str, object]] = []
         next_scheduler_sample_s = 5.0
+        next_progress_s = time.monotonic() + 10.0
         while waiter.poll() is None:
             if time.monotonic() > deadline:
                 waiter.terminate()
                 raise RuntimeError(f"trial {label} exceeded its watchdog deadline")
             wall_offset_s = time.monotonic() - started
+            if progress is not None and time.monotonic() >= next_progress_s:
+                announce(f"Waiting for synchronized simulation to finish ({wall_offset_s:.0f} wall seconds since startup).")
+                next_progress_s = time.monotonic() + 10.0
             if wall_offset_s >= next_scheduler_sample_s:
                 scheduler_samples.append({
                     "wall_offset_s": wall_offset_s,
@@ -500,6 +511,7 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
             time.sleep(0.1)
         # Give the synchronized clients a moment to flush terminal logs.
         time.sleep(0.2)
+        announce("Simulation stopped; checking telemetry, traces, and the retained archive.")
 
         if stats_process is not None:
             stats_process.terminate()
@@ -561,6 +573,8 @@ def one_trial(compose: pathlib.Path, artifact_dir: pathlib.Path,
                 100 // visual_hz)
         except (OSError, ValueError, KeyError) as exc:
             metrics["archive"] = {"replay_ready": False, "error": str(exc)}
+        if post_run is not None:
+            metrics.update(post_run())
     finally:
         observer_stop.set()
         if observer is not None:

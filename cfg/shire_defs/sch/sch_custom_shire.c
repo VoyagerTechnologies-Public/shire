@@ -1,7 +1,7 @@
 /*
  * SHIRE Scheduler clock and synchronized transaction customization.
  *
- * This source is selected only by the amd64-shire toolchain. It keeps the
+ * This source is selected by the synchronized SHIRE Linux toolchains. It keeps the
  * Simulith clock, participant barrier, and output pacing out of the portable
  * Scheduler application and out of physical flight builds.
  */
@@ -42,8 +42,13 @@ static void *SCH_ShireTickMain(void *Arg)
 
     while (SCH_ShireTickIsRunning())
     {
-        if (CFE_PSP_WaitForPendingSimulithTick() == 0 &&
-            SCH_ShireTickIsRunning())
+        /* STOP leaves no more ticks to wait for. Exit instead of spinning at
+         * scheduler priority and starving lower-priority console/shutdown work. */
+        if (CFE_PSP_WaitForPendingSimulithTick() != 0)
+        {
+            break;
+        }
+        if (SCH_ShireTickIsRunning())
         {
             SCH_MinorFrameCallback(0);
         }

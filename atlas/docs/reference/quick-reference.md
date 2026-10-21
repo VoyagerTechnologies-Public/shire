@@ -15,6 +15,14 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make 42` | Configure SHIRE and build only the 42 runtime image. |
 | `make sim` | Configure SHIRE and build 42, Simulith, the selected component simulators, Director, and Server. |
 | `make fsw` | Configure SHIRE and build the selected cFS target and FSW runtime image. |
+| `make board-prepare BOARD=<profile>` | Build the QEMU platform/SDK or check supplied hardware SDK/userspace inputs. |
+| `make board-connect BOARD=<profile>` | Establish hardware SSH or open the running QEMU guest shell. |
+| `make board-inspect BOARD=<profile>` | Inspect board Linux over SSH, or local QEMU platform/bundle artifacts. |
+| `make board-build BOARD=<profile>` | Build the host simulation and ground images, then cross-build the cFS bundle with the selected SDK. |
+| `make board-deploy BOARD=<profile>` | Upload the hardware runtime or package the QEMU guest image and Compose. |
+| `make board-start BOARD=<profile>` | Start physical or emulated cFS with host simulators and Yamcs. |
+| `make board-stop BOARD=<profile>` | Stop the selected board lab and retain its archive. |
+| `make board-test BOARD=<profile>` | Run repeated full processor PIL acceptance. |
 | `make gsw` | Configure SHIRE and build CryptoLib and the YAMCS runtime image. |
 | `make start` | Start the existing generated DRM Compose environment attached to the terminal without rebuilding or regenerating it. |
 | `make stop` | Stop the generated DRM and CLI environments and remove transient Compose volumes. |
@@ -39,6 +47,10 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make uninstall` | Remove SHIRE build artifacts, containers, images, networks, and labeled replay archives through `clean-cache`. |
 
 Run `make cfg` before `make test-sim` when the active selection has changed.
+Board commands use `board` from `build/active.yaml` immediately, without requiring `make cfg`.
+An explicit `BOARD=<profile>` overrides that selection for the invocation without changing the file.
+The fallback is `qemu-zynq` when the file or key is absent.
+Direct Python calls follow the same precedence using `--profile` as the override.
 Review [Docker](../manual/how-to/docker.md) before using cleanup commands that remove persisted state.
 
 ## Default browser endpoints
@@ -109,7 +121,7 @@ The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nom
 
 | Target | Current state |
 | --- | --- |
-| CPU1 | Enabled host target that uses `amd64-shire` for normal builds and `amd64-linux` for unit test builds. |
+| CPU1 | Enabled target using `amd64-shire` by default, `armv7l-shire` for ARM32 PIL or `aarch64-shire` for a configured AArch64 SDK target, and `amd64-linux` for unit test builds. |
 | CPU2 | Disabled `armv7l-linux` Zybo 7020 scaffold that is not built or validated by the current workflow. |
 
 ## Generated paths

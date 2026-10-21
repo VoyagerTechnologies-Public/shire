@@ -1,7 +1,13 @@
 # Development Board
 
-SHIRE contains cross compilation scaffolding for a 32 bit ARM Zybo 7020 target, but the target is disabled and is not part of the automated test path.
-Treat this page as a target enablement plan rather than evidence of a validated hardware deployment.
+SHIRE currently supports an ARM32 processor PIL path on a physical Zybo 7020 with host-driven time and simulated devices.
+See [Configurable Linux Board PIL](board-pil.md) for the profile contract and [Zybo Linux PIL](zybo-pil.md) for the validated setup.
+The generic CPU2 physical bus scaffold described on this page remains disabled.
+Treat this page as a physical interface enablement plan rather than evidence of peripheral qualification.
+
+An independent ARM32 simulation target is available through [Zynq QEMU PIL](qemu-pil.md).
+It retains SHIRE's host-driven time and simulated-device interfaces.
+The disabled CPU2 scaffold described below remains the physical Linux interface reference.
 
 ## Establish the target before component development
 
@@ -144,4 +150,4 @@ Record the exact toolchain, sysroot, SHIRE revision, generated configuration, bo
 Keep host simulation regression results with the board evidence so later hardware changes can be compared with a repeatable baseline.
 
 ***
-Last reviewed: 20261002
+Last reviewed: 20261016

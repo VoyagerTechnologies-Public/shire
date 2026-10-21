@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 board-build board-connect board-deploy board-inspect board-prepare board-start board-stop board-test build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -33,9 +33,38 @@ export BUILDDIR_COMP := $(BUILDDIR_BASE)/comp
 endif
 endif
 
+# Leave an omitted BOARD to the launcher, which reads build/active.yaml.
+BOARD ?=
+BOARD_PROFILE_ARG = $(if $(strip $(BOARD)),--profile "$(BOARD)")
+BOARD_ARGS ?=
+
 # Commands
 42: cfg
 	python3 tools/shire-build.py 42
+
+board-build:
+	python3 tools/shire-board.py build $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-connect:
+	python3 tools/shire-board.py connect $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-deploy:
+	python3 tools/shire-board.py deploy $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-inspect:
+	python3 tools/shire-board.py inspect $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-prepare:
+	python3 tools/shire-board.py prepare $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-start:
+	python3 tools/shire-board.py start $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-stop:
+	python3 tools/shire-board.py stop $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
+
+board-test:
+	python3 tools/shire-board.py test $(BOARD_PROFILE_ARG) $(BOARD_ARGS)
 
 build: cfg
 	python3 tools/shire-build.py build
@@ -163,6 +192,14 @@ help:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
 	@echo "  42            - Build 42 simulator container"
+	@echo "  board-build   - Build host simulators/ground services and the selected target cFS bundle"
+	@echo "  board-connect - Establish board SSH or open a running QEMU guest shell"
+	@echo "  board-deploy  - Upload the board runtime or package the QEMU guest image and Compose"
+	@echo "  board-inspect - Inspect board Linux or local QEMU platform/bundle artifacts"
+	@echo "  board-prepare - Build the QEMU platform/SDK or check supplied hardware SDK/userspace inputs"
+	@echo "  board-start   - Start physical or emulated cFS with host simulators and Yamcs"
+	@echo "  board-stop    - Stop the selected processor PIL lab, preserving logs and archives"
+	@echo "  board-test    - Run repeated processor PIL acceptance with the selected profile"
 	@echo "  build         - Build the full runtime environment"
 	@echo "  campaign      - Run CAMPAIGN=<name> Monte Carlo trials and aggregate results (optional MAX_PARALLEL=N)"
 	@echo "  cfg           - Run orchestrator to configure environment"
@@ -200,6 +237,9 @@ help:
 	@echo "  test-sim      - Build and run component-simulator tests"
 	@echo "  test-simulith - Build and run Simulith core tests"
 	@echo "  uninstall     - Remove containers, images, volumes, and networks"
+	@echo ""
+	@echo "Board selection: BOARD=<profile> overrides build/active.yaml board (fallback: qemu-zynq)."
+	@echo "Board options: BOARD_ARGS=\"<launcher options>\" (emulator profile: qemu-zynq)."
 
 list: cfg
 	python3 tools/shire-build.py list

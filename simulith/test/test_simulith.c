@@ -230,6 +230,10 @@ static void test_server_cli_command_parser(void)
     TEST_ASSERT_TRUE(speed == 25.0);
 
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("pause", &paused, &speed));
+    TEST_ASSERT_EQUAL_INT(1, paused);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("step", &paused, &speed));
+    TEST_ASSERT_EQUAL_INT(1, paused);
+    TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("resume", &paused, &speed));
     TEST_ASSERT_EQUAL_INT(0, paused);
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("quit-now", &paused, &speed));
     TEST_ASSERT_EQUAL_INT(0, simulith_server_process_cli_command_for_test("unknown", &paused, &speed));

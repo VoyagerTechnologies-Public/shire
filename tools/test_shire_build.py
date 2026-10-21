@@ -48,6 +48,21 @@ class CliTopologyTests(unittest.TestCase):
     def test_no_cli_clients_performs_no_build(self):
         self.assertEqual(self.run_build({}), [])
 
+    def test_sim_build_includes_42_and_configured_devices_before_runtime_packaging(self):
+        config = {'spacecraft_cfg': {'components': [{'name': 'demo'}, {'name': 'radio'}]}}
+        operations = Mock()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            stack.enter_context(patch.object(build, 'get_build_dirs', return_value={}))
+            for name in ('build_42', 'build_simulith', 'build_component_sim',
+                         'build_simulith_director_and_server', 'build_fsw'):
+                operations.attach_mock(stack.enter_context(patch.object(build, name)), name)
+            build.build_sim(config)
+        self.assertEqual(operations.mock_calls, [
+            call.build_42(config, {}), call.build_simulith(config, {}),
+            call.build_component_sim('demo', {}), call.build_component_sim('radio', {}),
+            call.build_simulith_director_and_server(config, {})])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,14 @@
+# Required by cFS/OSAL rather than by the board's default Linux demonstration.
+CONFIG_POSIX_MQUEUE=y
+CONFIG_SYSVIPC=y
+CONFIG_FUTEX=y
+CONFIG_HIGH_RES_TIMERS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_TMPFS=y
+# Upstream Zynq direct boot runs one CPU. Avoid SMP locking and forced
+# kernel preemption overhead in this emulation-only Linux image.
+# CONFIG_SMP is not set
+CONFIG_PREEMPT_NONE=y
+# CONFIG_PREEMPT is not set
+# CONFIG_PREEMPT_VOLUNTARY is not set

@@ -248,10 +248,19 @@ static void Test_TimebaseTickDistribution(void)
     UtAssert_INT32_EQ(FakeInitCalls, 1);
     UtAssert_INT32_EQ(FakeConfigureCalls, 1);
     UtAssert_INT32_EQ(FakeHandshakeCalls, 0);
+    CFE_PSP_Get_Timebase(&upper, &lower);
+    UtAssert_True(upper == 0 && lower == 0,
+                  "bootstrap exposes logical zero rather than a clock that would jump backwards");
+    CFE_PSP_GetTime(&os_time);
+    UtAssert_True(OS_TimeGetTotalNanoseconds(os_time) == 0,
+                  "EVS monotonic accounting starts in the simulation clock domain");
     CFE_PSP_InitSimulithTime();
     UtAssert_INT32_EQ(FakeInitCalls, 1);
     UtAssert_INT32_EQ(CFE_PSP_StartSynchronizedTicks(), 0);
     UtAssert_INT32_EQ(FakeHandshakeCalls, 1);
+    CFE_PSP_GetTime(&os_time);
+    UtAssert_True(OS_TimeGetTotalNanoseconds(os_time) == 0,
+                  "handshake alone does not advance the platform clock");
     UtAssert_INT32_EQ(CFE_PSP_StartSynchronizedTicks(), 0);
 
     generation = tick_generation;

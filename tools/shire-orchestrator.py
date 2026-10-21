@@ -14,6 +14,7 @@ import yaml
 from shire_provenance import ROOT, git_head_sha
 from shire_eps_config import normalize_eps, merge_component_config
 from shire_eps_stacks import write_stacks, write_xtce
+from shire_board_config import DEFAULT_PROFILE
 
 CFG_DIR = str(ROOT / "cfg")
 BUILD_DIR = str(ROOT / "build")
@@ -99,7 +100,7 @@ def main():
         else:
             gsw_dir = mission_cfg.get("gsw", DEFAULT_GSW_DIR)
         
-        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir}
+        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir, "board": DEFAULT_PROFILE}
         with open(ACTIVE_PATH, "w") as f:
             yaml.safe_dump(active, f)
         print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}")

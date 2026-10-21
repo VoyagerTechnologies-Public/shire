@@ -102,6 +102,7 @@ target_link_libraries(coverage-io_lib-shire_osal_runtime-testrunner pthread)
 # deterministic in-process tick queue, avoiding any external network service.
 add_cfe_coverage_test(io_lib shire_psp_runtime
     "${CMAKE_CURRENT_SOURCE_DIR}/shire_psp_runtime_tests.c"
+    "${CMAKE_SOURCE_DIR}/../../simulith/src/simulith_common.c"
     "${CFEPSP_SOURCE_DIR}/fsw/shire/src/cfe_psp_timebase.c"
     "${CFEPSP_SOURCE_DIR}/fsw/shire/src/cfe_psp_exception.c"
 )

@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
     }
 
     sleep(1);
-    if (simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "shire-director", INTERVAL_NS) != 0)
+    if (simulith_client_init(simulith_pub_address(0), simulith_rep_address(0), "shire-director", INTERVAL_NS) != 0)
     {
         cleanup_components(&g_director_config);
         return 1;

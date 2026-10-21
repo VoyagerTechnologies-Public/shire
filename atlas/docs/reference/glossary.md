@@ -20,7 +20,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | Component | A SHIRE subsystem package containing a flight application, simulated device, shared protocol code, tests, configuration, and ground artifacts as applicable. |
 | Component mold | Mechanical starting point created from the Demo component with `make mold COMP=<name>`. |
 | Component simulator | Director loadable shared library that implements the Simulith lifecycle and models a component's device behavior. |
-| CPU1 | Active host cFS target that currently selects the `amd64-shire` system for normal builds. |
+| CPU1 | Active cFS target using `amd64-shire` by default, `armv7l-shire` for ARM32 PIL, or `aarch64-shire` for a configured AArch64 SDK target. |
 | CPU2 | Disabled 32 bit ARM Zybo 7020 target scaffold that still requires target completion and validation. |
 | CryptoLib | NASA cryptographic library used in the representative radio command and telemetry path. |
 | Debug path | Direct UDP command and telemetry path between YAMCS and CI_LAB or TO_LAB that bypasses the Radio and CryptoLib. |
