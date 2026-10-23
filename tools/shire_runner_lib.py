@@ -179,6 +179,34 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
     return resolved
 
 
+def evaluate_log_assertions(assertions: list[dict] | None, logs: dict[str, str]) -> list[dict]:
+    """Checks scenario `log_assertions` against the captured container logs.
+
+    Each entry names a container role (a key of container_names(), e.g. cryptolib, fsw, director), a regular
+    expression, and optional `min` (default 1) / `max` matching-line counts. Used where the evidence for a
+    behaviour is a container's own log rather than a Yamcs parameter, for example the ground CryptoLib
+    rejecting a tampered telemetry frame."""
+    results = []
+    for entry in assertions or []:
+        container, pattern = entry.get("container"), entry.get("pattern")
+        if container not in logs:
+            raise ValueError(f"log_assertions container {container!r} is not one of {sorted(logs)}")
+        if not isinstance(pattern, str) or not pattern:
+            raise ValueError("log_assertions entries need a nonempty pattern")
+        lower, upper = entry.get("min", 1), entry.get("max")
+        for name, value in (("min", lower), ("max", upper)):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                raise ValueError(f"log_assertions {name} must be a nonnegative integer")
+        regex = re.compile(pattern)
+        count = sum(1 for line in logs[container].splitlines() if regex.search(line))
+        results.append({
+            "container": container, "pattern": pattern, "count": count, "min": lower, "max": upper,
+            "description": entry.get("description"),
+            "passed": count >= lower and (upper is None or count <= upper),
+        })
+    return results
+
+
 def compute_build_key(ic_cfg: dict[str, object], resolved_components: dict[str, dict]) -> str:
     """Hashes exactly what shire-orchestrator.py bakes into images at build
     time (the resolved IC -- orbit/epoch/attitude feed 42's InOut txt files,

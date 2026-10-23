@@ -330,6 +330,70 @@ static void test_queue_accepts_empty_packets_and_pop_on_empty_is_safe(void)
     TEST_ASSERT_EQUAL_UINT32(0, p->len);
 }
 
+static void test_corrupt_flips_one_bit_in_the_requested_number_of_packets(void)
+{
+    uint8_t a[4] = {0, 0, 0, 0}, b[4] = {0, 0, 0, 0}, c[4] = {0, 0, 0, 0};
+    g_link.corrupt_remaining[RADIO_LINK_UP] = 2;
+    g_link.corrupt_offset[RADIO_LINK_UP] = 2;
+
+    TEST_ASSERT_TRUE(radio_link_corrupt(&g_link, RADIO_LINK_UP, a, sizeof(a)));
+    TEST_ASSERT_TRUE(radio_link_corrupt(&g_link, RADIO_LINK_UP, b, sizeof(b)));
+    TEST_ASSERT_FALSE(radio_link_corrupt(&g_link, RADIO_LINK_UP, c, sizeof(c)));
+    TEST_ASSERT_EQUAL_UINT8(1, a[2]);
+    TEST_ASSERT_EQUAL_UINT8(1, b[2]);
+    TEST_ASSERT_EQUAL_UINT8(0, c[2]);
+    TEST_ASSERT_EQUAL_UINT8(0, a[0] | a[1] | a[3]);
+    TEST_ASSERT_EQUAL_UINT32(2, g_link.corrupted[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT32(0, g_link.corrupted[RADIO_LINK_DOWN]);
+}
+
+static void test_corrupt_waits_for_a_packet_long_enough_and_directions_are_independent(void)
+{
+    uint8_t shorter[2] = {0, 0}, longer[8] = {0};
+    g_link.corrupt_remaining[RADIO_LINK_DOWN] = 1;
+    g_link.corrupt_offset[RADIO_LINK_DOWN] = 5;
+
+    TEST_ASSERT_FALSE(radio_link_corrupt(&g_link, RADIO_LINK_UP, longer, sizeof(longer)));
+    TEST_ASSERT_FALSE(radio_link_corrupt(&g_link, RADIO_LINK_DOWN, shorter, sizeof(shorter)));
+    TEST_ASSERT_EQUAL_UINT16(1, g_link.corrupt_remaining[RADIO_LINK_DOWN]);
+    TEST_ASSERT_TRUE(radio_link_corrupt(&g_link, RADIO_LINK_DOWN, longer, sizeof(longer)));
+    TEST_ASSERT_EQUAL_UINT8(1, longer[5]);
+}
+
+static void test_replay_returns_the_last_remembered_packet(void)
+{
+    uint8_t out[RADIO_LINK_MAX_PACKET];
+    const uint8_t first[] = {1, 2, 3}, second[] = {9, 8};
+
+    TEST_ASSERT_EQUAL_UINT32(0, radio_link_replay_copy(&g_link, RADIO_LINK_UP, out));
+    radio_link_remember(&g_link, RADIO_LINK_UP, first, sizeof(first));
+    radio_link_remember(&g_link, RADIO_LINK_UP, second, sizeof(second));
+
+    TEST_ASSERT_EQUAL_UINT32(2, radio_link_replay_copy(&g_link, RADIO_LINK_UP, out));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(second, out, 2);
+    TEST_ASSERT_EQUAL_UINT32(1, g_link.replayed[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT32(0, radio_link_replay_copy(&g_link, RADIO_LINK_DOWN, out));
+}
+
+static void test_remember_ignores_empty_and_oversized_packets_and_reset_forgets(void)
+{
+    static uint8_t big[RADIO_LINK_MAX_PACKET + 1];
+    uint8_t out[RADIO_LINK_MAX_PACKET];
+    const uint8_t keep[] = {7};
+
+    radio_link_remember(&g_link, RADIO_LINK_UP, keep, sizeof(keep));
+    radio_link_remember(&g_link, RADIO_LINK_UP, big, sizeof(big));
+    radio_link_remember(&g_link, RADIO_LINK_UP, keep, 0);
+    TEST_ASSERT_EQUAL_UINT32(1, radio_link_replay_copy(&g_link, RADIO_LINK_UP, out));
+    TEST_ASSERT_EQUAL_UINT8(7, out[0]);
+
+    g_link.corrupt_remaining[RADIO_LINK_UP] = 3;
+    radio_link_reset(&g_link);
+    TEST_ASSERT_EQUAL_UINT32(0, radio_link_replay_copy(&g_link, RADIO_LINK_UP, out));
+    TEST_ASSERT_EQUAL_UINT16(0, g_link.corrupt_remaining[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT32(0, g_link.replayed[RADIO_LINK_UP]);
+}
+
 static void test_clear_queues_keeps_settings(void)
 {
     const uint8_t x = 1;
@@ -370,6 +434,10 @@ int main(void)
     RUN_TEST(test_queue_allocation_failure_is_counted_as_overflow);
     RUN_TEST(test_queue_wraps_around_the_ring);
     RUN_TEST(test_queue_accepts_empty_packets_and_pop_on_empty_is_safe);
+    RUN_TEST(test_corrupt_flips_one_bit_in_the_requested_number_of_packets);
+    RUN_TEST(test_corrupt_waits_for_a_packet_long_enough_and_directions_are_independent);
+    RUN_TEST(test_replay_returns_the_last_remembered_packet);
+    RUN_TEST(test_remember_ignores_empty_and_oversized_packets_and_reset_forgets);
     RUN_TEST(test_clear_queues_keeps_settings);
     return UNITY_END();
 }

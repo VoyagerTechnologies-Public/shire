@@ -80,5 +80,9 @@ def normalize_radio(config, catalog):
         cfg[key] = integer(cfg.get(key, 0), key, 0, 1_000_000)
     cfg["link_seed"] = integer(cfg.get("link_seed", 1), "link_seed", 0, 2**32 - 1)
     cfg["link_queue_depth"] = integer(cfg.get("link_queue_depth", 64), "link_queue_depth", 1, MAX_QUEUE_DEPTH)
+    for key in ("uplink_encryption", "downlink_encryption"):
+        cfg[key] = cfg.get(key, True)
+        if not isinstance(cfg[key], bool):
+            raise ValueError(f"radio {key} must be boolean")
     cfg["ground_stations"] = select_stations(cfg.get("ground_stations"), catalog)
     return cfg

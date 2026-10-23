@@ -53,6 +53,24 @@ class NormalizeRadioTests(unittest.TestCase):
         cfg["link_mode"] = "AUTO"
         self.assertEqual(normalize_radio(cfg, CATALOG)["link_mode"], "auto")
 
+    def test_link_security_defaults_to_encrypted_in_both_directions(self):
+        cfg = normalize_radio(defaults(), CATALOG)
+        self.assertIs(cfg["uplink_encryption"], True)
+        self.assertIs(cfg["downlink_encryption"], True)
+        partial = defaults()
+        del partial["uplink_encryption"]
+        del partial["downlink_encryption"]
+        self.assertIs(normalize_radio(partial, CATALOG)["uplink_encryption"], True)
+
+    def test_link_security_must_be_boolean(self):
+        for key in ("uplink_encryption", "downlink_encryption"):
+            for value in ("yes", 1, 0, None, "false"):
+                with self.subTest(key=key, value=value):
+                    cfg = defaults()
+                    cfg[key] = value
+                    with self.assertRaises(ValueError):
+                        normalize_radio(cfg, CATALOG)
+
     def test_input_is_not_mutated(self):
         cfg = defaults()
         before = dict(cfg)
@@ -108,6 +126,16 @@ class RadioHeaderTests(unittest.TestCase):
         rows = re.findall(r"\{ (-?[\d.]+), (-?[\d.]+), ([\d.]+), ([01]) \}", header)
         self.assertEqual(rows, [("33.000000000", "-117.000000000", "5.000", "1"),
                                 ("39.700000000", "-105.000000000", "10.000", "0")])
+
+    def test_header_carries_link_security_settings(self):
+        header = render(normalize_radio(defaults(), CATALOG))
+        self.assertRegex(header, r"RADIO_CFG_UPLINK_ENCRYPTION\s+1\b")
+        self.assertRegex(header, r"RADIO_CFG_DOWNLINK_ENCRYPTION\s+1\b")
+        cfg = defaults()
+        cfg.update(uplink_encryption=False, downlink_encryption=True)
+        header = render(normalize_radio(cfg, CATALOG))
+        self.assertRegex(header, r"RADIO_CFG_UPLINK_ENCRYPTION\s+0\b")
+        self.assertRegex(header, r"RADIO_CFG_DOWNLINK_ENCRYPTION\s+1\b")
 
     def test_header_without_stations_keeps_a_placeholder_row(self):
         cfg = defaults()

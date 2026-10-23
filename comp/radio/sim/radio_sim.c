@@ -102,6 +102,12 @@ static void* udp_ground_thread(void* arg)
                     radio_link_admit_t admit = radio_link_admit(&state->link, RADIO_LINK_UP);
                     uint64_t delay_ns = radio_link_delay_ns(&state->link, RADIO_LINK_UP);
 
+                    if (admit == RADIO_LINK_ADMIT_OK)
+                    {
+                        radio_link_remember(&state->link, RADIO_LINK_UP, buffer, (uint32_t)bytes_received);
+                        radio_link_corrupt(&state->link, RADIO_LINK_UP, buffer, (uint32_t)bytes_received);
+                    }
+
                     if (admit != RADIO_LINK_ADMIT_OK)
                     {
                         #ifdef RADIO_CFG_DEBUG
@@ -511,18 +517,27 @@ static radio_request_result_t radio_sim_handle_spi_command(
                 {
                     radio_link_admit_t admit;
                     uint64_t delay_ns;
+                    /* Payload begins at data[4] (protocol: header[0], cmd[1], len_hi[2], len_lo[3]). */
+                    const uint8_t* packet = &data[4];
+                    uint8_t tampered[RADIO_LINK_MAX_PACKET];
 
                     pthread_mutex_lock(&state->buffer_mutex);
                     state->hk.CommandCounter++;
                     admit = radio_link_admit(&state->link, RADIO_LINK_DOWN);
                     delay_ns = radio_link_delay_ns(&state->link, RADIO_LINK_DOWN);
+                    if (admit == RADIO_LINK_ADMIT_OK && payload_len <= RADIO_LINK_MAX_PACKET)
+                    {
+                        radio_link_remember(&state->link, RADIO_LINK_DOWN, packet, (uint32_t)payload_len);
+                        memcpy(tampered, packet, payload_len);
+                        if (radio_link_corrupt(&state->link, RADIO_LINK_DOWN, tampered, (uint32_t)payload_len))
+                            packet = tampered;
+                    }
                     if (admit == RADIO_LINK_ADMIT_OK && delay_ns > 0ULL)
                     {
-                        /* Payload begins at data[4] (protocol: header[0], cmd[1], len_hi[2], len_lo[3]).
-                         * Transmitted (and counted) when the delay elapses in on_tick. */
+                        /* Transmitted (and counted) when the delay elapses in on_tick. */
                         radio_link_enqueue(&state->link, RADIO_LINK_DOWN,
                                            state->power_time_ns + delay_ns,
-                                           &data[4], (uint32_t)payload_len);
+                                           packet, (uint32_t)payload_len);
                     }
                     pthread_mutex_unlock(&state->buffer_mutex);
 
@@ -536,7 +551,7 @@ static radio_request_result_t radio_sim_handle_spi_command(
                         #endif
                     }
                     else if (delay_ns == 0ULL &&
-                             radio_sim_transmit_to_ground(state, &data[4], (size_t)payload_len) < 0)
+                             radio_sim_transmit_to_ground(state, packet, (size_t)payload_len) < 0)
                     {
                         return RADIO_REQUEST_ERROR;
                     }
@@ -608,7 +623,7 @@ static void radio_sim_release_uplink(radio_sim_state_t* state, uint64_t tick_tim
 */
 static void radio_sim_release_downlink(radio_sim_state_t* state, uint64_t tick_time_ns)
 {
-    uint8_t packet[RADIO_MAX_PAYLOAD_SIZE];
+    uint8_t packet[RADIO_LINK_MAX_PACKET];
 
     for (;;)
     {
@@ -1162,6 +1177,8 @@ static void radio_component_backdoor(component_state_t *component_state, uint16_
     if (!s) return;
     radio_link_t *rl = &s->link;
     int accepted = 0;
+    uint8_t replay[RADIO_LINK_MAX_PACKET];
+    uint32_t replay_downlink_len = 0;
 
     pthread_mutex_lock(&s->buffer_mutex);
     if (n && !p) goto finish;
@@ -1221,6 +1238,39 @@ static void radio_component_backdoor(component_state_t *component_state, uint16_
                 accepted = 1;
             }
             break;
+        case RADIO_BD_CORRUPT_PACKETS:
+            if (n == 5 && p[0] <= RADIO_LINK_DIR_BOTH)
+            {
+                for (unsigned int d = 0; d < RADIO_LINK_NUM_DIRECTIONS; d++)
+                    if (radio_dir_selected(p[0], d))
+                    {
+                        rl->corrupt_remaining[d] = (uint16_t)(((uint16_t)p[1] << 8) | p[2]);
+                        rl->corrupt_offset[d] = (uint16_t)(((uint16_t)p[3] << 8) | p[4]);
+                    }
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_REPLAY_PACKET:
+            if (n == 1 && p[0] <= RADIO_LINK_DOWN)
+            {
+                uint32_t len = radio_link_replay_copy(rl, p[0], replay);
+                if (len > 0U && p[0] == RADIO_LINK_UP)
+                {
+                    /* Re-injected like any received packet, but only if the radio could hear it. */
+                    if (s->power_gpio.value && simulith_power_ready(&s->power, s->power_time_ns) &&
+                        (s->config.Mode == RADIO_MODE_RX || s->config.Mode == RADIO_MODE_DUPLEX))
+                    {
+                        radio_sim_deliver_uplink(s, replay, len);
+                        accepted = 1;
+                    }
+                }
+                else if (len > 0U && (s->config.Mode == RADIO_MODE_TX || s->config.Mode == RADIO_MODE_DUPLEX))
+                {
+                    replay_downlink_len = len; /* transmitted once the lock is released */
+                    accepted = 1;
+                }
+            }
+            break;
         case RADIO_BD_RESET_LINK:
             if (!n)
             {
@@ -1238,6 +1288,7 @@ finish:
            "\"link_up\":%u,\"impairments\":%u,"
            "\"delay_ms\":[%llu,%llu],\"drop_ppm\":[%u,%u],"
            "\"dropped\":[%u,%u],\"out_of_view\":[%u,%u],\"overflowed\":[%u,%u],"
+           "\"corrupted\":[%u,%u],\"replayed\":[%u,%u],"
            "\"payload_hex\":\"",
            cmd, accepted, (unsigned long long)s->power_time_ns,
            (unsigned)rl->mode, (unsigned)rl->up, (unsigned)rl->impairments_enabled,
@@ -1246,10 +1297,15 @@ finish:
            rl->drop_ppm[RADIO_LINK_UP], rl->drop_ppm[RADIO_LINK_DOWN],
            rl->dropped[RADIO_LINK_UP], rl->dropped[RADIO_LINK_DOWN],
            rl->out_of_view[RADIO_LINK_UP], rl->out_of_view[RADIO_LINK_DOWN],
-           rl->overflowed[RADIO_LINK_UP], rl->overflowed[RADIO_LINK_DOWN]);
+           rl->overflowed[RADIO_LINK_UP], rl->overflowed[RADIO_LINK_DOWN],
+           rl->corrupted[RADIO_LINK_UP], rl->corrupted[RADIO_LINK_DOWN],
+           rl->replayed[RADIO_LINK_UP], rl->replayed[RADIO_LINK_DOWN]);
     if (p) for (uint16_t i = 0; i < n; i++) printf("%02x", p[i]);
     printf("\"}\n");
     pthread_mutex_unlock(&s->buffer_mutex);
+
+    if (replay_downlink_len > 0U)
+        (void)radio_sim_transmit_to_ground(s, replay, replay_downlink_len);
 }
 
 static const component_interface_t radio_sim_interface = {

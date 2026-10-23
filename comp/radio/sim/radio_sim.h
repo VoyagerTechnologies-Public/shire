@@ -38,6 +38,10 @@
 //   SET_IMPAIRMENTS_ENABLED: u8 0/1 (bypass delay + loss, keeping configured values)
 //   SET_STATION_ENABLED:     u8 station index (0xFF = all) + u8 0/1
 //   SET_SEED:                u32 loss PRNG seed
+//   CORRUPT_PACKETS:         u8 direction, u16 count, u16 byte offset: flip one bit at that offset in each of the
+//                            next count packets that cross the link (count 0 cancels)
+//   REPLAY_PACKET:           u8 direction (0 or 1): re-inject the last packet that crossed the link, bypassing
+//                            visibility, delay and loss
 //   RESET_LINK:              no payload; restore configured link defaults
 #define RADIO_BD_SET_LINK_MODE           1U
 #define RADIO_BD_SET_DELAY               2U
@@ -46,6 +50,8 @@
 #define RADIO_BD_SET_STATION_ENABLED     5U
 #define RADIO_BD_SET_SEED                6U
 #define RADIO_BD_RESET_LINK              7U
+#define RADIO_BD_CORRUPT_PACKETS         8U
+#define RADIO_BD_REPLAY_PACKET           9U
 
 #define RADIO_BD_ALL_STATIONS 0xFFU
 

@@ -36,7 +36,8 @@ import yaml
 import requests
 
 from shire_provenance import ROOT, run, git_head_sha
-from shire_runner_lib import container_names, run_streaming, try_parse_marker, resolve_component_configs
+from shire_runner_lib import (container_names, run_streaming, try_parse_marker, resolve_component_configs,
+                              evaluate_log_assertions)
 from shire_eps_stacks import write_stacks
 from shire_eps_analysis import event_gate
 from shire_archive_check import coverage as archive_coverage
@@ -688,6 +689,20 @@ def execute_scenario(args, mission, spacecraft, result, report_dir, *, runtime=N
                           f"stack {first['stack']!r} step {first['index']} "
                           f"({first['type']} {first.get('name')}): "
                           f"{first.get('detail') or first.get('actual')}")
+        try:
+            log_results = evaluate_log_assertions(scenario_cfg.get("log_assertions"), logs)
+        except ValueError as exc:
+            log_results = []
+            passed, reason = False, f"invalid log_assertions: {exc}"
+        if log_results:
+            result["log_assertions"] = log_results
+            failed_logs = [item for item in log_results if not item["passed"]]
+            if failed_logs and passed:
+                first = failed_logs[0]
+                passed = False
+                reason = (f"log assertion failed: {first['container']} log matched {first['pattern']!r} "
+                          f"{first['count']} time(s), expected min {first['min']}"
+                          + (f", max {first['max']}" if first['max'] is not None else ""))
         if scenario_cfg.get('eps_validation'):
             if director_terminal and any(director_terminal.get(key,0) for key in ('component_service_errors','component_phase_errors','telemetry_errors','fortytwo_errors')):
                 passed=False;reason='director reported infrastructure errors'

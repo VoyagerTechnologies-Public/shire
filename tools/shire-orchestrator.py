@@ -14,6 +14,7 @@ import yaml
 from shire_provenance import ROOT, git_head_sha
 from shire_eps_config import normalize_eps, merge_component_config
 from shire_radio_config import normalize_radio
+from shire_runner_lib import resolve_component_configs
 from shire_eps_stacks import write_stacks, write_xtce
 from shire_board_config import DEFAULT_PROFILE
 
@@ -195,6 +196,15 @@ def main():
         yaml.safe_dump(merged, f)
     print(f"[orchestrator] Merged config written to {BUILD_PATH}")
 
+    # The ground-side settings the compose file needs (such as radio link security) come from the resolved
+    # component configs. Under --compose-only the component loop below does not run, so resolve them without
+    # rendering anything; the result matches the loop's, which test_shire_orchestrator.py asserts.
+    resolved_components = {}
+    if args.compose_only and spacecraft and merged["spacecraft_cfg"]:
+        resolved_components = resolve_component_configs(
+            merged["global"], merged["mission_cfg"], merged["spacecraft_cfg"], merged["scenario_cfg"], ic_cfg,
+            cli_debug=args.cli_debug, cli_component=cli_component)
+
     # Render config files for components. Skipped under --compose-only:
     # this writes comp/<name>/shared/device_cfg.h, which a Monte Carlo
     # campaign trial reusing an already-built image must NOT touch (that
@@ -323,7 +333,8 @@ def main():
         template = env.get_template(lab_template_file)
         output = template.render(log_mode=log_mode, spacecraft=spacecraft, mission=mission, fsw_dir=fsw_dir,
                                  gsw_dir=gsw_dir, instance=instance, port_offset=port_offset,
-                                 image_tag=merged["image_tag"], trace_dir=trace_dir)
+                                 image_tag=merged["image_tag"], trace_dir=trace_dir,
+                                 radio_cfg=resolved_components.get("radio", {}))
         with open(lab_compose_output_path, "w") as f:
             f.write(output)
         print(f"[orchestrator] shire-compose.yaml written to {lab_compose_output_path} "

@@ -24,3 +24,7 @@ radio:
   link_seed: 1             # seed for the (deterministic) packet-loss generator
   link_queue_depth: 64     # packets that can be in flight per direction
   # ground_stations: [names from cfg/drm/ground_stations.yaml]; omitted = all Earth stations
+  # SDLS link security (CryptoLib): AES-256-GCM encrypt + authenticate. The ground CryptoLib container and
+  # the flight radio app are both configured from these, so they always agree.
+  uplink_encryption: true    # telecommands (radio RX)
+  downlink_encryption: true  # telemetry (radio TX)

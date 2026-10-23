@@ -112,7 +112,7 @@ The current `cfg/shire_defs/targets.cmake` still compiles all four reference com
 The DRM scenarios include `nominal`, `debug`, `checkout`, `eclipse-entry-adcs`,
 `eclipse-exit-adcs`, `adcs-gps-time-sync`, `adcs-boot-config`,
 `adcs-sunpoint-rotisserie`, `adcs-truth-verification`, `adcs-target-track`,
-`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, `eps-backdoor-testing`, and `radio-link-testing`.
+`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, `eps-backdoor-testing`, `radio-link-testing`, and `radio-security-testing`.
 `nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
 `eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
 Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.

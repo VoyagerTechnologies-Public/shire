@@ -138,10 +138,33 @@ Payload integers are big-endian.
 | 5 | `SET_STATION_ENABLED` | station index (255 for all), 0 or 1 |
 | 6 | `SET_SEED` | loss generator seed (u32) |
 | 7 | `RESET_LINK` | none; restores the configured defaults and discards packets in flight |
+| 8 | `CORRUPT_PACKETS` | direction (0 uplink, 1 downlink, 2 both), count (u16, 0 cancels), byte offset (u16); flips one bit at that offset in each of the next count packets that cross the link |
+| 9 | `REPLAY_PACKET` | direction (0 uplink, 1 downlink); re-injects the last packet that crossed the link, bypassing visibility, delay and loss |
 
 Each command prints a parseable `RADIO_BACKDOOR {...}` line with the resulting link settings and drop counters.
 Malformed or out-of-range commands are rejected and leave the link unchanged.
 Link settings survive a radio power cycle; packets in flight do not.
 
 Commands that must reach the spacecraft while the link is impaired should use the debug uplink; the `radio-link-testing` scenario's `RadioLinkBackdoor.ycs` stack does this.
+
+#### Link security
+Both directions of the radio path are protected by CCSDS SDLS using CryptoLib, which runs at both ends: the ground `shire-cryptolib` container applies security to commands and processes telemetry, and the flight radio app does the reverse.
+By default both directions are encrypted and authenticated with AES-256-GCM:
+
+| Direction | Radio view | Virtual channel | Security association |
+| --- | --- | --- | --- |
+| Uplink (telecommand) | RX | TC VCID 0 | SPI 4 (SPI 1 is the clear-mode alternative) |
+| Downlink (telemetry) | TX | TM VCID 1 | SPI 6 (SPI 5 is the clear-mode alternative) |
+
+`uplink_encryption` and `downlink_encryption` in `support/device_config.yaml` (both default `true`) select clear or encrypted mode per direction.
+They are compiled into the radio app's `device_cfg.h` and passed to the ground CryptoLib container as `SHIRE_UPLINK_ENCRYPTION` and `SHIRE_DOWNLINK_ENCRYPTION`, so the two ends always agree.
+Both ends call `Crypto_Shire_Configure_Link_Security()` from `comp/cryptolib/include/crypto_shire.h` after `Crypto_SC_Init()`.
+
+The keys are CryptoLib's built-in in-memory test keys, the same on both ends.
+This protects a simulation, not a real link.
+Replays are rejected by the SDLS anti-replay window, which is set to 65535 frames so that a pass worth of lost frames (radio drops or loss of signal) does not desynchronize the receiver.
+Each end tracks its own IV, so restart the ground CryptoLib and the flight software together, as the mission Compose file does.
+
+The `CORRUPT_PACKETS` and `REPLAY_PACKET` backdoors exist to exercise this protection.
+The `radio-security-testing` scenario shows tampered and replayed commands rejected onboard, and tampered and replayed telemetry rejected by the ground CryptoLib.
 

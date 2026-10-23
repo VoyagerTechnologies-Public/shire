@@ -20,7 +20,7 @@ def prepare_repository(temporary, scenario=None):
     (root / "tools").mkdir()
     shutil.copytree(ROOT / "comp/eps/support", root / "comp/eps/support")
     shutil.copytree(ROOT / "comp/eps/gsw", root / "comp/eps/gsw")
-    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_radio_config.py", "shire_eps_stacks.py",
+    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_radio_config.py", "shire_runner_lib.py", "shire_eps_stacks.py",
                  "shire_board_config.py"):
         shutil.copy2(ROOT / "tools" / name, root / "tools" / name)
     if scenario:
@@ -80,7 +80,7 @@ class ConfigurationPathsTests(unittest.TestCase):
             scenario = root / 'cfg/drm/scenarios/radio-link-testing.yaml'
             settings = yaml.safe_load(scenario.read_text())
             settings['radio'].update(link_mode='auto', uplink_delay_ms=1500, downlink_drop_ppm=20000,
-                                     ground_stations=['VOYG Denver, CO'])
+                                     ground_stations=['VOYG Denver, CO'], uplink_encryption=False)
             scenario.write_text(yaml.safe_dump(settings))
             result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py')],
                                     cwd=root, capture_output=True, text=True)
@@ -92,9 +92,33 @@ class ConfigurationPathsTests(unittest.TestCase):
             self.assertRegex(header, r'RADIO_CFG_NUM_GROUND_STATIONS\s+1\b')
             self.assertIn('{ 39.751000000, -104.995000000, 5.000, 1 }', header)
             self.assertNotIn('San Diego', header)
+            # The flight app (compiled header) and the ground CryptoLib (compose environment) must agree.
+            self.assertRegex(header, r'RADIO_CFG_UPLINK_ENCRYPTION\s+0\b')
+            self.assertRegex(header, r'RADIO_CFG_DOWNLINK_ENCRYPTION\s+1\b')
+            compose = yaml.safe_load((root / 'build/drm/shire-compose.yaml').read_text())
+            self.assertEqual(sorted(compose['services']['shire-cryptolib']['environment']),
+                             ['SHIRE_DOWNLINK_ENCRYPTION=1', 'SHIRE_UPLINK_ENCRYPTION=0'])
             snapshot = yaml.safe_load((root / 'build/drm/scenario/radio-link-testing.snapshot.yaml').read_text())
             self.assertEqual([s['name'] for s in snapshot['resolved_components']['radio']['ground_stations']],
                              ['VOYG Denver, CO'])
+
+    def test_compose_only_still_passes_link_security_to_the_ground_cryptolib(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = prepare_repository(temporary, 'radio-link-testing')
+            for name in ('adcs', 'demo', 'radio'):
+                shutil.copytree(ROOT / f'comp/{name}/support', root / f'comp/{name}/support')
+            scenario = root / 'cfg/drm/scenarios/radio-link-testing.yaml'
+            settings = yaml.safe_load(scenario.read_text())
+            settings['radio'].update(downlink_encryption=False)
+            scenario.write_text(yaml.safe_dump(settings))
+            result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py'), '--compose-only'],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            compose = yaml.safe_load((root / 'build/drm/shire-compose.yaml').read_text())
+            self.assertEqual(sorted(compose['services']['shire-cryptolib']['environment']),
+                             ['SHIRE_DOWNLINK_ENCRYPTION=0', 'SHIRE_UPLINK_ENCRYPTION=1'])
+            # Compose-only must not render the device header an already-built image was baked from.
+            self.assertFalse((root / 'comp/radio/shared/device_cfg.h').exists())
 
     def test_unknown_radio_ground_station_fails_configuration(self):
         with tempfile.TemporaryDirectory() as temporary:

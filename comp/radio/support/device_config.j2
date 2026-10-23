@@ -25,6 +25,8 @@
 #define RADIO_CFG_LINK_DOWNLINK_DROP_PPM    {{ config.downlink_drop_ppm }}
 #define RADIO_CFG_LINK_SEED                 {{ config.link_seed }}U
 #define RADIO_CFG_LINK_QUEUE_DEPTH          {{ config.link_queue_depth }}
+#define RADIO_CFG_UPLINK_ENCRYPTION         {{ 1 if config.uplink_encryption else 0 }}
+#define RADIO_CFG_DOWNLINK_ENCRYPTION       {{ 1 if config.downlink_encryption else 0 }}
 #define RADIO_CFG_NUM_GROUND_STATIONS       {{ config.ground_stations | length }}
 /* Rows are {lat_deg, lon_deg, min_elev_deg, enabled}; a placeholder row keeps the table non-empty. */
 #define RADIO_CFG_GROUND_STATIONS { \

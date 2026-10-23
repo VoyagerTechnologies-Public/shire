@@ -65,6 +65,10 @@ A scenario can set `link_mode`, per-direction `uplink_delay_ms` / `downlink_dela
 `tools/shire-orchestrator.py` validates these, resolves the station list, and renders them into the Radio simulator's `device_cfg.h`, so re-run `make cfg` after changing them.
 The backdoor can change the same settings while a simulation runs.
 
+The Radio also resolves `uplink_encryption` and `downlink_encryption`, both `true` by default.
+The orchestrator renders them into the Radio's `device_cfg.h` for the flight app and into the `shire-cryptolib` service environment in `shire-compose.yaml` for the ground, so both ends of the link are always configured from the same resolved values.
+Changing either one needs `make cfg` and a rebuild of the flight software.
+
 ## Generate configuration
 
 From the repository root:

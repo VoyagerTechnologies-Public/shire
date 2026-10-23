@@ -88,6 +88,11 @@ void radio_link_reset(radio_link_t *link)
     memset(link->dropped, 0, sizeof(link->dropped));
     memset(link->out_of_view, 0, sizeof(link->out_of_view));
     memset(link->overflowed, 0, sizeof(link->overflowed));
+    memset(link->corrupt_remaining, 0, sizeof(link->corrupt_remaining));
+    memset(link->corrupt_offset, 0, sizeof(link->corrupt_offset));
+    memset(link->corrupted, 0, sizeof(link->corrupted));
+    memset(link->replayed, 0, sizeof(link->replayed));
+    memset(link->last_len, 0, sizeof(link->last_len));
 
     /* Auto starts down until the first geometry update says otherwise. */
     link->up = 0;
@@ -183,4 +188,29 @@ void radio_link_pop(radio_link_t *link, unsigned int dir)
     q->items[q->head].data = NULL;
     q->head = (q->head + 1U) % RADIO_CFG_LINK_QUEUE_DEPTH;
     q->count--;
+}
+
+void radio_link_remember(radio_link_t *link, unsigned int dir, const uint8_t *data, uint32_t len)
+{
+    if (len == 0U || len > RADIO_LINK_MAX_PACKET) return;
+    memcpy(link->last[dir], data, len);
+    link->last_len[dir] = len;
+}
+
+bool radio_link_corrupt(radio_link_t *link, unsigned int dir, uint8_t *data, uint32_t len)
+{
+    if (link->corrupt_remaining[dir] == 0U || link->corrupt_offset[dir] >= len) return false;
+    data[link->corrupt_offset[dir]] ^= 0x01U;
+    link->corrupt_remaining[dir]--;
+    link->corrupted[dir]++;
+    return true;
+}
+
+uint32_t radio_link_replay_copy(radio_link_t *link, unsigned int dir, uint8_t *out)
+{
+    uint32_t len = link->last_len[dir];
+    if (len == 0U) return 0U;
+    memcpy(out, link->last[dir], len);
+    link->replayed[dir]++;
+    return len;
 }

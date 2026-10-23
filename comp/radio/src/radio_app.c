@@ -238,6 +238,20 @@ int32 RADIO_AppInit(void)
                           "RADIO: Crypto_SC_Init failed, status=%d", (int)status);
         /* Non-fatal: uplink processing will fail but downlink/HK still work */
     }
+    else
+    {
+        /* Select clear or encrypted SAs for each direction. This must precede TM_SDLP_InitChannel below, which
+         * reserves room for the operational SA's security header and trailer. The ground CryptoLib is
+         * configured from the same radio settings. */
+        status = Crypto_Shire_Configure_Link_Security(CRYPTO_SHIRE_END_FLIGHT, RADIO_CFG_UPLINK_ENCRYPTION,
+                                                      RADIO_CFG_DOWNLINK_ENCRYPTION);
+        if (status != CRYPTO_LIB_SUCCESS)
+        {
+            CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
+                              "RADIO: Link security configuration failed, status=%d", (int)status);
+            /* Non-fatal: frames will be secured with whatever SAs CryptoLib defaulted to */
+        }
+    }
 
     /* Initialize TM SDLP channel */
     radio_global_cfg.scId = 0x0003; /* Spacecraft ID */

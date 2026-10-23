@@ -1344,6 +1344,40 @@ void Test_RADIO_ServiceUplink_CryptoFailures(void)
     UT_ResetState(0);
 }
 
+void Test_RADIO_AppInit_LinkSecurity(void)
+{
+    extern SecurityAssociation_t UT_CRYPTO_Stub_Sas[];
+    UT_CheckEvent_t              EventTest;
+
+    /* Configured SAs: encryption (or clear) selected per direction by the radio settings.
+     * SPI 4/1 are the uplink secure/clear SAs, SPI 6/5 the downlink secure/clear SAs. */
+    memset(UT_CRYPTO_Stub_Sas, 0, sizeof(SecurityAssociation_t) * 16);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Link security configuration failed, status=%d");
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 0, "RADIO: no link security failure event (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True((UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TC_SECURE_SPI].sa_state == SA_OPERATIONAL) ==
+                      (RADIO_CFG_UPLINK_ENCRYPTION != 0),
+                  "RADIO: uplink secure SA follows uplink_encryption");
+    UtAssert_True((UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TC_CLEAR_SPI].sa_state == SA_OPERATIONAL) ==
+                      (RADIO_CFG_UPLINK_ENCRYPTION == 0),
+                  "RADIO: uplink clear SA follows uplink_encryption");
+    UtAssert_True((UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TM_SECURE_SPI].sa_state == SA_OPERATIONAL) ==
+                      (RADIO_CFG_DOWNLINK_ENCRYPTION != 0),
+                  "RADIO: downlink secure SA follows downlink_encryption");
+    UtAssert_True(UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TM_SECURE_SPI].gvcid_blk.vcid == CRYPTO_SHIRE_TM_VCID,
+                  "RADIO: downlink secure SA is on the TM virtual channel");
+
+    /* Without an SA database the failure is reported but is not fatal. */
+    extern bool UT_CRYPTO_Enable_Stubs;
+    UT_CRYPTO_Enable_Stubs = false;
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Link security configuration failed, status=%d");
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 1, "RADIO: link security failure event generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UT_CRYPTO_Enable_Stubs = true;
+}
+
 void Test_RADIO_ServiceDownlink_NoSA(void)
 {
     /* Simulate missing SecurityAssociation lookup for TM frame */
@@ -1510,6 +1544,7 @@ void UtTest_Setup(void)
     ADD_TEST(RADIO_AppMain);
     ADD_TEST(RADIO_AppInit);
     ADD_TEST(RADIO_AppInit_SubscriptionTable);
+    ADD_TEST(RADIO_AppInit_LinkSecurity);
     ADD_TEST(RADIO_ProcessCommandPacket);
     ADD_TEST(RADIO_ProcessGroundCommand);
     ADD_TEST(RADIO_ProcessGroundCommand_Service);

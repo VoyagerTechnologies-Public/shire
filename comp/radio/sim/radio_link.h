@@ -68,6 +68,9 @@ typedef enum
 
 #define RADIO_LINK_PPM_SCALE 1000000U
 
+/* Largest packet the link remembers for replay: a UDP datagram from the ground (the radio reads up to 8192). */
+#define RADIO_LINK_MAX_PACKET 8192U
+
 typedef struct
 {
     double lat_deg;
@@ -114,6 +117,14 @@ typedef struct
     uint32_t dropped[RADIO_LINK_NUM_DIRECTIONS];      /* lost to random loss */
     uint32_t out_of_view[RADIO_LINK_NUM_DIRECTIONS];  /* lost because link was down */
     uint32_t overflowed[RADIO_LINK_NUM_DIRECTIONS];   /* lost because delay queue was full */
+
+    /* Test-only tampering: damage the next packets, or re-inject the last good one. */
+    uint16_t corrupt_remaining[RADIO_LINK_NUM_DIRECTIONS];
+    uint16_t corrupt_offset[RADIO_LINK_NUM_DIRECTIONS];
+    uint32_t corrupted[RADIO_LINK_NUM_DIRECTIONS];
+    uint32_t replayed[RADIO_LINK_NUM_DIRECTIONS];
+    uint32_t last_len[RADIO_LINK_NUM_DIRECTIONS];
+    uint8_t last[RADIO_LINK_NUM_DIRECTIONS][RADIO_LINK_MAX_PACKET];
 } radio_link_t;
 
 /* Elevation (deg) of the spacecraft above a station's local horizon.
@@ -141,6 +152,17 @@ void radio_link_seed(radio_link_t *link, uint32_t seed);
 /* Decides whether a packet in direction dir (RADIO_LINK_UP/DOWN) gets through
  * right now, updating the loss counters. */
 radio_link_admit_t radio_link_admit(radio_link_t *link, unsigned int dir);
+
+/* Remembers the last packet that crossed the link in dir, for radio_link_replay_copy(). */
+void radio_link_remember(radio_link_t *link, unsigned int dir, const uint8_t *data, uint32_t len);
+
+/* Flips one bit of data[corrupt_offset] while a corrupt request is pending for dir. Returns true if the packet
+ * was damaged. Requests whose offset lies beyond the packet leave it alone and stay pending. */
+bool radio_link_corrupt(radio_link_t *link, unsigned int dir, uint8_t *data, uint32_t len);
+
+/* Copies the last packet remembered for dir into out (capacity RADIO_LINK_MAX_PACKET) and counts a replay.
+ * Returns its length, or 0 if none has crossed the link yet. */
+uint32_t radio_link_replay_copy(radio_link_t *link, unsigned int dir, uint8_t *out);
 
 /* One-way delay currently applied in dir (0 while impairments are disabled). */
 uint64_t radio_link_delay_ns(const radio_link_t *link, unsigned int dir);

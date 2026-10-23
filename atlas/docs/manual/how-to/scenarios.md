@@ -275,6 +275,26 @@ exclusively through `verify_stacks`, never ones also meant for manual GUI
 use.
 See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
 
+### Asserting on container logs (`log_assertions`)
+
+Some evidence never reaches a YAMCS parameter, such as the ground CryptoLib container rejecting a tampered telemetry frame.
+A scenario can assert on the captured container logs instead:
+
+```yaml
+# cfg/drm/scenarios/radio-security-testing.yaml
+log_assertions:
+  - container: cryptolib
+    pattern: 'Crypto_TM_ProcessSecurity Failed with status = -21$'
+    min: 1
+    max: 1
+    description: the tampered telemetry frame failed authentication, once
+```
+
+`container` is a role (`cryptolib`, `fsw`, `director`, `gsw`, `server`, or `42`), `pattern` is a regular expression matched per log line, and `min` (default 1) and `max` bound how many lines may match.
+A `max` of 0 asserts absence.
+Each result is recorded in `result["log_assertions"]` in `result.json`, and a failed assertion fails the run with a distinct reason.
+These checks run once, after the run completes, so use them for totals rather than for ordering inside a stack.
+
 `checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
 `adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,
 `adcs-target-track`) use `verify_stacks` today, the latter running

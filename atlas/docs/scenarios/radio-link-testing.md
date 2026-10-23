@@ -36,6 +36,8 @@ A packet the link loses is invisible to the flight software.
 | `/RADIO/BACKDOOR_RADIO_SET_STATION_ENABLED` | Enable or disable a station by index (255 for all) |
 | `/RADIO/BACKDOOR_RADIO_SET_SEED` | Reseed the loss generator |
 | `/RADIO/BACKDOOR_RADIO_RESET_LINK` | Restore configured defaults and discard packets in flight |
+| `/RADIO/BACKDOOR_RADIO_CORRUPT_PACKETS` | Flip one bit at a byte offset in the next N packets (see [Radio Security Testing](radio-security-testing.md)) |
+| `/RADIO/BACKDOOR_RADIO_REPLAY_PACKET` | Re-inject the last packet that crossed the link |
 
 Each accepted or rejected command prints a `RADIO_BACKDOOR {...}` line with the resulting settings and drop counters.
 AOS and LOS transitions print `RADIO_LINK {...}`.
