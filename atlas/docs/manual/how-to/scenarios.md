@@ -110,6 +110,9 @@ new plumbing.
 Ground stations referenced by name (for a pass-acquisition/loss bin) come
 from the single catalog `cfg/drm/ground_stations.yaml`, which also renders
 `Inp_Sim.txt`'s "Ground Stations" block, so the two never drift apart.
+The Radio simulator uses the same catalog (optionally narrowed by the scenario's
+`radio.ground_stations` list) to decide when the spacecraft is in view, using each
+station's optional `min_elev_deg` and `enabled` fields.
 
 ### Reproducibility
 

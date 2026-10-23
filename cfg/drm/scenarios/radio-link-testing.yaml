@@ -1,0 +1,20 @@
+scenario_name: radio-link-testing
+description: Radio simulator link control - ground station visibility, transmission delay and packet loss via backdoor
+initial_conditions: nominal-baseline
+overrides:
+  debug: false
+radio:
+  # Real ground station geometry is available via the AUTO backdoor mode; the
+  # ideal always-in-view link stays the starting state so command links work.
+  link_mode: always
+  ground_stations:
+    - "VOYG San Diego, CA"
+    - "VOYG Denver, CO"
+run_duration_s: 600
+simulith_speed: 2
+verify_stacks:
+- stack: comp/radio/gsw/procedures/RadioLinkBackdoor.ycs
+  at_s: 0
+accelerate_after_verification: true
+post_verification_speed: 0
+synchronize_ground_output: true

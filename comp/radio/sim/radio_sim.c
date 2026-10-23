@@ -20,6 +20,16 @@ static uint32_t radio_sim_get_rx_buffer_count(radio_sim_state_t* state);
 static int radio_sim_write_to_rx_buffer(radio_sim_state_t* state,
                                         const uint8_t* data, uint32_t length);
 
+/* Called under buffer_mutex. Hands an uplink packet that made it across the
+ * link to the host-facing RX buffer. */
+static void radio_sim_deliver_uplink(radio_sim_state_t* state, const uint8_t* data, uint32_t length)
+{
+    radio_sim_write_to_rx_buffer(state, data, length);
+    state->bytes_received += length;
+    state->rf_received_total += (uint64_t)length;
+    radio_sim_update_interrupt(state);
+}
+
 static bool radio_sim_udp_thread_is_running(radio_sim_state_t* state)
 {
     bool running;
@@ -89,10 +99,27 @@ static void* udp_ground_thread(void* arg)
                 if (state->power_gpio.value && simulith_power_ready(&state->power, state->power_time_ns) &&
                     (state->config.Mode == RADIO_MODE_RX || state->config.Mode == RADIO_MODE_DUPLEX))
                 {
-                    radio_sim_write_to_rx_buffer(state, buffer, (uint32_t)bytes_received);
-                    state->bytes_received += (uint32_t)bytes_received;
-                    state->rf_received_total += (uint64_t)bytes_received;
-                    radio_sim_update_interrupt(state);
+                    radio_link_admit_t admit = radio_link_admit(&state->link, RADIO_LINK_UP);
+                    uint64_t delay_ns = radio_link_delay_ns(&state->link, RADIO_LINK_UP);
+
+                    if (admit != RADIO_LINK_ADMIT_OK)
+                    {
+                        #ifdef RADIO_CFG_DEBUG
+                        printf("Link %s - discarding %zd byte uplink packet\n",
+                               admit == RADIO_LINK_ADMIT_DROPPED ? "dropped" : "out of view",
+                               bytes_received);
+                        #endif
+                    }
+                    else if (delay_ns > 0ULL)
+                    {
+                        radio_link_enqueue(&state->link, RADIO_LINK_UP,
+                                           state->power_time_ns + delay_ns,
+                                           buffer, (uint32_t)bytes_received);
+                    }
+                    else
+                    {
+                        radio_sim_deliver_uplink(state, buffer, (uint32_t)bytes_received);
+                    }
                 }
             }
             pthread_mutex_unlock(&state->buffer_mutex);
@@ -184,6 +211,29 @@ static int radio_sim_read_from_rx_buffer(radio_sim_state_t* state, uint8_t* data
     }
     
     return (int)to_read;
+}
+
+/*
+** Transmit one packet payload on the downlink socket and account for it.
+** Returns 0 on success, -1 on failure. Must be called without buffer_mutex held.
+*/
+static int radio_sim_transmit_to_ground(radio_sim_state_t* state, const uint8_t* data, size_t length)
+{
+    ssize_t sent = sendto(state->udp_tx_socket, data, length, 0,
+                          (struct sockaddr*)&state->ground_tx_addr,
+                          (socklen_t)sizeof(state->ground_tx_addr));
+    if (sent <= 0)
+    {
+        printf("Failed to send to ground station: %s\n", strerror(errno));
+        return -1;
+    }
+
+    pthread_mutex_lock(&state->buffer_mutex);
+    state->bytes_sent += (uint32_t)sent;
+    state->rf_sent_total += (uint64_t)sent;
+    state->hk.BytesSent += (uint32_t)sent;
+    pthread_mutex_unlock(&state->buffer_mutex);
+    return 0;
 }
 
 /*
@@ -459,23 +509,35 @@ static radio_request_result_t radio_sim_handle_spi_command(
                 /* Forward to ground if in TX/DUPLEX */
                 if (mode == RADIO_MODE_TX || mode == RADIO_MODE_DUPLEX)
                 {
+                    radio_link_admit_t admit;
+                    uint64_t delay_ns;
+
                     pthread_mutex_lock(&state->buffer_mutex);
                     state->hk.CommandCounter++;
-                    pthread_mutex_unlock(&state->buffer_mutex);
-                    /* Payload begins at data[4] (protocol: header[0], cmd[1], len_hi[2], len_lo[3], payload[4..]) */
-                    ssize_t sent = sendto(state->udp_tx_socket, &data[4], payload_len, 0,
-                                         (struct sockaddr*)&state->ground_tx_addr, (socklen_t)sizeof(state->ground_tx_addr));
-                    if (sent > 0)
+                    admit = radio_link_admit(&state->link, RADIO_LINK_DOWN);
+                    delay_ns = radio_link_delay_ns(&state->link, RADIO_LINK_DOWN);
+                    if (admit == RADIO_LINK_ADMIT_OK && delay_ns > 0ULL)
                     {
-                        pthread_mutex_lock(&state->buffer_mutex);
-                        state->bytes_sent += (uint32_t)sent;
-                        state->rf_sent_total += (uint64_t)sent;
-                        state->hk.BytesSent += (uint32_t)sent;
-                        pthread_mutex_unlock(&state->buffer_mutex);
+                        /* Payload begins at data[4] (protocol: header[0], cmd[1], len_hi[2], len_lo[3]).
+                         * Transmitted (and counted) when the delay elapses in on_tick. */
+                        radio_link_enqueue(&state->link, RADIO_LINK_DOWN,
+                                           state->power_time_ns + delay_ns,
+                                           &data[4], (uint32_t)payload_len);
                     }
-                    else
+                    pthread_mutex_unlock(&state->buffer_mutex);
+
+                    if (admit != RADIO_LINK_ADMIT_OK)
                     {
-                        printf("Failed to send to ground station: %s\n", strerror(errno));
+                        /* RF loss is invisible to the host: the transmit still "succeeds". */
+                        #ifdef RADIO_CFG_DEBUG
+                        printf("Link %s - discarding %d byte downlink packet\n",
+                               admit == RADIO_LINK_ADMIT_DROPPED ? "dropped" : "out of view",
+                               payload_len);
+                        #endif
+                    }
+                    else if (delay_ns == 0ULL &&
+                             radio_sim_transmit_to_ground(state, &data[4], (size_t)payload_len) < 0)
+                    {
                         return RADIO_REQUEST_ERROR;
                     }
                 }
@@ -500,19 +562,90 @@ static radio_request_result_t radio_sim_handle_spi_command(
 }
 
 /*
+** Recompute ground visibility and publish it as the HK ground-lock flag.
+** Called under buffer_mutex.
+*/
+static void radio_sim_update_link(radio_sim_state_t* state,
+                                  const simulith_42_context_t* context_42,
+                                  uint64_t tick_time_ns)
+{
+    bool have_geometry = context_42 && context_42->valid;
+    bool changed = radio_link_update(&state->link,
+                                     have_geometry ? context_42->pos_n : NULL,
+                                     have_geometry ? context_42->cwn : NULL);
+
+    state->hk.GroundLock = state->link.up;
+    if (changed)
+    {
+        printf("RADIO_LINK {\"event\":\"%s\",\"time_ns\":%llu}\n",
+               state->link.up ? "AOS" : "LOS", (unsigned long long)tick_time_ns);
+    }
+}
+
+/*
+** Deliver delayed uplink packets whose time has come. Called under buffer_mutex.
+** A radio that was powered down or taken out of RX in the meantime loses them,
+** exactly as it would lose a packet arriving at that moment.
+*/
+static void radio_sim_release_uplink(radio_sim_state_t* state, uint64_t tick_time_ns)
+{
+    const radio_link_packet_t* packet;
+
+    while ((packet = radio_link_peek_due(&state->link, RADIO_LINK_UP, tick_time_ns)) != NULL)
+    {
+        if (state->power_gpio.value && simulith_power_ready(&state->power, state->power_time_ns) &&
+            (state->config.Mode == RADIO_MODE_RX || state->config.Mode == RADIO_MODE_DUPLEX))
+        {
+            radio_sim_deliver_uplink(state, packet->data, packet->len);
+        }
+        radio_link_pop(&state->link, RADIO_LINK_UP);
+    }
+}
+
+/*
+** Transmit delayed downlink packets whose time has come. Called without
+** buffer_mutex; each packet is copied out so the socket call is unlocked.
+*/
+static void radio_sim_release_downlink(radio_sim_state_t* state, uint64_t tick_time_ns)
+{
+    uint8_t packet[RADIO_MAX_PAYLOAD_SIZE];
+
+    for (;;)
+    {
+        uint32_t length = 0;
+        const radio_link_packet_t* due;
+
+        pthread_mutex_lock(&state->buffer_mutex);
+        due = radio_link_peek_due(&state->link, RADIO_LINK_DOWN, tick_time_ns);
+        if (due && due->len <= sizeof(packet))
+        {
+            length = due->len;
+            memcpy(packet, due->data, length);
+        }
+        if (due) radio_link_pop(&state->link, RADIO_LINK_DOWN);
+        pthread_mutex_unlock(&state->buffer_mutex);
+
+        if (!due) break;
+        if (length > 0) (void)radio_sim_transmit_to_ground(state, packet, length);
+    }
+}
+
+/*
 ** Main tick function called by simulith
 */
 static int radio_sim_component_on_tick(component_state_t* component_state,
                                        uint64_t tick_time_ns,
                                        const simulith_42_context_t* context_42)
 {
-    (void)context_42;
     radio_sim_state_t *state = (radio_sim_state_t *)component_state;
     if (!state) return COMPONENT_ERROR;
     
     pthread_mutex_lock(&state->buffer_mutex);
     state->power_time_ns = tick_time_ns;
+    radio_sim_update_link(state, context_42, tick_time_ns);
+    radio_sim_release_uplink(state, tick_time_ns);
     pthread_mutex_unlock(&state->buffer_mutex);
+    radio_sim_release_downlink(state, tick_time_ns);
 
     // Increment tick counter for rate limiting
     state->tick_counter++;
@@ -845,9 +978,10 @@ int radio_sim_init(radio_sim_state_t* state)
     // Initialize default values
     state->hk.CommandCounter = 0;
     state->hk.Mode = RADIO_MODE_DUPLEX;
-    state->hk.GroundLock = 0;
+    state->hk.GroundLock = 0;  /* published from link state on the first tick */
 
     state->config.Mode = RADIO_MODE_DUPLEX;
+    radio_link_reset(&state->link);
     
     state->interrupt_asserted = 0;
     state->next_interrupt_update_ns = RADIO_INTERRUPT_UPDATE_PERIOD_NS;
@@ -911,6 +1045,7 @@ void radio_sim_cleanup(radio_sim_state_t* state)
     simulith_transport_close(&state->power_gpio_device);
     simulith_transport_close(&state->spi_device);
     
+    radio_link_clear_queues(&state->link);
     pthread_mutex_destroy(&state->buffer_mutex);
 }
 
@@ -954,6 +1089,9 @@ static void radio_power_reset(radio_sim_state_t *s)
     s->tx_buffer_head = s->tx_buffer_tail = 0;
     s->interrupt_asserted = 0; s->interrupt_gpio.value = 0;
     s->bytes_received = s->bytes_sent = 0;
+    /* Packets still in flight are lost with the power cycle; the link
+     * settings are test configuration and deliberately survive it. */
+    radio_link_clear_queues(&s->link);
 }
 
 static int radio_power_configure(component_state_t *state, const simulith_power_load_config_t *config)
@@ -1002,6 +1140,118 @@ static int radio_power_snapshot(component_state_t *state, uint64_t ns, simulith_
     return COMPONENT_SUCCESS;
 }
 
+static uint32_t radio_read_u32(const uint8_t *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+/* True if a backdoor direction selector (UP/DOWN/BOTH) covers direction d. */
+static bool radio_dir_selected(uint8_t dir, unsigned int d)
+{
+    return dir == RADIO_LINK_DIR_BOTH || dir == d;
+}
+
+/*
+** Backdoor: test-only control of the RF link. Runs in the director's COMMIT
+** phase; the UDP thread still shares link state, so take buffer_mutex.
+*/
+static void radio_component_backdoor(component_state_t *component_state, uint16_t cmd,
+                                     const uint8_t *p, uint16_t n)
+{
+    radio_sim_state_t *s = (radio_sim_state_t *)component_state;
+    if (!s) return;
+    radio_link_t *rl = &s->link;
+    int accepted = 0;
+
+    pthread_mutex_lock(&s->buffer_mutex);
+    if (n && !p) goto finish;
+    switch (cmd)
+    {
+        case RADIO_BD_SET_LINK_MODE:
+            if (n == 1 && p[0] <= RADIO_LINK_MODE_NEVER)
+            {
+                rl->mode = (radio_link_mode_t)p[0];
+                /* ALWAYS/NEVER take effect immediately; AUTO waits for the next tick's geometry. */
+                if (radio_link_update(rl, NULL, NULL))
+                    printf("RADIO_LINK {\"event\":\"%s\",\"time_ns\":%llu}\n",
+                           rl->up ? "AOS" : "LOS", (unsigned long long)s->power_time_ns);
+                s->hk.GroundLock = rl->up;
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_SET_DELAY:
+            if (n == 5 && p[0] <= RADIO_LINK_DIR_BOTH)
+            {
+                for (unsigned int d = 0; d < RADIO_LINK_NUM_DIRECTIONS; d++)
+                    if (radio_dir_selected(p[0], d))
+                        rl->delay_ns[d] = (uint64_t)radio_read_u32(p + 1) * 1000000ULL;
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_SET_DROP_RATE:
+            if (n == 5 && p[0] <= RADIO_LINK_DIR_BOTH && radio_read_u32(p + 1) <= RADIO_LINK_PPM_SCALE)
+            {
+                for (unsigned int d = 0; d < RADIO_LINK_NUM_DIRECTIONS; d++)
+                    if (radio_dir_selected(p[0], d))
+                        rl->drop_ppm[d] = radio_read_u32(p + 1);
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_SET_IMPAIRMENTS_ENABLED:
+            if (n == 1 && p[0] <= 1)
+            {
+                rl->impairments_enabled = p[0];
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_SET_STATION_ENABLED:
+            if (n == 2 && p[1] <= 1 &&
+                (p[0] == RADIO_BD_ALL_STATIONS || p[0] < rl->num_stations))
+            {
+                for (uint32_t i = 0; i < rl->num_stations; i++)
+                    if (p[0] == RADIO_BD_ALL_STATIONS || p[0] == i)
+                        rl->stations[i].enabled = p[1];
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_SET_SEED:
+            if (n == 4)
+            {
+                radio_link_seed(rl, radio_read_u32(p));
+                accepted = 1;
+            }
+            break;
+        case RADIO_BD_RESET_LINK:
+            if (!n)
+            {
+                radio_link_reset(rl);
+                s->hk.GroundLock = rl->up;
+                accepted = 1;
+            }
+            break;
+        default: break;
+    }
+finish:
+    if (accepted) s->backdoor_accepted++;
+    else s->backdoor_rejected++;
+    printf("RADIO_BACKDOOR {\"id\":%u,\"accepted\":%d,\"time_ns\":%llu,\"mode\":%u,"
+           "\"link_up\":%u,\"impairments\":%u,"
+           "\"delay_ms\":[%llu,%llu],\"drop_ppm\":[%u,%u],"
+           "\"dropped\":[%u,%u],\"out_of_view\":[%u,%u],\"overflowed\":[%u,%u],"
+           "\"payload_hex\":\"",
+           cmd, accepted, (unsigned long long)s->power_time_ns,
+           (unsigned)rl->mode, (unsigned)rl->up, (unsigned)rl->impairments_enabled,
+           (unsigned long long)(rl->delay_ns[RADIO_LINK_UP] / 1000000ULL),
+           (unsigned long long)(rl->delay_ns[RADIO_LINK_DOWN] / 1000000ULL),
+           rl->drop_ppm[RADIO_LINK_UP], rl->drop_ppm[RADIO_LINK_DOWN],
+           rl->dropped[RADIO_LINK_UP], rl->dropped[RADIO_LINK_DOWN],
+           rl->out_of_view[RADIO_LINK_UP], rl->out_of_view[RADIO_LINK_DOWN],
+           rl->overflowed[RADIO_LINK_UP], rl->overflowed[RADIO_LINK_DOWN]);
+    if (p) for (uint16_t i = 0; i < n; i++) printf("%02x", p[i]);
+    printf("\"}\n");
+    pthread_mutex_unlock(&s->buffer_mutex);
+}
+
 static const component_interface_t radio_sim_interface = {
     .api_version = SIMULITH_COMPONENT_API_VERSION,
     .struct_size = sizeof(component_interface_t),
@@ -1013,7 +1263,7 @@ static const component_interface_t radio_sim_interface = {
     .service = radio_sim_component_service,
     .actuate = NULL,
     .destroy = radio_sim_component_destroy,
-    .backdoor = NULL,
+    .backdoor = radio_component_backdoor,
     .power_configure = radio_power_configure,
     .power_set = radio_power_set,
     .power_reset = radio_power_reset_component,

@@ -54,6 +54,7 @@ add_test(NAME RadioSimTests COMMAND test_radio_sim)
 add_executable(test_radio_sim_failures
     test_radio_sim_failures.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../sim/radio_sim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../sim/radio_link.c
     ${UNITY_SRC}
 )
 
@@ -77,3 +78,18 @@ target_link_options(test_radio_sim_failures PRIVATE
     -Wl,--wrap=recv
 )
 add_test(NAME RadioSimFailureTests COMMAND test_radio_sim_failures)
+
+# Pure link-model tests (visibility geometry, loss PRNG, delay queue).
+add_executable(test_radio_link
+    test_radio_link.c
+    ${UNITY_SRC}
+)
+
+target_include_directories(test_radio_link PRIVATE
+    ${UNITY_INC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../sim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+)
+
+target_link_libraries(test_radio_link PRIVATE m)
+add_test(NAME RadioLinkTests COMMAND test_radio_link)

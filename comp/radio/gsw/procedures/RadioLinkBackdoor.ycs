@@ -1,0 +1,240 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Before running in Yamcs Links: enable debug-in and sim-backdoor. Keep the simulation playing. This stack selects debug-out and keeps radio-out disabled, so these checks do not depend on the radio link they are impairing. The radio's ground lock flag follows the simulated link visibility.",
+      "comment": "Before running in Yamcs Links: enable debug-in and sim-backdoor. Keep the simulation playing. This stack selects debug-out and keeps radio-out disabled, so these checks do not depend on the radio link they are impairing. The radio's ground lock flag follows the simulated link visibility."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "default link is in view (configured link_mode always)",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Link mode backdoors: never in view, then always in view",
+      "comment": "Link mode backdoors: never in view, then always in view"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_LINK_MODE",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "NEVER_IN_VIEW"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "link forced out of view",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_LINK_MODE",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "ALWAYS_IN_VIEW"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "link forced in view",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Delay, drop rate, impairment bypass, seed and station gating are accepted; their effect on packets is observable on the radio-in/radio-out path and in the RADIO_BACKDOOR log lines",
+      "comment": "Delay, drop rate, impairment bypass, seed and station gating are accepted; their effect on packets is observable on the radio-in/radio-out path and in the RADIO_BACKDOOR log lines"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_DELAY",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "BOTH"
+        },
+        {
+          "name": "DELAY_MS",
+          "value": "2000"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_DROP_RATE",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "DOWNLINK"
+        },
+        {
+          "name": "DROP_PPM",
+          "value": "250000"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_SEED",
+      "arguments": [
+        {
+          "name": "SEED",
+          "value": "12345"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_IMPAIRMENTS_ENABLED",
+      "arguments": [
+        {
+          "name": "ENABLED",
+          "value": "DISABLED"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_IMPAIRMENTS_ENABLED",
+      "arguments": [
+        {
+          "name": "ENABLED",
+          "value": "ENABLED"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_STATION_ENABLED",
+      "arguments": [
+        {
+          "name": "STATION",
+          "value": "0"
+        },
+        {
+          "name": "ENABLED",
+          "value": "DISABLED"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_STATION_ENABLED",
+      "arguments": [
+        {
+          "name": "STATION",
+          "value": "255"
+        },
+        {
+          "name": "ENABLED",
+          "value": "ENABLED"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "text",
+      "text": "Auto mode derives visibility from ground station geometry; return to a known state afterwards",
+      "comment": "Auto mode derives visibility from ground station geometry; return to a known state afterwards"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_LINK_MODE",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "AUTO"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_LINK_MODE",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "NEVER_IN_VIEW"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "link forced out of view again",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_RESET_LINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "reset restores the configured link (always in view)",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    }
+  ]
+}

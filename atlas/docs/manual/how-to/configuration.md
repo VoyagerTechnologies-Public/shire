@@ -60,6 +60,11 @@ The current `sat-2` nominal Radio configuration provides a concrete example:
 
 The resolved Radio settings therefore combine values from several files rather than taking one complete configuration block from a single file.
 
+The Radio RF link model follows the same layering.
+A scenario can set `link_mode`, per-direction `uplink_delay_ms` / `downlink_delay_ms` and `uplink_drop_ppm` / `downlink_drop_ppm`, `link_seed`, and a `ground_stations` list of names from `cfg/drm/ground_stations.yaml` under its `radio:` block.
+`tools/shire-orchestrator.py` validates these, resolves the station list, and renders them into the Radio simulator's `device_cfg.h`, so re-run `make cfg` after changing them.
+The backdoor can change the same settings while a simulation runs.
+
 ## Generate configuration
 
 From the repository root:

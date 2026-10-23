@@ -9,6 +9,7 @@ The radio is duplex, or able to send and receive data at the same time.
 It achieves this by buffering data on-board for the onboard computer (OBC) and signaling via the interrupt line to notify that a buffer is half full.
 The radio passes the sent and received data straight through without inspection or modification.
 The radio does not possess any direct from ground commands.
+The simulator does expose test-only backdoor commands that control its RF link (see [RF link model](#rf-link-model)).
 
 The specific command format is as follows:
 * uint8, header, 0xAA
@@ -91,3 +92,56 @@ The XTCE file provided details the CCSDS Space Packet Protocol format used for c
 The simulation available is built as a library that is loaded by the shire-director for use.
 This maintains the state of the simulation and enables communication to the FSW via simulith.
 Similar to the CLI, the `make cfg` call at the top level shire-lab is required prior to building.
+
+#### RF link model
+The simulator sits between the flight software and the ground UDP interface, and models three things that real RF links do to traffic:
+
+* **Visibility.** A packet only crosses the link while the spacecraft is "in view".
+  With `link_mode: auto` the radio computes the spacecraft's elevation above each configured ground station from the 42 truth (Earth-fixed position, spherical Earth as in 42) and the link is up when any enabled station is at or above its `min_elev_deg`.
+  `link_mode: always` and `link_mode: never` ignore geometry.
+  The HK ground-lock flag (`GroundLock`) reports the current link state; AOS and LOS transitions are logged as `RADIO_LINK {...}` lines.
+* **Delay.** Each direction has an independent one-way delay in milliseconds, measured in simulated time (so it holds at any `simulith_speed`).
+  Delayed packets keep their order; a packet still in flight when the radio loses power or the radio leaves a mode that can carry it is lost.
+* **Loss.** Each direction has an independent drop probability in parts per million, drawn from a seeded generator so a run is repeatable.
+  Packets sent while out of view are discarded and counted separately.
+
+Every ground station shares the same downlink, so stations differ only in when they can see the spacecraft.
+Lost packets are invisible to the flight software: a transmit that the link drops still completes successfully.
+
+The defaults are an ideal link (`always`, no delay, no loss), so existing scenarios are unchanged.
+Defaults live in `support/device_config.yaml` and can be overridden at any configuration layer (spacecraft, scenario, ...):
+
+| Key | Meaning |
+| --- | --- |
+| `link_mode` | `auto`, `always` or `never` |
+| `uplink_delay_ms`, `downlink_delay_ms` | one-way delay per direction |
+| `uplink_drop_ppm`, `downlink_drop_ppm` | drop probability per direction, 0 to 1000000 |
+| `link_seed` | seed for the loss generator |
+| `link_queue_depth` | packets that can be in flight per direction (overflow is dropped and counted) |
+| `ground_stations` | optional list of station names from `cfg/drm/ground_stations.yaml`; omitted means every Earth station |
+
+Stations come from the shared catalog `cfg/drm/ground_stations.yaml`, which also feeds 42.
+Its optional per-station `min_elev_deg` (default 5) and `enabled` (default true) fields only affect the radio.
+Run `make cfg` after changing any of these, since the values are compiled into the simulator.
+
+#### Backdoor commands
+The simulator target name is `radio_sim`.
+The `/RADIO/BACKDOOR_RADIO_*` commands in `gsw/radio.xtce` use the `tc_backdoor` stream (they need `/RADIO/BACKDOOR_RADIO_.*` in that stream's `tcPatterns`).
+Payload integers are big-endian.
+
+| ID | Command | Payload |
+| --- | --- | --- |
+| 1 | `SET_LINK_MODE` | mode: 0 auto, 1 always in view, 2 never in view |
+| 2 | `SET_DELAY` | direction (0 uplink, 1 downlink, 2 both), delay in ms (u32) |
+| 3 | `SET_DROP_RATE` | direction, drop probability in ppm (u32, at most 1000000) |
+| 4 | `SET_IMPAIRMENTS_ENABLED` | 0 bypasses delay and loss without forgetting their values, 1 applies them |
+| 5 | `SET_STATION_ENABLED` | station index (255 for all), 0 or 1 |
+| 6 | `SET_SEED` | loss generator seed (u32) |
+| 7 | `RESET_LINK` | none; restores the configured defaults and discards packets in flight |
+
+Each command prints a parseable `RADIO_BACKDOOR {...}` line with the resulting link settings and drop counters.
+Malformed or out-of-range commands are rejected and leave the link unchanged.
+Link settings survive a radio power cycle; packets in flight do not.
+
+Commands that must reach the spacecraft while the link is impaired should use the debug uplink; the `radio-link-testing` scenario's `RadioLinkBackdoor.ycs` stack does this.
+

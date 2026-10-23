@@ -13,6 +13,7 @@ import yaml
 
 from shire_provenance import ROOT, git_head_sha
 from shire_eps_config import normalize_eps, merge_component_config
+from shire_radio_config import normalize_radio
 from shire_eps_stacks import write_stacks, write_xtce
 from shire_board_config import DEFAULT_PROFILE
 
@@ -256,6 +257,12 @@ def main():
             if comp_name == "eps":
                 try:
                     comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
+                except ValueError as exc:
+                    fail(str(exc))
+
+            if comp_name == "radio":
+                try:
+                    comp_cfg = normalize_radio(comp_cfg, ground_stations)
                 except ValueError as exc:
                     fail(str(exc))
 

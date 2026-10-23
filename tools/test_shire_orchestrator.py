@@ -20,7 +20,7 @@ def prepare_repository(temporary, scenario=None):
     (root / "tools").mkdir()
     shutil.copytree(ROOT / "comp/eps/support", root / "comp/eps/support")
     shutil.copytree(ROOT / "comp/eps/gsw", root / "comp/eps/gsw")
-    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_eps_stacks.py",
+    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_radio_config.py", "shire_eps_stacks.py",
                  "shire_board_config.py"):
         shutil.copy2(ROOT / "tools" / name, root / "tools" / name)
     if scenario:
@@ -71,6 +71,44 @@ class ConfigurationPathsTests(unittest.TestCase):
                     cli_debug=True, cli_component=component), resolved)
                 # Changing clients must retain the mission's power topology.
                 self.assertIn({'name': 'eps'}, config['spacecraft_cfg']['components'])
+
+    def test_radio_link_scenario_renders_stations_and_link_settings_into_the_header(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = prepare_repository(temporary, 'radio-link-testing')
+            for name in ('adcs', 'demo', 'radio'):
+                shutil.copytree(ROOT / f'comp/{name}/support', root / f'comp/{name}/support')
+            scenario = root / 'cfg/drm/scenarios/radio-link-testing.yaml'
+            settings = yaml.safe_load(scenario.read_text())
+            settings['radio'].update(link_mode='auto', uplink_delay_ms=1500, downlink_drop_ppm=20000,
+                                     ground_stations=['VOYG Denver, CO'])
+            scenario.write_text(yaml.safe_dump(settings))
+            result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py')],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            header = (root / 'comp/radio/shared/device_cfg.h').read_text()
+            self.assertIn('RADIO_LINK_MODE_AUTO', header)
+            self.assertRegex(header, r'RADIO_CFG_LINK_UPLINK_DELAY_MS\s+1500\b')
+            self.assertRegex(header, r'RADIO_CFG_LINK_DOWNLINK_DROP_PPM\s+20000\b')
+            self.assertRegex(header, r'RADIO_CFG_NUM_GROUND_STATIONS\s+1\b')
+            self.assertIn('{ 39.751000000, -104.995000000, 5.000, 1 }', header)
+            self.assertNotIn('San Diego', header)
+            snapshot = yaml.safe_load((root / 'build/drm/scenario/radio-link-testing.snapshot.yaml').read_text())
+            self.assertEqual([s['name'] for s in snapshot['resolved_components']['radio']['ground_stations']],
+                             ['VOYG Denver, CO'])
+
+    def test_unknown_radio_ground_station_fails_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = prepare_repository(temporary, 'radio-link-testing')
+            for name in ('adcs', 'demo', 'radio'):
+                shutil.copytree(ROOT / f'comp/{name}/support', root / f'comp/{name}/support')
+            scenario = root / 'cfg/drm/scenarios/radio-link-testing.yaml'
+            settings = yaml.safe_load(scenario.read_text())
+            settings['radio']['ground_stations'] = ['Atlantis']
+            scenario.write_text(yaml.safe_dump(settings))
+            result = subprocess.run([sys.executable, str(root / 'tools/shire-orchestrator.py')],
+                                    cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Atlantis', result.stdout + result.stderr)
 
     def test_initial_configuration_keeps_a_previously_selected_board(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -12,3 +12,15 @@ radio:
   max_tx_msgs_per_poll: 50
   max_subscriptions: 128
   debug: true
+  # RF link model (simulator only). Defaults reproduce an ideal link; scenarios
+  # and the radio backdoor use these to impair it for testing.
+  #   link_mode: auto   -> in view when any listed ground station sees the spacecraft
+  #              always -> always in view, never -> never in view
+  link_mode: always
+  uplink_delay_ms: 0
+  downlink_delay_ms: 0
+  uplink_drop_ppm: 0       # probability of losing a packet, parts per million
+  downlink_drop_ppm: 0
+  link_seed: 1             # seed for the (deterministic) packet-loss generator
+  link_queue_depth: 64     # packets that can be in flight per direction
+  # ground_stations: [names from cfg/drm/ground_stations.yaml]; omitted = all Earth stations

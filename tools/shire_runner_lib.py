@@ -24,6 +24,7 @@ import yaml
 
 from shire_provenance import ROOT
 from shire_eps_config import normalize_eps, merge_component_config
+from shire_radio_config import normalize_radio
 
 
 def container_names(mission: str, spacecraft: str, instance: str | None = None) -> dict[str, str]:
@@ -114,6 +115,15 @@ def try_parse_marker(log: str, marker: str) -> dict[str, object] | None:
         return None
 
 
+def _load_ground_station_catalog() -> list[dict]:
+    path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "../cfg/drm/ground_stations.yaml"))
+    if not os.path.exists(path):
+        return []
+    with open(path, "r") as f:
+        return (yaml.safe_load(f) or {}).get("ground_stations", [])
+
+
 def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[str, object],
                               spacecraft_cfg: dict[str, object], scenario_cfg: dict[str, object],
                               ic_cfg: dict[str, object], *, cli_debug: bool = False,
@@ -161,6 +171,8 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
 
         if comp_name == "eps":
             comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
+        if comp_name == "radio":
+            comp_cfg = normalize_radio(comp_cfg, _load_ground_station_catalog())
         resolved[comp_name] = comp_cfg
     if scenario_cfg.get('retain_all_events'):
         resolved['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
