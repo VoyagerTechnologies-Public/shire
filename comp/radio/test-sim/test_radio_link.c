@@ -307,6 +307,15 @@ static void test_queue_allocation_failure_is_counted_as_overflow(void)
     TEST_ASSERT_TRUE(radio_link_enqueue(&g_link, RADIO_LINK_DOWN, 0, &x, 1));
 }
 
+static void test_queue_refuses_packets_larger_than_the_link_buffers(void)
+{
+    static uint8_t big[RADIO_LINK_MAX_PACKET + 1];
+    TEST_ASSERT_FALSE(radio_link_enqueue(&g_link, RADIO_LINK_DOWN, 0, big, sizeof(big)));
+    TEST_ASSERT_EQUAL_UINT32(1, g_link.overflowed[RADIO_LINK_DOWN]);
+    TEST_ASSERT_EQUAL_UINT32(0, g_link.queue[RADIO_LINK_DOWN].count);
+    TEST_ASSERT_TRUE(radio_link_enqueue(&g_link, RADIO_LINK_DOWN, 0, big, RADIO_LINK_MAX_PACKET));
+}
+
 static void test_queue_wraps_around_the_ring(void)
 {
     const uint8_t x = 5;
@@ -394,6 +403,33 @@ static void test_remember_ignores_empty_and_oversized_packets_and_reset_forgets(
     TEST_ASSERT_EQUAL_UINT32(0, g_link.replayed[RADIO_LINK_UP]);
 }
 
+static void test_update_auto_needs_both_position_and_transform_else_holds(void)
+{
+    radio_link_update(&g_link, OVER_LON_0, IDENTITY);
+    TEST_ASSERT_EQUAL_UINT8(1, g_link.up);
+
+    TEST_ASSERT_FALSE(radio_link_update(&g_link, NULL, IDENTITY));
+    TEST_ASSERT_EQUAL_UINT8(1, g_link.up);
+    TEST_ASSERT_FALSE(radio_link_update(&g_link, OVER_LON_0, NULL));
+    TEST_ASSERT_EQUAL_UINT8(1, g_link.up);
+}
+
+static void test_elevation_stays_within_plus_minus_ninety_degrees_for_collinear_geometry(void)
+{
+    /* Spacecraft exactly above, and exactly opposite, the station: the line of sight is parallel to local
+     * up, so rounding can push the cosine just outside [-1, 1] and asin() must not return NaN. */
+    for (int i = 1; i <= 400; i++)
+    {
+        double k = 0.25 + 0.0137 * i;
+        double above[3] = {k * RADIO_LINK_EARTH_RADIUS_M, 0, 0};
+        double below[3] = {-k * RADIO_LINK_EARTH_RADIUS_M, 0, 0};
+        double up_el = radio_link_elevation_deg(above, IDENTITY, 0.0, 0.0);
+        double down_el = radio_link_elevation_deg(below, IDENTITY, 0.0, 0.0);
+        TEST_ASSERT_TRUE_MESSAGE(up_el >= -90.0 && up_el <= 90.0, "overhead elevation out of range");
+        TEST_ASSERT_TRUE_MESSAGE(down_el >= -90.0 && down_el <= 90.0, "opposite elevation out of range");
+    }
+}
+
 static void test_clear_queues_keeps_settings(void)
 {
     const uint8_t x = 1;
@@ -432,12 +468,15 @@ int main(void)
     RUN_TEST(test_queue_is_head_of_line_so_order_survives_a_shortened_delay);
     RUN_TEST(test_queue_overflow_is_counted_and_directions_are_independent);
     RUN_TEST(test_queue_allocation_failure_is_counted_as_overflow);
+    RUN_TEST(test_queue_refuses_packets_larger_than_the_link_buffers);
     RUN_TEST(test_queue_wraps_around_the_ring);
     RUN_TEST(test_queue_accepts_empty_packets_and_pop_on_empty_is_safe);
     RUN_TEST(test_corrupt_flips_one_bit_in_the_requested_number_of_packets);
     RUN_TEST(test_corrupt_waits_for_a_packet_long_enough_and_directions_are_independent);
     RUN_TEST(test_replay_returns_the_last_remembered_packet);
     RUN_TEST(test_remember_ignores_empty_and_oversized_packets_and_reset_forgets);
+    RUN_TEST(test_update_auto_needs_both_position_and_transform_else_holds);
+    RUN_TEST(test_elevation_stays_within_plus_minus_ninety_degrees_for_collinear_geometry);
     RUN_TEST(test_clear_queues_keeps_settings);
     return UNITY_END();
 }

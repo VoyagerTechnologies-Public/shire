@@ -336,6 +336,99 @@ void Test_DEMO_InvalidArguments(void)
                   "DEMO_RequestData should reject a NULL device");
 }
 
+/* Stages a command exchange: the device echoes the 8 byte command, then answers with response (if any).
+ * The command byte is 1 for housekeeping and 2 for data. */
+static void StageExchange(uint8_t command, const uint8_t *response, uint32_t response_len)
+{
+    static uint8_t exchange[DEMO_DEVICE_CMD_SIZE + 64];
+    uint8_t echo[DEMO_DEVICE_CMD_SIZE] = {0xC0, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFE};
+
+    echo[3] = command;
+    memcpy(exchange, echo, sizeof(echo));
+    UT_SetDeferredRetcode(UT_KEY(uart_flush), 1, UART_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(uart_write_port), 1, DEMO_DEVICE_CMD_SIZE);
+    UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, DEMO_DEVICE_CMD_SIZE);
+    UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, DEMO_DEVICE_CMD_SIZE);
+    if (response != NULL)
+    {
+        memcpy(exchange + sizeof(echo), response, response_len);
+        UT_SetDeferredRetcode(UT_KEY(uart_bytes_available), 1, response_len);
+        UT_SetDeferredRetcode(UT_KEY(uart_read_port), 1, response_len);
+    }
+    UT_SetDataBuffer(UT_KEY(uart_read_port), exchange, sizeof(echo) + response_len, true);
+}
+
+void Test_DEMO_RequestHK_RejectsEachDamagedFramingByte(void)
+{
+    uart_info_t          device;
+    DEMO_Device_HK_tlm_t data;
+    uint8_t              good[DEMO_DEVICE_HK_SIZE];
+
+    memset(good, 0, sizeof(good));
+    good[0] = DEMO_DEVICE_HDR_0;
+    good[1] = DEMO_DEVICE_HDR_1;
+    good[DEMO_DEVICE_HK_SIZE - 2] = DEMO_DEVICE_TRAILER_0;
+    good[DEMO_DEVICE_HK_SIZE - 1] = DEMO_DEVICE_TRAILER_1;
+
+    /* The undamaged frame is the control: it is accepted. */
+    memset(&data, 0, sizeof(data));
+    StageExchange(1, good, sizeof(good));
+    UtAssert_True(DEMO_RequestHK(&device, &data) == OS_SUCCESS, "DEMO_RequestHK accepts an undamaged frame");
+    UT_ResetState(0);
+
+    /* Each of the four framing bytes is checked on its own. */
+    const uint32_t damaged[] = {0, 1, DEMO_DEVICE_HK_SIZE - 2, DEMO_DEVICE_HK_SIZE - 1};
+    for (size_t i = 0; i < sizeof(damaged) / sizeof(damaged[0]); i++)
+    {
+        uint8_t bad[DEMO_DEVICE_HK_SIZE];
+        memcpy(bad, good, sizeof(bad));
+        bad[damaged[i]] ^= 0xFF;
+        StageExchange(1, bad, sizeof(bad));
+        UtAssert_True(DEMO_RequestHK(&device, &data) == OS_ERROR, "DEMO_RequestHK rejects damaged byte %u",
+                      (unsigned int)damaged[i]);
+        UT_ResetState(0);
+    }
+
+    /* The echo is fine but the device never sends the housekeeping. */
+    StageExchange(1, NULL, 0);
+    UtAssert_True(DEMO_RequestHK(&device, &data) != OS_SUCCESS, "DEMO_RequestHK fails when the response never arrives");
+    UT_ResetState(0);
+}
+
+void Test_DEMO_RequestData_RejectsEachDamagedFramingByte(void)
+{
+    uart_info_t            device;
+    DEMO_Device_Data_tlm_t data;
+    uint8_t                good[DEMO_DEVICE_DATA_SIZE];
+
+    memset(good, 0, sizeof(good));
+    good[0] = DEMO_DEVICE_HDR_0;
+    good[1] = DEMO_DEVICE_HDR_1;
+    good[DEMO_DEVICE_DATA_SIZE - 2] = DEMO_DEVICE_TRAILER_0;
+    good[DEMO_DEVICE_DATA_SIZE - 1] = DEMO_DEVICE_TRAILER_1;
+
+    memset(&data, 0, sizeof(data));
+    StageExchange(2, good, sizeof(good));
+    UtAssert_True(DEMO_RequestData(&device, &data) == OS_SUCCESS, "DEMO_RequestData accepts an undamaged frame");
+    UT_ResetState(0);
+
+    const uint32_t damaged[] = {0, 1, DEMO_DEVICE_DATA_SIZE - 2, DEMO_DEVICE_DATA_SIZE - 1};
+    for (size_t i = 0; i < sizeof(damaged) / sizeof(damaged[0]); i++)
+    {
+        uint8_t bad[DEMO_DEVICE_DATA_SIZE];
+        memcpy(bad, good, sizeof(bad));
+        bad[damaged[i]] ^= 0xFF;
+        StageExchange(2, bad, sizeof(bad));
+        UtAssert_True(DEMO_RequestData(&device, &data) == OS_ERROR, "DEMO_RequestData rejects damaged byte %u",
+                      (unsigned int)damaged[i]);
+        UT_ResetState(0);
+    }
+
+    StageExchange(2, NULL, 0);
+    UtAssert_True(DEMO_RequestData(&device, &data) == OS_ERROR, "DEMO_RequestData fails when the response never arrives");
+    UT_ResetState(0);
+}
+
 void Test_DEMO_RequestData_Hook(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context, va_list va) {}
 
 /*
@@ -368,4 +461,6 @@ void UtTest_Setup(void)
     ADD_TEST(DEMO_ReadData_PartialRead);
     ADD_TEST(DEMO_ReadData_FinalPoll);
     ADD_TEST(DEMO_InvalidArguments);
+    ADD_TEST(DEMO_RequestHK_RejectsEachDamagedFramingByte);
+    ADD_TEST(DEMO_RequestData_RejectsEachDamagedFramingByte);
 }

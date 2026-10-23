@@ -167,7 +167,8 @@ uint32_t radio_link_replay_copy(radio_link_t *link, unsigned int dir, uint8_t *o
 /* One-way delay currently applied in dir (0 while impairments are disabled). */
 uint64_t radio_link_delay_ns(const radio_link_t *link, unsigned int dir);
 
-/* Copies the packet into the dir queue. False (and counted) if full or OOM. */
+/* Copies the packet into the dir queue. False (and counted) if full, OOM, or longer than
+ * RADIO_LINK_MAX_PACKET. */
 bool radio_link_enqueue(radio_link_t *link, unsigned int dir, uint64_t release_ns,
                         const uint8_t *data, uint32_t len);
 

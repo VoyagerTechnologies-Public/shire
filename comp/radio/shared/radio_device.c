@@ -133,8 +133,8 @@ int32_t RADIO_CommandDevice(spi_info_t *device, uint8_t cmd, uint16_t payload_le
     tx_buffer[2] = (uint8_t)((payload_len >> 8) & 0xFF); /* Payload length high byte */
     tx_buffer[3] = (uint8_t)(payload_len & 0xFF);        /* Payload length low byte */
     
-    /* Copy payload if provided */
-    if (payload_len > 0 && payload != NULL)
+    /* Copy the payload; a missing payload with a length was rejected above */
+    if (payload_len > 0)
     {
         memcpy(&tx_buffer[4], payload, payload_len);
     }

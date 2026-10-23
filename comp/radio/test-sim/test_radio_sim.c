@@ -12,6 +12,7 @@
 #include <dlfcn.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,9 @@ static int (*g_prepare_tick)(component_state_t *, uint64_t,
 
 typedef int  (*radio_init_fn)(radio_sim_state_t *);
 typedef void (*radio_cleanup_fn)(radio_sim_state_t *);
+/* Link-model functions exported by the loaded simulator, used to stage packets and tampering state. */
+static bool (*g_link_enqueue)(radio_link_t *, unsigned int, uint64_t, const uint8_t *, uint32_t) = NULL;
+static void (*g_link_remember)(radio_link_t *, unsigned int, const uint8_t *, uint32_t) = NULL;
 static radio_init_fn    g_radio_sim_init    = NULL;
 static radio_cleanup_fn g_radio_sim_cleanup = NULL;
 
@@ -2055,6 +2059,220 @@ static void test_tamper_backdoors_validate_payloads_and_reset_clears_them(void)
     finish_radio(&spi);
 }
 
+/* Queues a packet straight onto the uplink delay queue, already due, to exercise delivery conditions. */
+static void queue_due_uplink(radio_sim_state_t *rs, const uint8_t *data, uint32_t len)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    TEST_ASSERT_TRUE(g_link_enqueue(&rs->link, RADIO_LINK_UP, 0, data, len));
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void set_mode(radio_sim_state_t *rs, uint8_t mode)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->config.Mode = mode;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void remember_packet(radio_sim_state_t *rs, unsigned int dir, const uint8_t *data, uint32_t len)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    g_link_remember(&rs->link, dir, data, len);
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void test_delayed_uplink_delivery_depends_on_power_and_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    const uint8_t data[4] = {1, 2, 3, 4};
+
+    /* Powered off when the delay elapses: lost. */
+    queue_due_uplink(rs, data, sizeof(data));
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    g_iface->on_tick((component_state_t *)rs, 1000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_UP].count);
+
+    /* Powered but still booting: lost. */
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 1;
+    rs->power.managed = 1;
+    rs->power.supply_on = 1;
+    rs->power.enabled = 1;
+    rs->power.boot_ready_ns = 5000000000ULL;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    queue_due_uplink(rs, data, sizeof(data));
+    g_iface->on_tick((component_state_t *)rs, 2000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    /* Booted, and receive-only is enough to hear it. */
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power.boot_ready_ns = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    set_mode(rs, RADIO_MODE_RX);
+    queue_due_uplink(rs, data, sizeof(data));
+    g_iface->on_tick((component_state_t *)rs, 3000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+
+    finish_radio(&spi);
+}
+
+static void test_backdoor_rejects_malformed_payloads_for_every_command(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    radio_link_t *l = &rs->link;
+    const radio_link_mode_t mode_before = l->mode;
+
+    uint8_t five[5] = {0, 0, 0, 0, 1}, bad_dir[5] = {7, 0, 0, 0, 1}, bad_ppm[5] = {0, 0, 0xF4, 0x24, 0x1};
+    uint8_t one = 0, bad_one = 9, two[2] = {0, 1}, four[4] = {0, 0, 0, 1}, three[3] = {0, 0, 0};
+    unsigned int expected_rejected = 0;
+
+    struct { uint16_t id; const uint8_t *p; uint16_t n; } cases[] = {
+        {RADIO_BD_SET_LINK_MODE, two, 2},              {RADIO_BD_SET_LINK_MODE, NULL, 0},
+        {RADIO_BD_SET_DELAY, four, 4},                 {RADIO_BD_SET_DELAY, bad_dir, 5},
+        {RADIO_BD_SET_DROP_RATE, four, 4},             {RADIO_BD_SET_DROP_RATE, bad_dir, 5},
+        {RADIO_BD_SET_DROP_RATE, bad_ppm, 5},          {RADIO_BD_SET_IMPAIRMENTS_ENABLED, two, 2},
+        {RADIO_BD_SET_IMPAIRMENTS_ENABLED, &bad_one, 1}, {RADIO_BD_SET_STATION_ENABLED, &one, 1},
+        {RADIO_BD_SET_STATION_ENABLED, three, 3},      {RADIO_BD_SET_SEED, three, 3},
+        {RADIO_BD_SET_SEED, five, 5},                  {RADIO_BD_RESET_LINK, &one, 1},
+        {RADIO_BD_CORRUPT_PACKETS, four, 4},           {RADIO_BD_CORRUPT_PACKETS, bad_dir, 5},
+        {RADIO_BD_REPLAY_PACKET, two, 2},              {RADIO_BD_REPLAY_PACKET, &bad_one, 1},
+        {0xFFFF, NULL, 0},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
+        backdoor(rs, cases[i].id, cases[i].p, cases[i].n);
+        expected_rejected++;
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(expected_rejected, rs->backdoor_rejected, "command was not rejected");
+    }
+    TEST_ASSERT_EQUAL_UINT32(0, rs->backdoor_accepted);
+    TEST_ASSERT_EQUAL_INT(mode_before, l->mode);
+    TEST_ASSERT_EQUAL_UINT64((uint64_t)RADIO_CFG_LINK_UPLINK_DELAY_MS * 1000000ULL, l->delay_ns[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT16(0, l->corrupt_remaining[RADIO_LINK_UP]);
+
+    /* A payload length with no payload pointer cannot be read and is rejected too. */
+    backdoor(rs, RADIO_BD_SET_LINK_MODE, NULL, 1);
+    TEST_ASSERT_EQUAL_UINT32(expected_rejected + 1, rs->backdoor_rejected);
+
+    /* A missing component state is ignored. */
+    g_iface->backdoor(NULL, RADIO_BD_SET_LINK_MODE, &one, 1);
+
+    finish_radio(&spi);
+}
+
+static void test_station_backdoor_addresses_one_station_or_all(void)
+{
+    if (RADIO_LINK_MAX_STATIONS < 2) TEST_IGNORE_MESSAGE("needs a build with two ground stations");
+
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->link.num_stations = 2;
+    for (int i = 0; i < 2; i++) rs->link.stations[i].enabled = 1;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    uint8_t second_off[2] = {1, 0}, first_off[2] = {0, 0}, all_on[2] = {RADIO_BD_ALL_STATIONS, 1};
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, second_off, 2);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.stations[0].enabled);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->link.stations[1].enabled);
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, first_off, 2);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->link.stations[0].enabled);
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, all_on, 2);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.stations[0].enabled);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.stations[1].enabled);
+
+    finish_radio(&spi);
+}
+
+static void test_replay_uplink_requires_power_boot_and_a_receiving_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    const uint8_t data[4] = {9, 8, 7, 6};
+    uint8_t dir = RADIO_LINK_UP;
+    remember_packet(rs, RADIO_LINK_UP, data, sizeof(data));
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 1;
+    rs->power.managed = 1;
+    rs->power.supply_on = 1;
+    rs->power.enabled = 1;
+    rs->power.boot_ready_ns = 5000000000ULL;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power.boot_ready_ns = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    set_mode(rs, RADIO_MODE_RX); /* receive-only still hears the replay */
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->backdoor_accepted);
+
+    finish_radio(&spi);
+}
+
+static void test_replay_downlink_requires_a_transmitting_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    const uint8_t data[3] = {4, 5, 6};
+    uint8_t dir = RADIO_LINK_DOWN, got[8];
+    remember_packet(rs, RADIO_LINK_DOWN, data, sizeof(data));
+
+    set_mode(rs, RADIO_MODE_RX);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->backdoor_rejected);
+
+    set_mode(rs, RADIO_MODE_TX); /* transmit-only is enough to send it */
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(data, got, 3);
+
+    finish_radio(&spi);
+}
+
+static void ignore_signal(int signal) { (void)signal; }
+
+static void test_udp_thread_survives_interrupted_select(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = ignore_signal; /* no SA_RESTART: select() must return EINTR */
+    sigemptyset(&action.sa_mask);
+    struct sigaction previous;
+    TEST_ASSERT_EQUAL_INT(0, sigaction(SIGUSR1, &action, &previous));
+    for (int i = 0; i < 20; i++)
+    {
+        pthread_kill(rs->udp_thread, SIGUSR1);
+        usleep(2000);
+    }
+    sigaction(SIGUSR1, &previous, NULL);
+
+    /* The thread keeps serving the ground interface afterwards. */
+    uint8_t up[3] = {1, 2, 3};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(3, rx_count(rs));
+
+    finish_radio(&spi);
+}
+
 static void test_delayed_downlink_send_failure_is_tolerated(void)
 {
     transport_port_t spi;
@@ -2287,6 +2505,8 @@ int main(void)
 
     g_radio_sim_init    = (radio_init_fn)dlsym(g_handle,    "radio_sim_init");
     g_radio_sim_cleanup = (radio_cleanup_fn)dlsym(g_handle, "radio_sim_cleanup");
+    *(void **)(&g_link_enqueue)  = dlsym(g_handle, "radio_link_enqueue");
+    *(void **)(&g_link_remember) = dlsym(g_handle, "radio_link_remember");
 
     UNITY_BEGIN();
 
@@ -2377,6 +2597,12 @@ int main(void)
     RUN_TEST(test_replay_downlink_resends_the_last_packet_even_out_of_view);
     RUN_TEST(test_replay_uplink_redelivers_the_last_packet_when_the_radio_can_hear_it);
     RUN_TEST(test_tamper_backdoors_validate_payloads_and_reset_clears_them);
+    RUN_TEST(test_delayed_uplink_delivery_depends_on_power_and_mode);
+    RUN_TEST(test_backdoor_rejects_malformed_payloads_for_every_command);
+    RUN_TEST(test_station_backdoor_addresses_one_station_or_all);
+    RUN_TEST(test_replay_uplink_requires_power_boot_and_a_receiving_mode);
+    RUN_TEST(test_replay_downlink_requires_a_transmitting_mode);
+    RUN_TEST(test_udp_thread_survives_interrupted_select);
     RUN_TEST(test_delayed_downlink_send_failure_is_tolerated);
     RUN_TEST(test_downlink_delay_queue_overflow_drops_and_counts);
     RUN_TEST(test_uplink_discarded_when_never_in_view);

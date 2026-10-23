@@ -8,6 +8,9 @@
 #define RADIO_INTERRUPT_UPDATE_PERIOD_NS \
     (1000000000ULL / RADIO_SIM_UPDATE_RATE_HZ)
 
+/* Every SPI payload (at most one transport buffer) must fit the link's packet buffers. */
+typedef char radio_spi_payload_fits_link_packet[(SIMULITH_TRANSPORT_BUFFER_SIZE <= RADIO_LINK_MAX_PACKET) ? 1 : -1];
+
 typedef enum
 {
     RADIO_REQUEST_ERROR = -1,
@@ -76,7 +79,8 @@ static void* udp_ground_thread(void* arg)
         
         int select_result = select(state->udp_rx_socket + 1, &read_fds, NULL, NULL, &timeout);
         
-        if (select_result > 0 && FD_ISSET(state->udp_rx_socket, &read_fds))
+        /* The set holds only the RX socket, so any positive result means it is readable. */
+        if (select_result > 0)
         {
             /* Serialize receipt with power resets. A reset may drain the
              * selected socket, so receipt must remain nonblocking. */
@@ -462,13 +466,8 @@ static radio_request_result_t radio_sim_handle_spi_command(
 
                 if (to_send > 0)
                 {
-                    int read = radio_sim_read_from_rx_buffer(state, &tx_buf[3], to_send);
-                    if ((uint32_t)read != to_send)
-                    {
-                        to_send = (uint32_t)read;
-                        tx_buf[1] = (uint8_t)((to_send >> 8) & 0xFF);
-                        tx_buf[2] = (uint8_t)(to_send & 0xFF);
-                    }
+                    /* to_send was capped at the available bytes under this same lock, so all of it is read. */
+                    (void)radio_sim_read_from_rx_buffer(state, &tx_buf[3], to_send);
                     state->hk.CommandCounter++; // Increment command counter
                 }
 
@@ -525,7 +524,7 @@ static radio_request_result_t radio_sim_handle_spi_command(
                     state->hk.CommandCounter++;
                     admit = radio_link_admit(&state->link, RADIO_LINK_DOWN);
                     delay_ns = radio_link_delay_ns(&state->link, RADIO_LINK_DOWN);
-                    if (admit == RADIO_LINK_ADMIT_OK && payload_len <= RADIO_LINK_MAX_PACKET)
+                    if (admit == RADIO_LINK_ADMIT_OK)
                     {
                         radio_link_remember(&state->link, RADIO_LINK_DOWN, packet, (uint32_t)payload_len);
                         memcpy(tampered, packet, payload_len);
@@ -632,16 +631,17 @@ static void radio_sim_release_downlink(radio_sim_state_t* state, uint64_t tick_t
 
         pthread_mutex_lock(&state->buffer_mutex);
         due = radio_link_peek_due(&state->link, RADIO_LINK_DOWN, tick_time_ns);
-        if (due && due->len <= sizeof(packet))
+        if (due)
         {
+            /* The queue refuses packets larger than RADIO_LINK_MAX_PACKET. */
             length = due->len;
             memcpy(packet, due->data, length);
+            radio_link_pop(&state->link, RADIO_LINK_DOWN);
         }
-        if (due) radio_link_pop(&state->link, RADIO_LINK_DOWN);
         pthread_mutex_unlock(&state->buffer_mutex);
 
         if (!due) break;
-        if (length > 0) (void)radio_sim_transmit_to_ground(state, packet, length);
+        (void)radio_sim_transmit_to_ground(state, packet, length);
     }
 }
 

@@ -30,9 +30,8 @@ double radio_link_elevation_deg(const double pos_n[3], const double cwn[3][3],
     range = sqrt(range);
     if (range <= 0.0) return 90.0;
 
-    double s = up_dot / range;
-    if (s > 1.0) s = 1.0;
-    if (s < -1.0) s = -1.0;
+    /* Rounding can leave the cosine a hair outside [-1, 1] when the line of sight is parallel to local up. */
+    double s = fmax(-1.0, fmin(1.0, up_dot / range));
     return asin(s) / RADIO_LINK_D2R;
 }
 
@@ -149,7 +148,7 @@ bool radio_link_enqueue(radio_link_t *link, unsigned int dir, uint64_t release_n
                         const uint8_t *data, uint32_t len)
 {
     radio_link_queue_t *q = &link->queue[dir];
-    if (q->count >= RADIO_CFG_LINK_QUEUE_DEPTH)
+    if (len > RADIO_LINK_MAX_PACKET || q->count >= RADIO_CFG_LINK_QUEUE_DEPTH)
     {
         link->overflowed[dir]++;
         return false;

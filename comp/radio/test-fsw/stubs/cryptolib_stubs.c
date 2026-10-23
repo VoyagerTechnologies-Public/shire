@@ -106,3 +106,28 @@ int32_t UT_CRYPTO_Sa_Default(uint8_t gvcid, uint16_t scid, uint16_t vcid, uint8_
     }
     return -1;
 }
+
+/* Hook for tests: the lookup reports success but provides no SA. */
+int32_t UT_CRYPTO_Sa_NullPointer(uint8_t gvcid, uint16_t scid, uint16_t vcid, uint8_t mapid,
+                                 SecurityAssociation_t **sa)
+{
+    if (sa)
+        *sa = NULL;
+    return 0;
+}
+
+/* Wrappers so tests can select an SA lookup without naming SecurityAssociation_t. */
+void UT_CRYPTO_Use_OperationalSa(void)
+{
+    UT_CRYPTO_Set_SaHook(UT_CRYPTO_Sa_Default);
+}
+
+void UT_CRYPTO_Use_NullSa(void)
+{
+    UT_CRYPTO_Set_SaHook(UT_CRYPTO_Sa_NullPointer);
+}
+
+void UT_CRYPTO_Clear_SaHook(void)
+{
+    UT_CRYPTO_Set_SaHook(NULL);
+}

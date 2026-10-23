@@ -809,7 +809,7 @@ void RADIO_ServiceUplink(void)
         }
 
         /* --- TC Frame Processing with CryptoLib --- */
-        if (RADIO_AppData.ReceiveBuffLength > 0) 
+        /* actual_length > 0 here, so the receive buffer holds at least one byte. */
         {
             #ifdef RADIO_CFG_DEBUG
             OS_printf("RADIO_Service: Received TC frame (%u bytes): ", RADIO_AppData.ReceiveBuffLength);
@@ -922,22 +922,21 @@ void RADIO_ServiceUplink(void)
                         #endif
 
                         /* Look for valid CCSDS Space Packets in the processed payload */
-                        for (uint32_t scan_offset = 0; scan_offset <= crypto_tc_frame.tc_pdu_len && (crypto_tc_frame.tc_pdu_len - scan_offset) >= 6; scan_offset++)
+                        for (uint32_t scan_offset = 0; scan_offset + 6 <= crypto_tc_frame.tc_pdu_len; scan_offset++)
                         {
                             uint8 *potential_packet = crypto_tc_frame.tc_pdu + scan_offset;
                             uint16 packet_id = (potential_packet[0] << 8) | potential_packet[1];
-                            uint16 packet_seq = (potential_packet[2] << 8) | potential_packet[3];
                             uint16 packet_len = (potential_packet[4] << 8) | potential_packet[5];
                             uint8 version = (packet_id >> 13) & 0x07;
                             uint8 type = (packet_id >> 12) & 0x01;
-                            uint8 seq_flags = (packet_seq >> 14) & 0x03;
                             uint16 total_packet_size = packet_len + 7;
 
-                            if (version == 0 && type == 1 && seq_flags <= 3 && total_packet_size >= 7 &&
+                            if (version == 0 && type == 1 && total_packet_size >= 7 &&
                                 scan_offset + total_packet_size <= crypto_tc_frame.tc_pdu_len)
                                 {
                                 #ifdef RADIO_CFG_DEBUG
                                 uint16 apid = packet_id & 0x07FF;
+                                uint16 packet_seq = (potential_packet[2] << 8) | potential_packet[3];
                                 uint16 seq_count = packet_seq & 0x3FFF;
                                 OS_printf("RADIO_Service: Found valid CCSDS command packet at offset %u\n", scan_offset);
                                 OS_printf("  PacketID=0x%04X, APID=%u, Type=%u, SeqCount=%u, Length=%u\n",
@@ -1066,6 +1065,18 @@ void RADIO_ServiceDownlink(void)
             }
 
             CFE_MSG_GetSize((CFE_MSG_Message_t *)&SBBufPtr->Msg, &pkt_len);
+            if (pkt_len >= frame_info->dataFieldLength)
+            {
+                /* Not even an empty frame can hold it, so waiting for the next frame would retry forever. */
+                RADIO_AppData.HkTelemetryPkt.DeviceErrorCount++;
+                CFE_EVS_SendEvent(RADIO_REQ_DATA_ERR_EID, CFE_EVS_EventType_ERROR,
+                                  "RADIO: Dropping %u byte packet that cannot fit a %u byte TM frame data field",
+                                  (unsigned int)pkt_len, (unsigned int)frame_info->dataFieldLength);
+                pkt_len = 0;
+                pkt_count++;
+                continue;
+            }
+
             if (pkt_len < frame_info->freeOctets)
             {
                 /* Add this single packet to the frame */

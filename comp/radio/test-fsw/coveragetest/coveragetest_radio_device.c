@@ -475,6 +475,49 @@ void Test_RADIO_RequestHK_NullArgs(void)
     UtAssert_True(RADIO_RequestHK(NULL, NULL) != OS_SUCCESS, "RADIO: RequestHK should return error with NULL arguments");
 }
 
+void Test_RADIO_RequestHK_GoodHeaderBadTrailer(void)
+{
+    spi_info_t            device;
+    RADIO_Device_HK_tlm_t data;
+    static uint8_t        response[RADIO_DEVICE_HK_SIZE];
+
+    /* The header alone is not enough: a response with a valid header but a damaged trailer is rejected. */
+    memset(response, 0, sizeof(response));
+    response[0]                          = RADIO_DEVICE_HDR;
+    response[RADIO_DEVICE_HK_SIZE - 1]   = (uint8_t)(RADIO_DEVICE_TRAILER ^ 0xFF);
+    UT_SetDefaultReturnValue(UT_KEY(spi_write), 5);
+    UT_SetDeferredRetcode(UT_KEY(spi_read), 1, RADIO_DEVICE_HK_SIZE);
+    UT_SetHandlerFunction(UT_KEY(spi_read), SPI_Read_Handler, response);
+
+    UtAssert_True(RADIO_RequestHK(&device, &data) != OS_SUCCESS, "RADIO: RequestHK rejects a damaged trailer");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(spi_read)), 1);
+
+    UT_SetHandlerFunction(UT_KEY(spi_read), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_NullArgumentPermutations(void)
+{
+    spi_info_t              device;
+    RADIO_Device_HK_tlm_t   hk;
+    RADIO_Device_Config_t   config;
+    uint8_t                 buffer[8];
+    uint16_t                length = 0;
+
+    /* Each pointer argument is checked on its own: a valid device does not excuse a missing buffer. */
+    UtAssert_True(RADIO_RequestHK(&device, NULL) != OS_SUCCESS, "RADIO: RequestHK rejects a NULL data pointer");
+    UtAssert_True(RADIO_RequestHK(NULL, &hk) != OS_SUCCESS, "RADIO: RequestHK rejects a NULL device");
+    UtAssert_True(RADIO_SetConfiguration(&device, NULL) != OS_SUCCESS, "RADIO: SetConfiguration rejects a NULL config");
+    UtAssert_True(RADIO_SetConfiguration(NULL, &config) != OS_SUCCESS, "RADIO: SetConfiguration rejects a NULL device");
+    UtAssert_True(RADIO_ReceiveData(&device, NULL, sizeof(buffer), &length) != OS_SUCCESS,
+                  "RADIO: ReceiveData rejects a NULL buffer");
+    UtAssert_True(RADIO_ReceiveData(&device, buffer, sizeof(buffer), NULL) != OS_SUCCESS,
+                  "RADIO: ReceiveData rejects a NULL length pointer");
+    UtAssert_True(RADIO_SendData(&device, NULL, 4) != OS_SUCCESS, "RADIO: SendData rejects a NULL buffer");
+    UtAssert_True(RADIO_SendData(NULL, buffer, 4) != OS_SUCCESS, "RADIO: SendData rejects a NULL device");
+    UT_ResetState(0);
+}
+
 void Test_RADIO_SetConfiguration_NullArgs(void)
 {
     UtAssert_True(RADIO_SetConfiguration(NULL, NULL) != OS_SUCCESS, "RADIO: SetConfiguration should return error with NULL arguments");
@@ -555,8 +598,10 @@ void Test_RADIO_RequestHK_BadHeaderTrailer_WithCustomHandler(void)
     /* bad header/trailer */
     bad[0] = 0x00; bad[RADIO_DEVICE_HK_SIZE - 1] = 0x00;
     SPI_Handler_Obj_t obj = { .buf = bad, .retlen = RADIO_DEVICE_HK_SIZE };
+    UT_SetDefaultReturnValue(UT_KEY(spi_write), 5);
     UT_SetHandlerFunction(UT_KEY(spi_read), SPI_Read_TooLarge_Handler, &obj);
     UtAssert_True(RADIO_RequestHK(&device, &data) != OS_SUCCESS, "RADIO: RequestHK should detect invalid header or trailer using custom handler");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(spi_read)), 1);
     UT_SetHandlerFunction(UT_KEY(spi_read), NULL, NULL);
     UT_ResetState(0);
 }
@@ -640,10 +685,12 @@ void Test_RADIO_RequestHK_BadHeaderTrailer(void)
     bad_hk_explicit[0] = 0x00; /* bad header */
     bad_hk_explicit[RADIO_DEVICE_HK_SIZE - 1] = 0x00; /* bad trailer */
 
-    UT_SetDefaultReturnValue(UT_KEY(RADIO_CommandDevice), OS_SUCCESS);
+    /* The HK request command must succeed (its 5 bytes written) so the response check is what fails. */
+    UT_SetDefaultReturnValue(UT_KEY(spi_write), 5);
     UT_SetDeferredRetcode(UT_KEY(spi_read), 1, RADIO_DEVICE_HK_SIZE);
     UT_SetHandlerFunction(UT_KEY(spi_read), SPI_Read_Handler, bad_hk_explicit);
     UtAssert_True(RADIO_RequestHK(&device, &data) != OS_SUCCESS, "RADIO_RequestHK should detect bad header/trailer (explicit)");
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(spi_read)), 1);
     UT_SetHandlerFunction(UT_KEY(spi_read), NULL, NULL);
     UT_ResetState(0);
 }
@@ -1197,4 +1244,11 @@ void UtTest_Setup(void)
     ADD_TEST(RADIO_ReceiveData_TruncatedResponse);
     ADD_TEST(RADIO_RequestHK_ShortRead_Multiple);
     ADD_TEST(RADIO_ReceiveData_TruncatedResponse_Multiple);
+    ADD_TEST(RADIO_NullArgumentPermutations);
+    ADD_TEST(RADIO_RequestHK_GoodHeaderBadTrailer);
+    ADD_TEST(RADIO_RequestData);
+    ADD_TEST(RADIO_ReceiveData_SPIError_Handler);
+    ADD_TEST(RADIO_ReceiveData_Incomplete_Handler);
+    ADD_TEST(RADIO_ReceiveData_TooLarge_Handler);
+    ADD_TEST(RADIO_ReceiveData_InvalidTrailer_Handler);
 }
