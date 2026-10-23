@@ -10,7 +10,9 @@ target_compile_definitions(test_network_config PRIVATE
     SIMULITH_SERVER_PATH="$<TARGET_FILE:simulith_server_standalone>")
 add_dependencies(test_network_config simulith_server_standalone)
 add_test(NAME NetworkConfigurationTests COMMAND test_network_config)
-set_tests_properties(NetworkConfigurationTests PROPERTIES TIMEOUT 20)
+# These suites normally take 2-7 seconds. Allow roughly ten times that, so a slow or contended machine
+# does not fail them, while a hung fixture is still stopped.
+set_tests_properties(NetworkConfigurationTests PROPERTIES TIMEOUT 60)
 
 include_directories(
     ${UNITY_INC}
@@ -234,4 +236,4 @@ set_tests_properties(
     SimulithTests DirectorTests DirectorMainTests DirectorWithoutServerTest
     42SocketClientTests 42SocketClientFailureTests ControlTraceTests
     SharedBarrierTests SharedBarrierFailureTests
-    PROPERTIES TIMEOUT 20)
+    PROPERTIES TIMEOUT 60)

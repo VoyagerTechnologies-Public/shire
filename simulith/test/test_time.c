@@ -21,8 +21,13 @@ static void test_time_init_get_wait_cleanup(void)
     void* ctx = zmq_ctx_new();
     TEST_ASSERT_NOT_NULL(ctx);
 
-    void* pub = zmq_socket(ctx, ZMQ_PUB);
+    /* XPUB reports each subscription it receives, which is the only reliable signal that a PUB message
+     * will not be dropped (a fixed sleep loses the "slow joiner" race under load). */
+    void* pub = zmq_socket(ctx, ZMQ_XPUB);
     TEST_ASSERT_NOT_NULL(pub);
+    int subscription_timeout_ms = 10000;
+    TEST_ASSERT_EQUAL_INT(0, zmq_setsockopt(pub, ZMQ_RCVTIMEO, &subscription_timeout_ms,
+                                            sizeof(subscription_timeout_ms)));
 
     int rc = zmq_bind(pub, LOCAL_PUB_ADDR);
     TEST_ASSERT_EQUAL_INT(0, rc);
@@ -31,10 +36,11 @@ static void test_time_init_get_wait_cleanup(void)
     void* handle = simulith_time_init();
     TEST_ASSERT_NOT_NULL(handle);
 
-    // Send a tick (uint64_t) through the PUB socket
+    // Send a tick (uint64_t) through the PUB socket once the provider has subscribed
     uint64_t tick = 1;
-    // Sleep briefly to allow subscriber to connect
-    test_sleep_us(1000);
+    unsigned char subscription[8];
+    TEST_ASSERT_EQUAL_INT(1, zmq_recv(pub, subscription, sizeof(subscription), 0));
+    TEST_ASSERT_EQUAL_UINT8(1, subscription[0]); /* 1 = subscribe */
 
     int s = zmq_send(pub, &tick, sizeof(tick), 0);
     TEST_ASSERT_EQUAL_INT(sizeof(tick), s);

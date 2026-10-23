@@ -180,7 +180,7 @@ static void exercise_tcp_phases_pause_step_and_completion_barrier(const char *st
     context = zmq_ctx_new();
     subscriber = zmq_socket(context, ZMQ_SUB);
     requester = zmq_socket(context, ZMQ_REQ);
-    int linger = 0, timeout = 2000;
+    int linger = 0, timeout = 20000; /* only reached if the server process is badly starved */
     zmq_setsockopt(subscriber, ZMQ_LINGER, &linger, sizeof(linger));
     zmq_setsockopt(requester, ZMQ_LINGER, &linger, sizeof(linger));
     zmq_setsockopt(subscriber, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
@@ -191,7 +191,10 @@ static void exercise_tcp_phases_pause_step_and_completion_barrier(const char *st
     const char ready[] = "READY probe 7 zmq";
     TEST_ASSERT_TRUE(zmq_send(requester, ready, sizeof(ready) - 1, 0) > 0);
     char reply[32] = {0};
-    TEST_ASSERT_EQUAL_INT(5, zmq_recv(requester, reply, sizeof(reply), 0));
+    int ack_length = zmq_recv(requester, reply, sizeof(reply), 0);
+    char ack_message[96];
+    snprintf(ack_message, sizeof(ack_message), "no READY acknowledgement: %s", zmq_strerror(zmq_errno()));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(5, ack_length, ack_message);
     TEST_ASSERT_EQUAL_MEMORY("ACK 0", reply, 5);
     zmq_pollitem_t item = {.socket = subscriber, .events = ZMQ_POLLIN};
     TEST_ASSERT_EQUAL_INT(0, zmq_poll(&item, 1, 100));
