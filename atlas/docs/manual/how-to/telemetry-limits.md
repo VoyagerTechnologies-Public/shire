@@ -89,7 +89,8 @@ It compares the parameter's monitoring result with a level.
 The levels are `IN_LIMITS`, `WATCH`, `WARNING`, `DISTRESS`, `CRITICAL`, and `SEVERE`.
 A parameter with no limits has no monitoring result, so the step fails at once and says so.
 The YAMCS web interface cannot evaluate this condition, so use it only in stacks that `make scenario` runs.
-`CmdTlmLimits.ycs` shows it in use, driving the battery state of charge through the EPS backdoor into yellow and then red.
+`CmdTlmLimits.ycs` does not use it.
+That stack drives the battery state of charge through the EPS backdoor into yellow and then red, and checks the voltage numerically, so it runs the same way in the web interface and in `make scenario`.
 
 ***
 Last reviewed: 20261026

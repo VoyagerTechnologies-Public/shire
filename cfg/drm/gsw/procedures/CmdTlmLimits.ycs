@@ -3,8 +3,8 @@
   "steps": [
     {
       "type": "text",
-      "text": "Cmd/Tlm validation, part 1. Commands are accepted, counted, and rejected when invalid. Part 2 checks yellow and red limits. Keep the simulation playing and leave sim-backdoor enabled in YAMCS Links.",
-      "comment": "Cmd/Tlm validation, part 1. Commands are accepted, counted, and rejected when invalid. Part 2 checks yellow and red limits. Keep the simulation playing and leave sim-backdoor enabled in YAMCS Links."
+      "text": "Cmd/Tlm validation, part 1. Commands are accepted, counted, and rejected when invalid. Part 2 drives the battery through its yellow and red limits. Watch the YAMCS Alarms page while it runs. Keep the simulation playing and leave sim-backdoor enabled in YAMCS Links.",
+      "comment": "Cmd/Tlm validation, part 1. Commands are accepted, counted, and rejected when invalid. Part 2 drives the battery through its yellow and red limits. Watch the YAMCS Alarms page while it runs. Keep the simulation playing and leave sim-backdoor enabled in YAMCS Links."
     },
     {
       "type": "text",
@@ -164,22 +164,22 @@
       "condition": [
         {
           "parameter": "/EPS/BATTERY_VOLTAGE",
-          "operator": "monitoring",
-          "value": "IN_LIMITS"
-        },
-        {
-          "parameter": "/EPS/BATTERY_VOLTAGE",
           "operator": "gt",
           "value": "20"
         },
         {
           "parameter": "/EPS/BATTERY_TEMPERATURE",
-          "operator": "monitoring",
-          "value": "IN_LIMITS"
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/BATTERY_TEMPERATURE",
+          "operator": "lt",
+          "value": "40"
         }
       ],
       "timeout": 60000,
-      "comment": "nominal: battery voltage is above its yellow limit and the temperature is inside its range"
+      "comment": "nominal: battery voltage is above its 20 V yellow limit and the temperature is inside its 0 to 40 C yellow range"
     },
     {
       "type": "check",
@@ -213,11 +213,6 @@
       "condition": [
         {
           "parameter": "/EPS/BATTERY_VOLTAGE",
-          "operator": "monitoring",
-          "value": "WARNING"
-        },
-        {
-          "parameter": "/EPS/BATTERY_VOLTAGE",
           "operator": "lt",
           "value": "20"
         },
@@ -228,7 +223,7 @@
         }
       ],
       "timeout": 60000,
-      "comment": "yellow, and not red"
+      "comment": "yellow: below 20 V and above 18 V"
     },
     {
       "type": "text",
@@ -251,17 +246,12 @@
       "condition": [
         {
           "parameter": "/EPS/BATTERY_VOLTAGE",
-          "operator": "monitoring",
-          "value": "CRITICAL"
-        },
-        {
-          "parameter": "/EPS/BATTERY_VOLTAGE",
           "operator": "lt",
           "value": "18"
         }
       ],
       "timeout": 60000,
-      "comment": "red"
+      "comment": "red: below 18 V"
     },
     {
       "type": "text",
@@ -284,17 +274,12 @@
       "condition": [
         {
           "parameter": "/EPS/BATTERY_VOLTAGE",
-          "operator": "monitoring",
-          "value": "IN_LIMITS"
-        },
-        {
-          "parameter": "/EPS/BATTERY_VOLTAGE",
           "operator": "gt",
           "value": "22"
         }
       ],
       "timeout": 60000,
-      "comment": "nominal again"
+      "comment": "recovered: back above 22 V"
     },
     {
       "type": "check",
