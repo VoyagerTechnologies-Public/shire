@@ -76,4 +76,4 @@ Questions and improvement ideas are welcome in [GitHub Discussions](https://gith
 Report reproducible defects through [GitHub Issues](https://github.com/VoyagerTechnologies-Public/shire/issues).
 
 ***
-Last reviewed: 20260819
+Last reviewed: 20261026

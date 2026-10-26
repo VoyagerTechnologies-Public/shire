@@ -32,7 +32,7 @@ MANIFEST_DIR = ATLAS / "screenshots"
 VENV_DIR = ROOT / "build" / "screenshots-venv"
 LIBS_DIR = ROOT / "build" / "screenshots-libs"
 
-ACTIONS = ("goto", "click", "fill", "wait", "wait_param", "wait_log", "command", "shot")
+ACTIONS = ("goto", "click", "hover", "scroll_to", "fill", "wait", "wait_param", "wait_log", "wait_transfer", "record", "command", "send", "shot")
 SHOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 SHOT_KINDS = ("web", "terminal")
 LOG_SOURCES = ("start_log", "compose_logs")
@@ -130,10 +130,10 @@ def validate_step(index: int, step: object, seen: set[str]) -> None:
     action, arg = next(iter(step.items()))
     if action not in ACTIONS:
         raise ManifestError(f"{where}: unknown action {action!r} (expected one of {', '.join(ACTIONS)})")
-    needs_mapping = {"fill", "wait", "wait_param", "wait_log", "command", "shot"}
+    needs_mapping = {"fill", "wait", "wait_param", "wait_log", "record", "command", "shot"}
     if action in needs_mapping and not isinstance(arg, dict):
         raise ManifestError(f"{where}: {action} takes a mapping")
-    if action in {"goto", "click"} and not isinstance(arg, (str, dict)):
+    if action in {"goto", "click", "hover", "scroll_to"} and not isinstance(arg, (str, dict)):
         raise ManifestError(f"{where}: {action} takes a string")
     if action == "shot":
         validate_shot(where, arg, seen)
@@ -141,6 +141,10 @@ def validate_step(index: int, step: object, seen: set[str]) -> None:
         raise ManifestError(f"{where}: command needs a qualified 'name' such as /SC/SC_COMMANDS/SC_START_RTS")
     elif action == "wait_param" and "name" not in arg:
         raise ManifestError(f"{where}: wait_param needs 'name'")
+    elif action == "record" and not {"name", "as"} <= arg.keys():
+        raise ManifestError(f"{where}: record needs 'name' and 'as'")
+    elif action == "wait_transfer" and not isinstance(arg, (dict, type(None))):
+        raise ManifestError(f"{where}: wait_transfer takes a mapping or nothing")
     elif action == "wait_log" and "pattern" not in arg:
         raise ManifestError(f"{where}: wait_log needs 'pattern'")
 
@@ -273,6 +277,15 @@ class YamcsClient:
         except requests.RequestException:
             return False
 
+    def transfers(self, service: str = "cfdp") -> list[dict[str, Any]] | None:
+        """File transfers the service knows about, or None when they cannot be read."""
+        url = f"{self.base_url}/api/filetransfer/{self.instance}/{service}/transfers"
+        try:
+            response = self.session.get(url, timeout=5)
+        except requests.RequestException:
+            return None
+        return response.json().get("transfers", []) if response.ok else None
+
     def parameter(self, name: str) -> dict[str, Any] | None:
         url = f"{self.base_url}/api/processors/{self.instance}/{self.processor}/parameters{name}"
         try:
@@ -285,11 +298,13 @@ class YamcsClient:
 
 
 def engineering_value(parameter: dict[str, Any]) -> Any:
-    """The python value of a parameter's engineering value (enumerations come back as their label)."""
+    """The python value of a parameter's engineering value (enumerations come back as their label).
+    Fixed width flight strings, such as file names, are padded with NUL characters that are invisible in
+    the YAMCS UI but would corrupt a command built from the value, so they are trimmed."""
     value = parameter.get("engValue") or {}
     for key, item in value.items():
         if key != "type" and key.endswith("Value"):
-            return item
+            return item.rstrip("\x00") if isinstance(item, str) else item
     return None
 
 
@@ -331,6 +346,7 @@ class Runner:
         self.only = only or set()
         self.dry_run = dry_run
         self.written: list[pathlib.Path] = []
+        self.recorded: dict[str, Any] = {}
 
     def run(self) -> list[pathlib.Path]:
         unknown = self.only - set(self.manifest.shot_names)
@@ -341,12 +357,23 @@ class Runner:
         for index, step in enumerate(self.manifest.steps, 1):
             action, arg = next(iter(step.items()))
             try:
-                getattr(self, f"do_{action}")(arg)
+                getattr(self, f"do_{action}")(self.substitute(arg))
             except CaptureError:
                 raise
             except Exception as error:
                 raise CaptureError(f"step {index} ({action} {arg!r}) failed: {error}") from error
         return self.written
+
+    def substitute(self, value: Any) -> Any:
+        """Replaces {name} with a value an earlier `record` step stored. Braces that name nothing recorded are
+        left alone, so selectors and patterns containing them need no escaping."""
+        if isinstance(value, str):
+            return re.sub(r"\{(\w+)\}", lambda m: str(self.recorded.get(m[1], m[0])), value)
+        if isinstance(value, dict):
+            return {key: self.substitute(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self.substitute(item) for item in value]
+        return value
 
     # -- navigation -------------------------------------------------------------------------------------
 
@@ -365,6 +392,12 @@ class Runner:
     def do_click(self, arg: str | dict) -> None:
         target = {"text": arg} if isinstance(arg, str) else arg
         self.locator(target).click()
+
+    def do_hover(self, arg: str | dict) -> None:
+        self.locator({"text": arg} if isinstance(arg, str) else arg).hover()
+
+    def do_scroll_to(self, arg: str | dict) -> None:
+        self.locator({"text": arg} if isinstance(arg, str) else arg).scroll_into_view_if_needed()
 
     def do_fill(self, arg: dict) -> None:
         self.locator(arg).fill(str(arg["value"]))
@@ -398,10 +431,14 @@ class Runner:
             self.env.sleep(interval_s)
 
     def do_wait_param(self, arg: dict) -> None:
-        """Waits until a parameter holds a value. `fresh: true` additionally requires a new telemetry packet,
-        so a screenshot is never taken of the packet that predates the command it is meant to show."""
+        """Waits until a parameter satisfies every condition given: `equals` (a value, or {recorded, plus} for
+        a recorded value plus an offset), `min`, `max`. `fresh: true` additionally requires a new telemetry
+        packet, so a screenshot is never taken of the packet that predates the command it is meant to show."""
         name, timeout = arg["name"], float(arg.get("timeout_s", 60))
         baseline = (self.env.yamcs.parameter(name) or {}).get("generationTime") if arg.get("fresh") else None
+        equals = arg.get("equals")
+        if isinstance(equals, dict):
+            equals = self.recorded[equals["recorded"]] + equals.get("plus", 0)
 
         def satisfied() -> bool:
             parameter = self.env.yamcs.parameter(name)
@@ -409,9 +446,52 @@ class Runner:
                 return False
             if baseline is not None and parameter.get("generationTime") == baseline:
                 return False
-            return "equals" not in arg or values_equal(engineering_value(parameter), arg["equals"])
+            value = engineering_value(parameter)
+            if "equals" in arg and not values_equal(value, equals):
+                return False
+            if "min" in arg and not (isinstance(value, (int, float)) and value >= arg["min"]):
+                return False
+            if "max" in arg and not (isinstance(value, (int, float)) and value <= arg["max"]):
+                return False
+            return True
 
-        self.poll(f"{name} {'to equal ' + repr(arg['equals']) if 'equals' in arg else 'to update'}", timeout, satisfied)
+        wanted = [f"to equal {equals!r}"] if "equals" in arg else []
+        wanted += [f"{key} {arg[key]}" for key in ("min", "max") if key in arg]
+        self.poll(f"{name} {' and '.join(wanted) or 'to update'}", timeout, satisfied)
+
+    def do_record(self, arg: dict) -> None:
+        """Stores a parameter's current value under a name that later steps use as {name} or as a recorded
+        baseline, for values only the run knows, such as a counter before a command or a file name."""
+        name = arg["name"]
+        box: list[Any] = []
+
+        def available() -> bool:
+            parameter = self.env.yamcs.parameter(name)
+            if parameter is None:
+                return False
+            box.append(engineering_value(parameter))
+            return True
+
+        self.poll(f"{name} to be available", float(arg.get("timeout_s", 60)), available)
+        self.recorded[arg["as"]] = box[-1]
+
+    def do_wait_transfer(self, arg: dict | None) -> None:
+        """Waits until the file transfer service has at least one transfer and every transfer has completed.
+        A failed or cancelled transfer ends the wait with an error, since its screenshot would be wrong."""
+        arg = arg or {}
+        service = arg.get("service", "cfdp")
+
+        def finished() -> bool:
+            transfers = self.env.yamcs.transfers(service)
+            if not transfers:
+                return False
+            for transfer in transfers:
+                if transfer.get("state") in ("FAILED", "CANCELLED"):
+                    raise CaptureError(f"transfer {transfer.get('id', '?')} ended {transfer['state']}: "
+                                       f"{transfer.get('failureReason') or 'no reason given'}")
+            return all(transfer.get("state") == "COMPLETED" for transfer in transfers)
+
+        self.poll(f"{service} transfers to complete", float(arg.get("timeout_s", 300)), finished)
 
     def do_wait_log(self, arg: dict) -> None:
         source, service = arg.get("source", "compose_logs"), arg.get("service")
@@ -432,8 +512,13 @@ class Runner:
         for key, value in (arg.get("args") or {}).items():
             self.fill_argument(key, value)
         if arg.get("send", False):
-            page.get_by_role("button", name="Send", exact=False).first.click()
-            page.get_by_text("View report").first.wait_for()
+            self.do_send(True)
+
+    def do_send(self, _: Any) -> None:
+        """Sends the command form that is open, so a form can be photographed before it is sent."""
+        page = self.env.page
+        page.get_by_role("button", name="Send", exact=False).first.click()
+        page.get_by_text("View report").first.wait_for()
 
     def fill_argument(self, key: str, value: Any) -> None:
         page = self.env.page

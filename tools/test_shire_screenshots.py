@@ -64,6 +64,7 @@ class ManifestTests(unittest.TestCase):
             "qualified": "scenario: demo\nsteps: [{command: {name: SC_START_RTS}}]",
             "wait_param needs": "scenario: demo\nsteps: [{wait_param: {timeout_s: 3}}]",
             "wait_log needs": "scenario: demo\nsteps: [{wait_log: {timeout_s: 3}}]",
+            "record needs": "scenario: demo\nsteps: [{record: {name: /A/B}}]",
             "invalid redact": "scenario: demo\nredact: [{pattern: '('}]\nsteps: [{goto: /}]",
             "duplicate shot": "scenario: demo\nsteps: [{shot: {name: a}}, {shot: {name: a}}]",
         }
@@ -177,6 +178,10 @@ class ParameterValueTests(unittest.TestCase):
         self.assertEqual(engineering_value({"engValue": {"type": "ENUMERATED", "stringValue": "DUPLEX"}}), "DUPLEX")
         self.assertIsNone(engineering_value({}))
 
+    def test_nul_padding_on_flight_strings_is_trimmed(self):
+        padded = {"engValue": {"type": "STRING", "stringValue": "sv2023259230208.ds\x00\x00\x00"}}
+        self.assertEqual(engineering_value(padded), "sv2023259230208.ds")
+
     def test_values_equal_compares_numbers_numerically_and_text_as_text(self):
         self.assertTrue(values_equal(3, "3"))
         self.assertTrue(values_equal(3.0, 3))
@@ -185,6 +190,15 @@ class ParameterValueTests(unittest.TestCase):
         self.assertFalse(values_equal("DUPLEX", "RECEIVE"))
         self.assertTrue(values_equal(True, True))
         self.assertFalse(values_equal(False, True))
+
+    def test_client_transfers_reads_the_service_endpoint(self):
+        session = mock.Mock()
+        session.get.return_value = mock.Mock(ok=True, json=lambda: {"transfers": [{"state": "COMPLETED"}]})
+        client = YamcsClient("http://h:8090", "shire", "realtime", session)
+        self.assertEqual(client.transfers(), [{"state": "COMPLETED"}])
+        self.assertEqual(session.get.call_args.args[0], "http://h:8090/api/filetransfer/shire/cfdp/transfers")
+        session.get.return_value = mock.Mock(ok=False)
+        self.assertIsNone(client.transfers())
 
     def test_client_parameter_builds_the_processor_url_and_tolerates_failures(self):
         session = mock.Mock()
@@ -214,8 +228,12 @@ class FakeClock:
 class FakeYamcs:
     """Returns each queued reply in turn, then keeps returning the last one."""
 
-    def __init__(self, *replies):
+    def __init__(self, *replies, transfers=None):
         self.replies = list(replies)
+        self.transfer_replies = list(transfers or [[]])
+
+    def transfers(self, service="cfdp"):
+        return self.transfer_replies.pop(0) if len(self.transfer_replies) > 1 else self.transfer_replies[0]
 
     def parameter(self, name):
         return self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
@@ -329,6 +347,22 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(CaptureError, "timed out after 4s waiting for log line"):
             self.runner([{"wait_log": {"pattern": "never", "timeout_s": 4}}]).run()
 
+    def test_wait_transfer_waits_for_every_transfer_to_complete(self):
+        running, done = [{"id": "1", "state": "RUNNING"}], [{"id": "1", "state": "COMPLETED"}]
+        yamcs = FakeYamcs(reading(0), transfers=[[], None, running, done])
+        self.runner([{"wait_transfer": {}}], yamcs).run()
+        self.assertEqual(self.clock.time, 3.0)
+
+    def test_wait_transfer_fails_fast_on_a_failed_transfer(self):
+        failed = [{"id": "7", "state": "FAILED", "failureReason": "file not found"}]
+        with self.assertRaisesRegex(CaptureError, "transfer 7 ended FAILED: file not found"):
+            self.runner([{"wait_transfer": {}}], FakeYamcs(reading(0), transfers=[failed])).run()
+
+    def test_wait_transfer_times_out_while_still_running(self):
+        running = [{"id": "1", "state": "RUNNING"}]
+        with self.assertRaisesRegex(CaptureError, "timed out after 3s waiting for cfdp transfers"):
+            self.runner([{"wait_transfer": {"timeout_s": 3}}], FakeYamcs(reading(0), transfers=[running])).run()
+
     def test_wait_requires_a_condition(self):
         with self.assertRaisesRegex(CaptureError, "wait needs one of"):
             self.runner([{"wait": {}}]).run()
@@ -358,6 +392,11 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in field.fill.call_args_list], ["6", "0"])
         self.page.get_by_role.assert_called_with("button", name="Send", exact=False)
 
+    def test_send_action_sends_an_already_filled_form(self):
+        self.runner([{"send": True}]).run()
+        self.page.get_by_role.assert_called_with("button", name="Send", exact=False)
+        self.page.get_by_text.return_value.first.wait_for.assert_called_once()
+
     def test_command_without_send_leaves_the_form_unsent(self):
         self.page.get_by_text.return_value.count.return_value = 0
         self.runner([{"command": {"name": "/SC/SC_COMMANDS/SC_START_RTS"}}]).run()
@@ -374,6 +413,46 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(pattern.match("Duplex Mode"))
         self.assertTrue(pattern.match("check\nDuplex Mode"))
         self.assertFalse(pattern.match("Transmit Only Mode"))
+
+    def test_record_stores_a_value_that_later_steps_substitute(self):
+        yamcs = FakeYamcs({"engValue": {"type": "STRING", "stringValue": "sv1980.ds"}})
+        self.page.get_by_text.return_value.count.return_value = 0
+        field = self.page.get_by_text.return_value.first.locator.return_value
+        field.evaluate.return_value = "input"
+        runner = self.runner([{"record": {"name": "/FM/FM_DIRLISTPKT/FILENAME1", "as": "file"}},
+                              {"command": {"name": "/CF/CF_COMMANDS/CF_TX_FILE",
+                                           "args": {"SOURCE_FILENAME": "/d/{file}", "KEEP": "{unset}"}}}], yamcs)
+        runner.run()
+        self.assertEqual(runner.recorded, {"file": "sv1980.ds"})
+        self.assertEqual([c.args[0] for c in field.fill.call_args_list], ["/d/sv1980.ds", "{unset}"])
+
+    def test_record_waits_for_the_parameter_to_exist(self):
+        runner = self.runner([{"record": {"name": "/X/Y", "as": "v"}}], FakeYamcs(None, reading(7)))
+        runner.run()
+        self.assertEqual((runner.recorded["v"], self.clock.time), (7, 1.0))
+
+    def test_wait_param_equals_a_recorded_baseline_plus_an_offset(self):
+        yamcs = FakeYamcs(reading(4), reading(4), reading(5))
+        self.runner([{"record": {"name": "/CFE_ES/CMD", "as": "es"}},
+                     {"wait_param": {"name": "/CFE_ES/CMD", "equals": {"recorded": "es", "plus": 1}}}], yamcs).run()
+        self.assertEqual(self.clock.time, 1.0)
+
+    def test_wait_param_min_and_max_bounds(self):
+        yamcs = FakeYamcs(reading(0), reading(5), reading(5))
+        self.runner([{"wait_param": {"name": "/FM/SIZE", "min": 1}}], yamcs).run()
+        self.assertEqual(self.clock.time, 1.0)
+        with self.assertRaisesRegex(CaptureError, "timed out after 2s waiting for /FM/SIZE max 3"):
+            self.runner([{"wait_param": {"name": "/FM/SIZE", "max": 3, "timeout_s": 2}}], FakeYamcs(reading(5))).run()
+
+    def test_min_is_not_satisfied_by_a_text_value(self):
+        text = {"engValue": {"type": "STRING", "stringValue": "abc"}}
+        with self.assertRaises(CaptureError):
+            self.runner([{"wait_param": {"name": "/X", "min": 1, "timeout_s": 1}}], FakeYamcs(text)).run()
+
+    def test_hover_and_scroll_to_use_locators(self):
+        self.runner([{"hover": {"selector": "[mattooltip=Run]"}}, {"scroll_to": "ANGRATE_Z"}]).run()
+        self.page.locator.return_value.first.hover.assert_called_once()
+        self.page.get_by_text.return_value.first.scroll_into_view_if_needed.assert_called_once()
 
     def test_a_failing_step_is_reported_with_its_number_and_action(self):
         self.page.goto.side_effect = RuntimeError("net::ERR_CONNECTION_REFUSED")

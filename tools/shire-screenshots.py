@@ -217,6 +217,8 @@ def run(args: argparse.Namespace) -> int:
         return 1
     if args.base_url:
         manifest.base_url = args.base_url.rstrip("/")
+    if args.output_dir:
+        manifest.output_dir = args.output_dir.resolve()
 
     yamcs = YamcsClient(manifest.base_url, manifest.instance, manifest.processor)
     process = None
@@ -263,6 +265,7 @@ def main() -> int:
     running.add_argument("--keep-running", action="store_true", help="leave the stack up when finished")
     running.add_argument("--start-log", type=pathlib.Path, help="saved `make start` output for start_log shots with --attach")
     running.add_argument("--base-url", help="override the manifest's YAMCS address")
+    running.add_argument("--output-dir", type=pathlib.Path, help="write images here instead of the scenario's asset folder")
     running.add_argument("--dry-run", action="store_true", help="run every step but write no images")
     running.set_defaults(func=run)
     args = parser.parse_args()
