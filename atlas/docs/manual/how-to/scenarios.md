@@ -275,6 +275,19 @@ exclusively through `verify_stacks`, never ones also meant for manual GUI
 use.
 See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
 
+`checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
+`adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,
+`adcs-target-track`) use `verify_stacks` today, the latter running
+`comp/adcs/gsw/procedures/*.ycs` stacks.
+It is a developer tool.
+No CI job runs `make scenario` at all yet (see the note above), so this
+isn't gating anything by extension either.
+Using it needs `requests`/`yamcs-client` installed on whatever host runs
+`make scenario`
+(`python3 -m pip install --requirement yamcs/requirements-commander.txt`),
+a prerequisite only for scenarios that set `verify_stacks`, not for
+`make scenario` in general.
+
 ### Asserting on container logs (`log_assertions`)
 
 Some evidence never reaches a YAMCS parameter, such as the ground CryptoLib container rejecting a tampered telemetry frame.
@@ -294,19 +307,6 @@ log_assertions:
 A `max` of 0 asserts absence.
 Each result is recorded in `result["log_assertions"]` in `result.json`, and a failed assertion fails the run with a distinct reason.
 These checks run once, after the run completes, so use them for totals rather than for ordering inside a stack.
-
-`checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
-`adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,
-`adcs-target-track`) use `verify_stacks` today, the latter running
-`comp/adcs/gsw/procedures/*.ycs` stacks.
-It is a developer tool.
-No CI job runs `make scenario` at all yet (see the note above), so this
-isn't gating anything by extension either.
-Using it needs `requests`/`yamcs-client` installed on whatever host runs
-`make scenario`
-(`python3 -m pip install --requirement yamcs/requirements-commander.txt`),
-a prerequisite only for scenarios that set `verify_stacks`, not for
-`make scenario` in general.
 
 ### Tuning wall-clock speed
 
