@@ -42,6 +42,9 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make campaign CAMPAIGN=<name> MAX_PARALLEL=<n>` | Run a Monte Carlo campaign's trials and aggregate the results. |
 | `make docs-check` | Validate the Atlas content and run a strict production build. |
 | `make docs-serve` | Start the local Atlas preview server. |
+| `make screenshots-setup` | Install Playwright and headless Chromium for scenario screenshots under `build/`. |
+| `make screenshots SCENARIO=<name>` | Start the DRM, replay the scenario's screenshot manifest in a headless browser, and write its images. |
+| `make screenshots-check SCENARIO=<name>` | Confirm a scenario's screenshot manifest, page references, and images agree. |
 | `make debug` | Open an interactive shell in the SHIRE build image with the repository mounted. |
 | `make clean` | Stop the environments and remove the active mission build tree, selected runtime artifacts, and matching SHIRE volumes when the build image exists locally. |
 | `make clean-cache` | Delete all labeled SHIRE replay archives and pinned run images, prune Docker builder cache, and retain unlabeled legacy GSW volumes. |

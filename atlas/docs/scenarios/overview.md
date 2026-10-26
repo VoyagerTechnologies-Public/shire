@@ -62,6 +62,9 @@ The most useful scenario captures are:
 Crop screenshots to the information needed by the step.
 Remove credentials, host details, keys, and unrelated mission data before publication.
 
+Scenario screenshots are captured by script and not by hand.
+See [Scenario screenshots](../manual/how-to/scenario-screenshots.md) to refresh a scenario's images after a change.
+
 ## Stop or recover a run
 
 If an assertion fails, stop the procedure before sending additional commands.
