@@ -13,7 +13,7 @@ The generated DRM compose file currently defines six services:
 | `shire-director` | Loads configured component simulator `.so` libraries, runs ordered sensing and actuation callbacks plus concurrent device service workers, exchanges state and commands with 42, services simulator backdoor commands, and publishes 1 Hz truth and versioned visualization truth to Yamcs. |
 | `shire-server` | Owns Simulith simulation time and advances the 10 ms tick only after all required PREPARE, EXECUTE, and COMMIT completions. |
 | `shire-fsw` | Runs the cFS mission build, including reusable cFS applications and the component applications selected for the spacecraft. |
-| `shire-cryptolib` | Applies security processing in the simulated radio command and telemetry path. |
+| `shire-cryptolib` | Applies SDLS security processing, AES-256-GCM encryption and authentication by default, in the simulated radio command and telemetry path. |
 | `shire-gsw` | Runs YAMCS for commanding, telemetry, native archives, replay, procedures, displays, CFDP, and the offline Cesium viewer on port 8090. |
 
 Service and container names include mission or spacecraft values in several places.

@@ -227,6 +227,9 @@ void tearDown(void)
 
 static void test_server_reports_shared_barrier_creation_failure(void)
 {
+    /* A barrier file left by an earlier run (for example one killed by a timeout) would make mkdir fail. */
+    (void)unlink(SIMULITH_SHARED_BARRIER_PATH);
+    (void)rmdir(SIMULITH_SHARED_BARRIER_PATH);
     TEST_ASSERT_EQUAL_INT(0, mkdir(SIMULITH_SHARED_BARRIER_PATH, 0700));
     TEST_ASSERT_EQUAL_INT(-1,
                           simulith_server_init("pub", "ipc://rep", 1, 1));

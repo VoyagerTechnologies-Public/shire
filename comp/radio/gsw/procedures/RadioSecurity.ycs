@@ -1,0 +1,387 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Before running in Yamcs Links: enable debug-in and sim-backdoor and keep the simulation playing. The stack puts the radio in duplex mode. Radio link security is on by default, so every radio-out command in this stack crosses the link AES-256-GCM encrypted and authenticated. Housekeeping is read back over the debug uplink, whose commands do not pass through the radio. The tampering is applied by the radio simulator backdoor, and the ground CryptoLib container's own log checks cover the downlink.",
+      "comment": "Before running in Yamcs Links: enable debug-in and sim-backdoor and keep the simulation playing. The stack puts the radio in duplex mode. Radio link security is on by default, so every radio-out command in this stack crosses the link AES-256-GCM encrypted and authenticated. Housekeeping is read back over the debug uplink, whose commands do not pass through the radio. The tampering is applied by the radio simulator backdoor, and the ground CryptoLib container's own log checks cover the downlink."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Duplex Mode"
+        }
+      ],
+      "extraOptions": [],
+      "comment": "the radio boots receive-only; duplex lets telemetry flow down the link"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_RST_COUNTERS_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "baseline: no commands accepted and no device errors",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Encrypted uplink: a command sent over radio-out is decrypted and accepted onboard",
+      "comment": "Encrypted uplink: a command sent over radio-out is decrypted and accepted onboard"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_NOOP_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "encrypted command accepted",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Tampered uplink: one flipped ciphertext bit fails authentication and the command is rejected",
+      "comment": "Tampered uplink: one flipped ciphertext bit fails authentication and the command is rejected"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_CORRUPT_PACKETS",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "UPLINK"
+        },
+        {
+          "name": "COUNT",
+          "value": "1"
+        },
+        {
+          "name": "OFFSET",
+          "value": "22"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_NOOP_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "tampered command rejected",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "The link recovers: the next genuine command is accepted despite the lost sequence number",
+      "comment": "The link recovers: the next genuine command is accepted despite the lost sequence number"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_NOOP_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "genuine command accepted after the attack",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Replayed uplink: re-sending the captured command is rejected as a replay",
+      "comment": "Replayed uplink: re-sending the captured command is rejected as a replay"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_REPLAY_PACKET",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "UPLINK"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "replayed command rejected",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "A further genuine command is still accepted",
+      "comment": "A further genuine command is still accepted"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_NOOP_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "genuine command accepted after the replay",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Downlink: replay a telemetry frame the ground already accepted, then tamper with the next one. The ground CryptoLib rejects both, and the scenario checks its log",
+      "comment": "Downlink: replay a telemetry frame the ground already accepted, then tamper with the next one. The ground CryptoLib rejects both, and the scenario checks its log"
+    },
+    {
+      "type": "verify",
+      "comment": "telemetry is flowing down the radio link",
+      "timeout": 60000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_BytesSent",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_REPLAY_PACKET",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "DOWNLINK"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_CORRUPT_PACKETS",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "DOWNLINK"
+        },
+        {
+          "name": "COUNT",
+          "value": "1"
+        },
+        {
+          "name": "OFFSET",
+          "value": "30"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "flight side saw no errors from downlink tampering",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_CommandCount",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "eq",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}

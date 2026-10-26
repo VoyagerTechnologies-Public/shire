@@ -24,6 +24,7 @@ import yaml
 
 from shire_provenance import ROOT
 from shire_eps_config import normalize_eps, merge_component_config
+from shire_radio_config import normalize_radio
 
 
 def container_names(mission: str, spacecraft: str, instance: str | None = None) -> dict[str, str]:
@@ -114,6 +115,15 @@ def try_parse_marker(log: str, marker: str) -> dict[str, object] | None:
         return None
 
 
+def _load_ground_station_catalog() -> list[dict]:
+    path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "../cfg/drm/ground_stations.yaml"))
+    if not os.path.exists(path):
+        return []
+    with open(path, "r") as f:
+        return (yaml.safe_load(f) or {}).get("ground_stations", [])
+
+
 def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[str, object],
                               spacecraft_cfg: dict[str, object], scenario_cfg: dict[str, object],
                               ic_cfg: dict[str, object], *, cli_debug: bool = False,
@@ -161,10 +171,40 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
 
         if comp_name == "eps":
             comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
+        if comp_name == "radio":
+            comp_cfg = normalize_radio(comp_cfg, _load_ground_station_catalog())
         resolved[comp_name] = comp_cfg
     if scenario_cfg.get('retain_all_events'):
         resolved['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
     return resolved
+
+
+def evaluate_log_assertions(assertions: list[dict] | None, logs: dict[str, str]) -> list[dict]:
+    """Checks scenario `log_assertions` against the captured container logs.
+
+    Each entry names a container role (a key of container_names(), e.g. cryptolib, fsw, director), a regular
+    expression, and optional `min` (default 1) / `max` matching-line counts. Used where the evidence for a
+    behaviour is a container's own log rather than a Yamcs parameter, for example the ground CryptoLib
+    rejecting a tampered telemetry frame."""
+    results = []
+    for entry in assertions or []:
+        container, pattern = entry.get("container"), entry.get("pattern")
+        if container not in logs:
+            raise ValueError(f"log_assertions container {container!r} is not one of {sorted(logs)}")
+        if not isinstance(pattern, str) or not pattern:
+            raise ValueError("log_assertions entries need a nonempty pattern")
+        lower, upper = entry.get("min", 1), entry.get("max")
+        for name, value in (("min", lower), ("max", upper)):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                raise ValueError(f"log_assertions {name} must be a nonnegative integer")
+        regex = re.compile(pattern)
+        count = sum(1 for line in logs[container].splitlines() if regex.search(line))
+        results.append({
+            "container": container, "pattern": pattern, "count": count, "min": lower, "max": upper,
+            "description": entry.get("description"),
+            "passed": count >= lower and (upper is None or count <= upper),
+        })
+    return results
 
 
 def compute_build_key(ic_cfg: dict[str, object], resolved_components: dict[str, dict]) -> str:

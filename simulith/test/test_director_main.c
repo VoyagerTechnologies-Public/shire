@@ -16,7 +16,9 @@ typedef enum
     SCENARIO_CLIENT_INIT_FAILURE,
     SCENARIO_PHASE_CONFIG_FAILURE,
     SCENARIO_HANDSHAKE_FAILURE,
-    SCENARIO_PHASE_RUN_FAILURE
+    SCENARIO_PHASE_RUN_FAILURE,
+    SCENARIO_TRACE_OPEN_FAILURE,
+    SCENARIO_TRACE_DURATION_FAILURE
 } scenario_t;
 
 director_config_t g_director_config;
@@ -82,19 +84,22 @@ int initialize_telemetry(void)
     return scenario == SCENARIO_TELEMETRY_FAILURE ? -1 : 0;
 }
 
+static int trace_abort_calls;
+
 int simulith_control_trace_open(const char *directory)
 {
     (void)directory;
-    return 0;
+    return scenario == SCENARIO_TRACE_OPEN_FAILURE ? -1 : 0;
 }
 
 int director_configure_trace_duration(void)
 {
-    return 0;
+    return scenario == SCENARIO_TRACE_DURATION_FAILURE ? -1 : 0;
 }
 
 void simulith_control_trace_abort(void)
 {
+    trace_abort_calls++;
 }
 
 int initialize_scenario(director_config_t *config)
@@ -187,6 +192,7 @@ void setUp(void)
     client_run_calls = 0;
     telemetry_calls = 0;
     configured_phase_calls = 0;
+    trace_abort_calls = 0;
     memset(&g_director_config, 0, sizeof(g_director_config));
 }
 
@@ -263,6 +269,24 @@ static void test_client_startup_failures(void)
     TEST_ASSERT_EQUAL_INT(1, client_shutdown_calls);
 }
 
+static void test_control_trace_startup_failures(void)
+{
+    /* The trace cannot be opened: nothing was started, so nothing needs aborting. */
+    scenario = SCENARIO_TRACE_OPEN_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+    TEST_ASSERT_EQUAL_INT(0, trace_abort_calls);
+    TEST_ASSERT_EQUAL_INT(0, client_shutdown_calls);
+
+    /* The trace opened but the run length is invalid for it: the open trace is aborted. */
+    setUp();
+    scenario = SCENARIO_TRACE_DURATION_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+    TEST_ASSERT_EQUAL_INT(1, trace_abort_calls);
+    TEST_ASSERT_EQUAL_INT(0, client_shutdown_calls);
+}
+
 static void test_successful_lifecycle(void)
 {
     TEST_ASSERT_EQUAL_INT(0, run_entry());
@@ -288,6 +312,7 @@ int main(void)
     RUN_TEST(test_component_startup_failures);
     RUN_TEST(test_42_failure_refuses_open_loop_run);
     RUN_TEST(test_client_startup_failures);
+    RUN_TEST(test_control_trace_startup_failures);
     RUN_TEST(test_successful_lifecycle);
     RUN_TEST(test_phase_failure_exits_nonzero);
     return UNITY_END();

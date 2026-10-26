@@ -22,11 +22,24 @@
 #error "SIMULITH_SERVER_PATH must identify the standalone server executable"
 #endif
 
-static int ticks_received = 0;
+static volatile int ticks_received = 0;
+
+/* Set by a test server thread once simulith_server_init() has bound its sockets. Waiting for it replaces
+ * fixed sleeps, which are shorter than a starved or busy machine needs to schedule the server thread. */
+static volatile int server_ready = 0;
+
+/* Not an assertion: it is also called from non-test threads, where a Unity failure must not longjmp. */
+static void wait_for_server_ready(void)
+{
+    for (int attempt = 0; attempt < 40000 && !server_ready; ++attempt)
+        test_sleep_us(500);
+    server_ready = 0;
+}
 
 void setUp(void)
 {
     ticks_received = 0;
+    server_ready = 0;
 }
 
 void tearDown(void)
@@ -42,6 +55,7 @@ static void on_tick(uint64_t time_ns)
 static void *server_thread(void *arg)
 {
     simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, 1, INTERVAL_NS);
+    server_ready = 1;
     simulith_server_run(); // runs indefinitely
     return NULL;
 }
@@ -57,6 +71,7 @@ static void *server_thread_with_clients(void *arg)
     }
 
     simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, expected, INTERVAL_NS);
+    server_ready = 1;
     simulith_server_run();
     return NULL;
 }
@@ -72,7 +87,7 @@ static int zmq_req_send_and_recv(const char *addr, const char *msg, char *reply,
     zmq_setsockopt(req, ZMQ_LINGER, &linger, sizeof(linger));
     if (zmq_connect(req, addr) != 0) { zmq_close(req); zmq_ctx_term(ctx); return -1; }
 
-    int timeout_ms = 2000;
+    int timeout_ms = 10000; /* only reached when the server is badly starved or absent */
     zmq_setsockopt(req, ZMQ_RCVTIMEO, &timeout_ms, sizeof(timeout_ms));
 
     if (zmq_send(req, msg, strlen(msg), 0) == -1) { zmq_close(req); zmq_ctx_term(ctx); return -1; }
@@ -90,7 +105,7 @@ static int zmq_req_send_and_recv(const char *addr, const char *msg, char *reply,
 
 static void *client_thread(void *arg)
 {
-    test_sleep_us(1000); // Wait for server to be ready
+    wait_for_server_ready();
 
     simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
 
@@ -112,7 +127,10 @@ static void test_synchronization_tick_exchange(void)
     pthread_create(&server, NULL, server_thread, NULL);
     pthread_create(&client, NULL, client_thread, NULL);
 
-    sleep(TEST_TIME_S); // Allow some time for a few ticks to exchange
+    /* Wait for the first tick however long a busy machine takes, then allow some time for a few more. */
+    for (int attempt = 0; attempt < 60000 && ticks_received == 0; ++attempt)
+        test_sleep_us(500);
+    sleep(TEST_TIME_S);
 
     TEST_ASSERT_GREATER_THAN(0, ticks_received);
 
@@ -703,7 +721,7 @@ static void test_client_wait_for_tick(void)
     int i = 1;
     int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
-    test_sleep_us(10000); // give server time to bind and start
+    wait_for_server_ready();
 
     int rc = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "shire-fsw", INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(0, rc);
@@ -729,7 +747,7 @@ static void test_server_handshake_invalid_format(void)
     int i = 1;
     int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
-    test_sleep_us(10000);
+    wait_for_server_ready();
 
     char reply[128] = {0};
     char oversized[128];
@@ -754,7 +772,7 @@ static void test_server_handshake_duplicate_client_id(void)
     int i = 2; // two clients expected
     int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
-    test_sleep_us(10000);
+    wait_for_server_ready();
 
     // Use the raw ZMQ helper to perform two READY messages which should result
     // in ACK then DUP_ID. This avoids the library's single-client global state.
@@ -783,7 +801,7 @@ static void test_server_ack_handling(void)
     int i = 1;
     int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
-    test_sleep_us(10000);
+    wait_for_server_ready();
 
     test_sleep_us(20000); // allow server to bind and start broadcasting
 
@@ -910,7 +928,7 @@ static void test_server_handle_unknown_client_ack(void)
     setenv("SIMULITH_LOG_MODE", "file", 1);
     simulith_log_reset_for_tests();
     pthread_create(&server, NULL, server_thread_with_clients, p);
-    test_sleep_us(10000);
+    wait_for_server_ready();
 
     char reply[128] = {0};
     int rc = zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY KNOWN", reply, sizeof(reply));
@@ -947,7 +965,7 @@ static void test_server_rejects_bad_completion_sequences(void)
     pthread_t server;
     int expected = 2;
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
 
     char reply[128] = {0};
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY FIRST", reply, sizeof(reply)));
@@ -980,7 +998,7 @@ static void test_server_enforces_prepare_execute_commit_order(void)
     pthread_t server;
     int expected = 2;
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
 
     char reply[128] = {0};
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
@@ -1066,7 +1084,7 @@ static void test_server_rejects_invalid_handshake_transport_and_duplicate_ids(vo
     pthread_t server;
     int expected = 2;
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
 
     char reply[128] = {0};
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "BAD HANDSHAKE", reply, sizeof(reply)));
@@ -1097,7 +1115,7 @@ static void test_server_rejects_unavailable_and_mixed_shared_transport(void)
     int expected = 2;
     setenv("SIMULITH_SYNC_TRANSPORT", "zmq", 1);
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
 
     char reply[128] = {0};
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY sharedbad 5 shared", reply, sizeof(reply)));
@@ -1109,7 +1127,7 @@ static void test_server_rejects_unavailable_and_mixed_shared_transport(void)
     simulith_server_shutdown();
 
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY sharedok 5 shared", reply, sizeof(reply)));
     TEST_ASSERT_EQUAL_STRING("ACK 0", reply);
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY mixed 5 zmq", reply, sizeof(reply)));
@@ -1126,7 +1144,7 @@ static void test_server_accepts_default_and_legacy_handshakes(void)
     char reply[128] = {0};
 
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
         LOCAL_REP_ADDR, "READY shire-fsw", reply, sizeof(reply)));
     TEST_ASSERT_EQUAL_STRING("ACK", reply);
@@ -1135,7 +1153,7 @@ static void test_server_accepts_default_and_legacy_handshakes(void)
     simulith_server_shutdown();
 
     pthread_create(&server, NULL, server_thread_with_clients, &expected);
-    test_sleep_us(20000);
+    wait_for_server_ready();
     TEST_ASSERT_EQUAL_INT(0, zmq_req_send_and_recv(
         LOCAL_REP_ADDR, "READY legacy 2 trailing", reply, sizeof(reply)));
     TEST_ASSERT_EQUAL_STRING("ERR TRANSPORT", reply);

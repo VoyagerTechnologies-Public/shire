@@ -48,3 +48,7 @@ scenarios:
     config_file: "drm/scenarios/eps-functional.yaml"
   - name: "eps-backdoor-testing"
     config_file: "drm/scenarios/eps-backdoor-testing.yaml"
+  - name: "radio-link-testing"
+    config_file: "drm/scenarios/radio-link-testing.yaml"
+  - name: "radio-security-testing"
+    config_file: "drm/scenarios/radio-security-testing.yaml"

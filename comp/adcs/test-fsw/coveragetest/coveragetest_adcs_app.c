@@ -695,6 +695,24 @@ void Test_ADCS_ProcessGroundCommand(void)
     }
     UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendTargetVectorCmd)) == sends_before,
                   "Invalid vectors never sent to device");
+
+    /* A non-finite Y or Z is rejected even when X is a perfectly good component. */
+    for (int axis = 1; axis <= 2; ++axis)
+    {
+        for (size_t i = 1; i <= 2; ++i)
+        {
+            TestMsg.TargetVector.X = 1.0f;
+            TestMsg.TargetVector.Y = (axis == 1) ? invalid_components[i] : 0.0f;
+            TestMsg.TargetVector.Z = (axis == 2) ? invalid_components[i] : 0.0f;
+            ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+            UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+            UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+            UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+            ADCS_ProcessGroundCommand();
+        }
+    }
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendTargetVectorCmd)) == sends_before,
+                  "Vectors with a non-finite Y or Z never sent to device");
     TestMsg.TargetVector.X = 1.0f;
 
     /* test SET_TARGET_VECTOR when device disabled */
@@ -1130,6 +1148,51 @@ void Test_ADCS_LoadTimeFromFile(void)
     UtAssert_True(CapturedWrite.Seconds == FileData.Seconds, "Persisted Seconds unchanged from the loaded value");
 }
 
+void Test_ADCS_TimeFile_PersistFailures(void)
+{
+    ADCS_TimeFileData_t FileData;
+    ADCS_TimeFileData_t CapturedWrite;
+    UT_CheckEvent_t     EventTest;
+
+    memset(&FileData, 0, sizeof(FileData));
+    FileData.Seconds         = 1000000;
+    FileData.BootOffsetCount = 1;
+
+    /* The fallback loads, but the file cannot be reopened to persist the advanced boot offset. */
+    UT_SetDataBuffer(UT_KEY(OS_read), &FileData, sizeof(FileData), false);
+    UT_SetDeferredRetcode(UT_KEY(OS_OpenCreate), 2, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+    ADCS_LoadTimeFromFile();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_True(ADCS_AppData.TimeFileFallbackAvailable == true, "Fallback is still armed when persisting fails");
+    UT_ResetState(0);
+
+    /* The file reopens but the write is short. */
+    UT_SetDataBuffer(UT_KEY(OS_read), &FileData, sizeof(FileData), false);
+    UT_SetDeferredRetcode(UT_KEY(OS_write), 1, 1);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+    ADCS_LoadTimeFromFile();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* The periodic save cannot open the file. */
+    ADCS_AppData.TimeFileSaveCounter = ADCS_TIME_FILE_SAVE_PERIOD_CYCLES - 1;
+    UT_SetDeferredRetcode(UT_KEY(OS_OpenCreate), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+    ADCS_SaveTimeToFile();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(OS_write)), 0);
+    UT_ResetState(0);
+
+    /* A successful periodic save resets the cadence and records a zero boot offset. */
+    ADCS_AppData.TimeFileSaveCounter = ADCS_TIME_FILE_SAVE_PERIOD_CYCLES - 1;
+    UT_SetDataBuffer(UT_KEY(OS_write), &CapturedWrite, sizeof(CapturedWrite), false);
+    ADCS_SaveTimeToFile();
+    UtAssert_UINT32_EQ(ADCS_AppData.TimeFileSaveCounter, 0);
+    UtAssert_UINT32_EQ(CapturedWrite.BootOffsetCount, 0);
+    UT_ResetState(0);
+}
+
 void Test_ADCS_ResubmitTimeFallback(void)
 {
     /*
@@ -1233,6 +1296,113 @@ void Adcs_UT_Setup(void)
     UT_ResetState(0);
 }
 
+void Test_ADCS_Config_RefreshFailureIsACommandError(void)
+{
+    CFE_SB_MsgId_t    TestMsgId = CFE_SB_ValueToMsgId(ADCS_CMD_MID);
+    CFE_MSG_FcnCode_t FcnCode   = ADCS_CONFIG_CC;
+    ADCS_NoArgs_cmd_t Command;
+    size_t            Size = sizeof(Command);
+
+    memset(&Command, 0, sizeof(Command));
+    ADCS_AppData.MsgPtr                       = (CFE_MSG_Message_t *)&Command;
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    uint32 errors_before   = ADCS_AppData.HkTelemetryPkt.CommandErrorCount;
+    uint32 commands_before = ADCS_AppData.HkTelemetryPkt.CommandCount;
+    uint32 sends_before    = UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd));
+
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_ERR_LOAD_IN_PROGRESS);
+
+    ADCS_ProcessGroundCommand();
+
+    /* The gains are not pushed to the device when the table could not be refreshed. */
+    UtAssert_UINT32_EQ(ADCS_AppData.HkTelemetryPkt.CommandErrorCount, errors_before + 1);
+    UtAssert_UINT32_EQ(ADCS_AppData.HkTelemetryPkt.CommandCount, commands_before);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)), sends_before);
+    UT_ResetState(0);
+}
+
+void Test_ADCS_AppInit_StartupEventFailure(void)
+{
+    /* Not being able to announce startup is logged to the system log and returned, not ignored. */
+    UT_ProvideGainsTableAddress();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_EVS_SendEvent), CFE_EVS_INVALID_PARAMETER);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_EVS_INVALID_PARAMETER);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_ES_WriteToSysLog)), 1);
+    UT_ResetState(0);
+}
+
+void Test_ADCS_RefreshGainsTable_Paths(void)
+{
+    static ADCS_GainsTbl_t table;
+    ADCS_GainsTbl_t       *table_ptr = &table;
+    UT_CheckEvent_t        EventTest;
+
+    memset(&table, 0, sizeof(table));
+    table.SunPointKp = 0.25f;
+
+    /* The pending update cannot be applied. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_ERR_LOAD_IN_PROGRESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_MANAGE_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_ERR_LOAD_IN_PROGRESS);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* The table address cannot be read: that status is returned. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_ERR_NEVER_LOADED);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_GETADDR_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_ERR_NEVER_LOADED);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* The address call succeeds but yields no table: reported as a bad argument rather than as success. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_GETADDR_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_BAD_ARGUMENT);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* An updated-flag status with no table is the same failure. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_BAD_ARGUMENT);
+    UT_ResetState(0);
+
+    /* The table is read but cannot be released. */
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_ReleaseAddress), 1, CFE_TBL_ERR_NO_ACCESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_GETADDR_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_ERR_NO_ACCESS);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* Success refreshes the snapshot and points the active table at it. */
+    ADCS_AppData.GainsTblPtr = NULL;
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_SUCCESS);
+    UtAssert_True(ADCS_AppData.GainsTblPtr == &ADCS_AppData.GainsTblSnapshot, "Active table is the refreshed snapshot");
+    UtAssert_True(ADCS_AppData.GainsTblSnapshot.SunPointKp == 0.25f, "Snapshot holds the table contents");
+    UT_ResetState(0);
+}
+
+void Test_ADCS_TableInit_ReleaseFailure(void)
+{
+    static ADCS_GainsTbl_t table;
+    ADCS_GainsTbl_t       *table_ptr = &table;
+
+    memset(&table, 0, sizeof(table));
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_ReleaseAddress), 1, CFE_TBL_ERR_NO_ACCESS);
+    UT_TEST_FUNCTION_RC(ADCS_TableInit(), CFE_TBL_ERR_NO_ACCESS);
+    UT_ResetState(0);
+
+    /* A release that reports the table was updated is still a success. */
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_ReleaseAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_TEST_FUNCTION_RC(ADCS_TableInit(), CFE_SUCCESS);
+    UT_ResetState(0);
+}
+
 /*
  * Teardown function after every test
  */
@@ -1244,6 +1414,10 @@ void Adcs_UT_TearDown(void) {}
 void UtTest_Setup(void)
 {
     ADD_TEST(ADCS_AppMain);
+    ADD_TEST(ADCS_Config_RefreshFailureIsACommandError);
+    ADD_TEST(ADCS_AppInit_StartupEventFailure);
+    ADD_TEST(ADCS_RefreshGainsTable_Paths);
+    ADD_TEST(ADCS_TableInit_ReleaseFailure);
     ADD_TEST(ADCS_AppInit);
     ADD_TEST(ADCS_ProcessCommandPacket);
     ADD_TEST(ADCS_ProcessGroundCommand);
@@ -1257,5 +1431,6 @@ void UtTest_Setup(void)
     ADD_TEST(ADCS_LoadTimeFromFile);
     ADD_TEST(ADCS_ResubmitTimeFallback);
     ADD_TEST(ADCS_SaveTimeToFile);
+    ADD_TEST(ADCS_TimeFile_PersistFailures);
     ADD_TEST(ADCS_ValidateGainsTbl);
 }

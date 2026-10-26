@@ -334,6 +334,8 @@ interactive controls.
 The Director listens for backdoor datagrams on UDP 50060 and dispatches a valid packet to the named component's `backdoor` callback.
 Backdoor behavior is specific to each component.
 Demo currently supports three backdoor commands, all routed over the `tc_backdoor` stream: `/DEMO/BACKDOOR_DEMO_SET_CONFIG` writes `DEVICE_CONFIG` directly, bypassing normal command processing (see `DemoFDIR.ycs` and the [FDIR scenario](../../scenarios/fdir.md) for the fault-injection pattern this enables), and `/DEMO/BACKDOOR_DEMO_RAND_HK` / `/DEMO/BACKDOOR_DEMO_RAND_DATA` toggle randomized housekeeping or channel data.
+Radio (target `radio_sim`) supports nine `/RADIO/BACKDOOR_RADIO_*` commands that force the RF link in view or out of view, set per-direction transmission delay and packet drop rate, bypass those impairments, enable or disable individual ground stations, reseed the loss generator, reset the link, corrupt packets in flight, and replay the last packet.
+See `comp/radio/README.md`, the [radio link scenario](../../scenarios/radio-link-testing.md), and the [radio security scenario](../../scenarios/radio-security-testing.md).
 This is a component-level backdoor into the Director, a different link from the Simulith Server's own pause/play/speed backdoor described above.
 A backdoor is a test interface, not a flight interface, and should only be used in isolated simulation runs.
 

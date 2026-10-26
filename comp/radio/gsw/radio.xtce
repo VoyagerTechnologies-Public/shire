@@ -98,6 +98,60 @@
       <xtce:BinaryArgumentType name="SEND_DATA_Type" initialValue="" shortDescription="Send Data (variable length)">
         <xtce:BinaryDataEncoding sizeInBits="0" encoding="none"/>
       </xtce:BinaryArgumentType>
+      <xtce:EnumeratedArgumentType name="BD_RADIO_LINK_MODE_Type" shortDescription="Link visibility: 0=auto (from ground station geometry), 1=always in view, 2=never in view" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="AUTO" />
+          <xtce:Enumeration value="1" label="ALWAYS_IN_VIEW" />
+          <xtce:Enumeration value="2" label="NEVER_IN_VIEW" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:EnumeratedArgumentType name="BD_RADIO_DIRECTION_Type" shortDescription="Link direction: 0=uplink (ground to spacecraft), 1=downlink, 2=both" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="UPLINK" />
+          <xtce:Enumeration value="1" label="DOWNLINK" />
+          <xtce:Enumeration value="2" label="BOTH" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:EnumeratedArgumentType name="BD_RADIO_ENABLE_Type" shortDescription="0=disabled, 1=enabled" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DISABLED" />
+          <xtce:Enumeration value="1" label="ENABLED" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:IntegerArgumentType name="BD_RADIO_DELAY_MS_Type" shortDescription="One-way transmission delay [ms]" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="4294967295" />
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="BD_RADIO_DROP_PPM_Type" shortDescription="Packet drop probability [parts per million]" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="1000000" />
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="BD_RADIO_STATION_Type" shortDescription="Ground station index (255 = all stations)" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="255" />
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="BD_RADIO_SEED_Type" shortDescription="Packet-loss generator seed" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="4294967295" />
+      </xtce:IntegerArgumentType>
+      <xtce:EnumeratedArgumentType name="BD_RADIO_REPLAY_DIRECTION_Type" shortDescription="Link direction to replay: 0=uplink (ground to spacecraft), 1=downlink" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="UPLINK" />
+          <xtce:Enumeration value="1" label="DOWNLINK" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:IntegerArgumentType name="BD_RADIO_COUNT_Type" shortDescription="Number of packets to corrupt (0 cancels)" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="65535" />
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="BD_RADIO_OFFSET_Type" shortDescription="Byte offset within the packet whose low bit is flipped" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="65535" />
+      </xtce:IntegerArgumentType>
     </xtce:ArgumentTypeSet>
     <xtce:MetaCommandSet>
       <xtce:MetaCommand name="RADIO_NOOP_CC">
@@ -193,6 +247,175 @@
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList/>
         <xtce:CommandContainer name="RADIO_RADIO_SERVICE_CC_CommandContainer"><xtce:EntryList/></xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_SET_LINK_MODE" shortDescription="Radio simulator: force link auto / always in view / never in view">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="MODE" argumentTypeRef="BD_RADIO_LINK_MODE_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_SET_LINK_MODE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0001" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0001" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="MODE" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_SET_DELAY" shortDescription="Radio simulator: set one-way transmission delay">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="DIRECTION" argumentTypeRef="BD_RADIO_DIRECTION_Type" />
+          <xtce:Argument name="DELAY_MS" argumentTypeRef="BD_RADIO_DELAY_MS_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_SET_DELAY_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0002" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0005" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="DIRECTION" />
+            <xtce:ArgumentRefEntry argumentRef="DELAY_MS" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_SET_DROP_RATE" shortDescription="Radio simulator: set packet drop rate">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="DIRECTION" argumentTypeRef="BD_RADIO_DIRECTION_Type" />
+          <xtce:Argument name="DROP_PPM" argumentTypeRef="BD_RADIO_DROP_PPM_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_SET_DROP_RATE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0003" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0005" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="DIRECTION" />
+            <xtce:ArgumentRefEntry argumentRef="DROP_PPM" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_SET_IMPAIRMENTS_ENABLED" shortDescription="Radio simulator: enable or bypass configured delay and packet loss">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="ENABLED" argumentTypeRef="BD_RADIO_ENABLE_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_SET_IMPAIRMENTS_ENABLED_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0004" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0001" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="ENABLED" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_SET_STATION_ENABLED" shortDescription="Radio simulator: enable or disable a ground station (255 = all)">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="STATION" argumentTypeRef="BD_RADIO_STATION_Type" />
+          <xtce:Argument name="ENABLED" argumentTypeRef="BD_RADIO_ENABLE_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_SET_STATION_ENABLED_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0005" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0002" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="STATION" />
+            <xtce:ArgumentRefEntry argumentRef="ENABLED" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_SET_SEED" shortDescription="Radio simulator: reseed the packet-loss generator">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="SEED" argumentTypeRef="BD_RADIO_SEED_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_SET_SEED_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0006" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0004" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="SEED" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_RESET_LINK" shortDescription="Radio simulator: restore configured link defaults and clear packets in flight">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList />
+        <xtce:CommandContainer name="BACKDOOR_RADIO_RESET_LINK_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0007" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0000" sizeInBits="16" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_CORRUPT_PACKETS" shortDescription="Radio simulator: flip one bit at a byte offset in the next N packets crossing the link">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="DIRECTION" argumentTypeRef="BD_RADIO_DIRECTION_Type" />
+          <xtce:Argument name="COUNT" argumentTypeRef="BD_RADIO_COUNT_Type" />
+          <xtce:Argument name="OFFSET" argumentTypeRef="BD_RADIO_OFFSET_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_CORRUPT_PACKETS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0008" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0005" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="DIRECTION" />
+            <xtce:ArgumentRefEntry argumentRef="COUNT" />
+            <xtce:ArgumentRefEntry argumentRef="OFFSET" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="BACKDOOR_RADIO_REPLAY_PACKET" shortDescription="Radio simulator: re-inject the last packet that crossed the link">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">tc_backdoor</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList>
+          <xtce:Argument name="DIRECTION" argumentTypeRef="BD_RADIO_REPLAY_DIRECTION_Type" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BACKDOOR_RADIO_REPLAY_PACKET_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="MAGIC" binaryValue="4241434B444F4F52" sizeInBits="64" />
+            <xtce:FixedValueEntry name="TARGET_LEN" binaryValue="09" sizeInBits="8" />
+            <xtce:FixedValueEntry name="TARGET_NAME" binaryValue="726164696F5F73696D" sizeInBits="72" />
+            <xtce:FixedValueEntry name="CMD_ID" binaryValue="0009" sizeInBits="16" />
+            <xtce:FixedValueEntry name="PAYLOAD_LEN" binaryValue="0001" sizeInBits="16" />
+            <xtce:ArgumentRefEntry argumentRef="DIRECTION" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
       </xtce:MetaCommand>
     </xtce:MetaCommandSet>
   </xtce:CommandMetaData>

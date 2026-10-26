@@ -12,6 +12,7 @@
 #include <dlfcn.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,9 @@ static int (*g_prepare_tick)(component_state_t *, uint64_t,
 
 typedef int  (*radio_init_fn)(radio_sim_state_t *);
 typedef void (*radio_cleanup_fn)(radio_sim_state_t *);
+/* Link-model functions exported by the loaded simulator, used to stage packets and tampering state. */
+static bool (*g_link_enqueue)(radio_link_t *, unsigned int, uint64_t, const uint8_t *, uint32_t) = NULL;
+static void (*g_link_remember)(radio_link_t *, unsigned int, const uint8_t *, uint32_t) = NULL;
 static radio_init_fn    g_radio_sim_init    = NULL;
 static radio_cleanup_fn g_radio_sim_cleanup = NULL;
 
@@ -156,9 +160,16 @@ static void power_on(component_state_t *state)
  * emergency-cleanup if a Unity assertion failure longjmps past cleanup(). */
 static component_state_t *g_state_under_test = NULL;
 
+static int g_ground_sock = -1;
+
 void setUp(void)    { g_state_under_test = NULL; }
 void tearDown(void)
 {
+    if (g_ground_sock >= 0)
+    {
+        close(g_ground_sock);
+        g_ground_sock = -1;
+    }
     if (g_state_under_test)
     {
         g_iface->destroy(g_state_under_test);
@@ -193,8 +204,7 @@ static void test_get_component_interface_symbol(void)
     TEST_ASSERT_NOT_NULL(g_iface->service);
     TEST_ASSERT_NULL(g_iface->actuate);
     TEST_ASSERT_NOT_NULL(g_iface->destroy);
-    /* radio_sim does not define a backdoor handler */
-    TEST_ASSERT_NULL(g_iface->backdoor);
+    TEST_ASSERT_NOT_NULL(g_iface->backdoor);
     TEST_ASSERT_EQUAL_STRING("radio_sim", g_iface->name);
 }
 
@@ -354,7 +364,8 @@ static void test_hk_initial_mode_and_counter(void)
     uint16_t counter = (uint16_t)(((uint16_t)resp[1] << 8) | resp[2]);
     TEST_ASSERT_EQUAL_UINT16(1,                counter);   /* REQ_HK increments */
     TEST_ASSERT_EQUAL_UINT8(RADIO_MODE_DUPLEX, resp[3]);   /* mode */
-    TEST_ASSERT_EQUAL_UINT8(0,                 resp[4]);   /* ground lock */
+    /* ground lock follows the link: an ideal (always-in-view) link is locked */
+    TEST_ASSERT_EQUAL_UINT8(RADIO_CFG_LINK_MODE == RADIO_LINK_MODE_ALWAYS ? 1 : 0, resp[4]);
 
     simulith_transport_close(&spi);
     g_iface->destroy(state);
@@ -1590,6 +1601,873 @@ static void test_eps_power_cycle_discards_queued_udp_datagrams(void)
     TEST_ASSERT_EQUAL_INT(-1, stale_bytes);
 }
 
+/* -------------------------------------------------------------------------
+ * RF link model: backdoor, visibility, delay, and loss
+ * -------------------------------------------------------------------------*/
+#define LINK_ALWAYS_MODE 1
+#define LINK_NEVER_MODE  2
+
+static void be32(uint8_t *out, uint32_t v)
+{
+    out[0] = (uint8_t)(v >> 24); out[1] = (uint8_t)(v >> 16);
+    out[2] = (uint8_t)(v >> 8);  out[3] = (uint8_t)v;
+}
+
+/* Bind the ground end of the downlink (where the radio sends its TX packets). */
+static void open_ground_listener(void)
+{
+    g_ground_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_TRUE(g_ground_sock >= 0);
+    int one = 1;
+    setsockopt(g_ground_sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    struct timeval tv = {0, 100000};
+    setsockopt(g_ground_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port        = htons(RADIO_CFG_UDP_GROUND_TX_PORT);
+    TEST_ASSERT_EQUAL_INT(0, bind(g_ground_sock, (struct sockaddr *)&addr, sizeof(addr)));
+}
+
+/* Waits up to the socket timeout for one downlink packet; <= 0 if none. */
+static ssize_t ground_recv(uint8_t *buf, size_t cap)
+{
+    return recv(g_ground_sock, buf, cap, 0);
+}
+
+static radio_sim_state_t *start_radio(transport_port_t *spi)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+    power_on(state);
+    open_spi_client(spi, "test_spi");
+    open_ground_listener();
+    usleep(2000);
+    return (radio_sim_state_t *)state;
+}
+
+static void finish_radio(transport_port_t *spi)
+{
+    simulith_transport_close(spi);
+    component_state_t *state = g_state_under_test;
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+/* Host -> radio SEND_CMD, serviced by a tick at tick_ns. */
+static void host_send(radio_sim_state_t *rs, transport_port_t *spi, uint64_t tick_ns,
+                      const uint8_t *data, uint16_t len)
+{
+    uint8_t frame[5 + 2048];
+    size_t n = encode_spi_frame(frame, sizeof(frame), RADIO_DEVICE_SEND_CMD, data, len);
+    simulith_transport_send(spi, frame, n);
+    usleep(2000);
+    g_iface->on_tick((component_state_t *)rs, tick_ns, NULL);
+}
+
+static uint32_t rx_count(radio_sim_state_t *rs)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    uint32_t n = rs->rx_buffer_head - rs->rx_buffer_tail;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    return n;
+}
+
+static void backdoor(radio_sim_state_t *rs, uint16_t id, const uint8_t *p, uint16_t n)
+{
+    g_iface->backdoor((component_state_t *)rs, id, p, n);
+}
+
+static void bd_mode(radio_sim_state_t *rs, uint8_t mode) { backdoor(rs, RADIO_BD_SET_LINK_MODE, &mode, 1); }
+
+static void bd_u8_u32(radio_sim_state_t *rs, uint16_t id, uint8_t dir, uint32_t value)
+{
+    uint8_t p[5] = {dir};
+    be32(p + 1, value);
+    backdoor(rs, id, p, sizeof(p));
+}
+
+/* Spacecraft over lon 0 / lat 0, Earth-fixed frame = inertial frame. */
+static simulith_42_context_t over_station_context(int flipped)
+{
+    simulith_42_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.valid = 1;
+    ctx.pos_n[0] = 6378145.0 + 500000.0;
+    ctx.cwn[0][0] = flipped ? -1.0 : 1.0;
+    ctx.cwn[1][1] = flipped ? -1.0 : 1.0;
+    ctx.cwn[2][2] = 1.0;
+    return ctx;
+}
+
+/* One station at lat/lon 0 with a 5 degree mask, regardless of generated config. */
+static void use_single_station(radio_sim_state_t *rs)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->link.num_stations = 1;
+    rs->link.stations[0].lat_deg = 0.0;
+    rs->link.stations[0].lon_deg = 0.0;
+    rs->link.stations[0].min_elev_deg = 5.0;
+    rs->link.stations[0].enabled = 1;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void test_link_defaults_leave_both_directions_transparent(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+
+    uint8_t data[3] = {0xA1, 0xA2, 0xA3}, got[16];
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(data, got, 3);
+    TEST_ASSERT_EQUAL_UINT32(3, rs->hk.BytesSent);
+
+    uint8_t up[4] = {1, 2, 3, 4};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+
+    finish_radio(&spi);
+}
+
+static void test_backdoor_commands_validate_and_apply(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    radio_link_t *l = &rs->link;
+
+    bd_mode(rs, LINK_NEVER_MODE);
+    TEST_ASSERT_EQUAL_INT(RADIO_LINK_MODE_NEVER, l->mode);
+    TEST_ASSERT_EQUAL_UINT8(0, l->up);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->hk.GroundLock); /* visible without waiting for a tick */
+    bd_mode(rs, LINK_ALWAYS_MODE);
+    TEST_ASSERT_EQUAL_UINT8(1, l->up);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->hk.GroundLock);
+    bd_mode(rs, 3); /* out of range */
+    TEST_ASSERT_EQUAL_INT(RADIO_LINK_MODE_ALWAYS, l->mode);
+    backdoor(rs, RADIO_BD_SET_LINK_MODE, NULL, 0);
+    uint8_t two[2] = {0, 0};
+    backdoor(rs, RADIO_BD_SET_LINK_MODE, two, 2);
+
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_UP, 1500);
+    TEST_ASSERT_EQUAL_UINT64(1500000000ULL, l->delay_ns[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT64(0, l->delay_ns[RADIO_LINK_DOWN]);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DIR_BOTH, 20);
+    TEST_ASSERT_EQUAL_UINT64(20000000ULL, l->delay_ns[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT64(20000000ULL, l->delay_ns[RADIO_LINK_DOWN]);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, 3, 99); /* bad direction */
+    TEST_ASSERT_EQUAL_UINT64(20000000ULL, l->delay_ns[RADIO_LINK_UP]);
+
+    bd_u8_u32(rs, RADIO_BD_SET_DROP_RATE, RADIO_LINK_DOWN, 250000);
+    TEST_ASSERT_EQUAL_UINT32(250000, l->drop_ppm[RADIO_LINK_DOWN]);
+    TEST_ASSERT_EQUAL_UINT32(0, l->drop_ppm[RADIO_LINK_UP]);
+    bd_u8_u32(rs, RADIO_BD_SET_DROP_RATE, RADIO_LINK_DIR_BOTH, 1000001); /* > 100 % */
+    TEST_ASSERT_EQUAL_UINT32(250000, l->drop_ppm[RADIO_LINK_DOWN]);
+    backdoor(rs, RADIO_BD_SET_DROP_RATE, two, 2);
+
+    uint8_t off = 0, bad = 2;
+    backdoor(rs, RADIO_BD_SET_IMPAIRMENTS_ENABLED, &off, 1);
+    TEST_ASSERT_EQUAL_UINT8(0, l->impairments_enabled);
+    backdoor(rs, RADIO_BD_SET_IMPAIRMENTS_ENABLED, &bad, 1);
+    TEST_ASSERT_EQUAL_UINT8(0, l->impairments_enabled);
+
+    uint8_t seed[4];
+    be32(seed, 0xCAFEF00DU);
+    backdoor(rs, RADIO_BD_SET_SEED, seed, 4);
+    TEST_ASSERT_EQUAL_UINT32(0xCAFEF00DU, l->prng);
+    backdoor(rs, RADIO_BD_SET_SEED, seed, 3);
+
+    use_single_station(rs);
+    uint8_t st[2] = {0, 0};
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, st, 2);
+    TEST_ASSERT_EQUAL_UINT8(0, l->stations[0].enabled);
+    st[0] = 1; st[1] = 1; /* no station 1 */
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, st, 2);
+    TEST_ASSERT_EQUAL_UINT8(0, l->stations[0].enabled);
+    st[0] = RADIO_BD_ALL_STATIONS;
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, st, 2);
+    TEST_ASSERT_EQUAL_UINT8(1, l->stations[0].enabled);
+    st[1] = 2;
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, st, 2);
+    TEST_ASSERT_EQUAL_UINT8(1, l->stations[0].enabled);
+
+    backdoor(rs, 99, NULL, 0); /* unknown command */
+    backdoor(rs, RADIO_BD_RESET_LINK, two, 2); /* takes no payload */
+    TEST_ASSERT_EQUAL_UINT64(20000000ULL, l->delay_ns[RADIO_LINK_UP]); /* so nothing was reset */
+
+    TEST_ASSERT_EQUAL_UINT32(9, rs->backdoor_accepted);
+    TEST_ASSERT_EQUAL_UINT32(12, rs->backdoor_rejected);
+
+    finish_radio(&spi);
+}
+
+static void test_backdoor_reset_restores_configured_defaults(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    radio_link_t *l = &rs->link;
+
+    bd_mode(rs, LINK_NEVER_MODE);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DIR_BOTH, 777);
+    bd_u8_u32(rs, RADIO_BD_SET_DROP_RATE, RADIO_LINK_DIR_BOTH, 123456);
+    backdoor(rs, RADIO_BD_RESET_LINK, NULL, 0);
+
+    TEST_ASSERT_EQUAL_INT(RADIO_CFG_LINK_MODE, l->mode);
+    TEST_ASSERT_EQUAL_UINT64((uint64_t)RADIO_CFG_LINK_UPLINK_DELAY_MS * 1000000ULL, l->delay_ns[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT32(RADIO_CFG_LINK_DOWNLINK_DROP_PPM, l->drop_ppm[RADIO_LINK_DOWN]);
+    TEST_ASSERT_EQUAL_UINT8(rs->link.up, rs->hk.GroundLock);
+
+    finish_radio(&spi);
+}
+
+static void test_downlink_discarded_when_never_in_view(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_mode(rs, LINK_NEVER_MODE);
+
+    uint8_t data[3] = {1, 2, 3}, got[16];
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.out_of_view[RADIO_LINK_DOWN]);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->hk.BytesSent);
+    TEST_ASSERT_EQUAL_UINT16(1, rs->hk.CommandCounter); /* the host's transmit still succeeded */
+
+    bd_mode(rs, LINK_ALWAYS_MODE);
+    host_send(rs, &spi, 100000000ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+
+    finish_radio(&spi);
+}
+
+static void test_downlink_total_loss_and_impairment_bypass(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DROP_RATE, RADIO_LINK_DOWN, 1000000);
+
+    uint8_t data[2] = {7, 8}, got[16];
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.dropped[RADIO_LINK_DOWN]);
+
+    uint8_t off = 0;
+    backdoor(rs, RADIO_BD_SET_IMPAIRMENTS_ENABLED, &off, 1);
+    host_send(rs, &spi, 100000000ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(2, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.dropped[RADIO_LINK_DOWN]);
+
+    finish_radio(&spi);
+}
+
+static void test_downlink_delay_is_held_until_sim_time_elapses(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DOWN, 1000);
+
+    uint8_t data[4] = {0xDE, 0xAD, 0xBE, 0xEF}, got[16];
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.queue[RADIO_LINK_DOWN].count);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->hk.BytesSent);
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+
+    g_iface->on_tick((component_state_t *)rs, 999000000ULL, NULL);
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+
+    g_iface->on_tick((component_state_t *)rs, 1000000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(4, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(data, got, 4);
+    TEST_ASSERT_EQUAL_UINT32(4, rs->hk.BytesSent);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_DOWN].count);
+
+    finish_radio(&spi);
+}
+
+static void test_downlink_delay_keeps_packet_order(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DOWN, 500);
+
+    uint8_t first = 0x11, second = 0x22, got[16];
+    host_send(rs, &spi, 0ULL, &first, 1);                /* due at 500 ms */
+    host_send(rs, &spi, 100000000ULL, &second, 1);       /* due at 600 ms */
+
+    g_iface->on_tick((component_state_t *)rs, 500000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(1, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8(0x11, got[0]);
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+
+    g_iface->on_tick((component_state_t *)rs, 600000000ULL, NULL);
+    TEST_ASSERT_EQUAL_INT(1, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8(0x22, got[0]);
+
+    finish_radio(&spi);
+}
+
+static void bd_corrupt(radio_sim_state_t *rs, uint8_t dir, uint16_t count, uint16_t offset)
+{
+    uint8_t p[5] = {dir, (uint8_t)(count >> 8), (uint8_t)count, (uint8_t)(offset >> 8), (uint8_t)offset};
+    backdoor(rs, RADIO_BD_CORRUPT_PACKETS, p, sizeof(p));
+}
+
+static void test_delayed_downlink_carries_a_full_telemetry_frame(void)
+{
+    /* A TM CADU (ASM + 1786 byte frame) crosses as one packet, larger than a command payload. */
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DOWN, 100);
+
+    uint8_t frame[1790], got[2048];
+    for (size_t i = 0; i < sizeof(frame); i++) frame[i] = (uint8_t)(i * 7u);
+    host_send(rs, &spi, 0ULL, frame, sizeof(frame));
+    g_iface->on_tick((component_state_t *)rs, 100000000ULL, NULL);
+
+    TEST_ASSERT_EQUAL_INT((int)sizeof(frame), (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(frame, got, sizeof(frame));
+
+    finish_radio(&spi);
+}
+
+static void test_corrupt_downlink_flips_a_bit_in_the_next_packets_only(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_corrupt(rs, RADIO_LINK_DOWN, 1, 1);
+
+    uint8_t data[3] = {0x10, 0x20, 0x30}, got[16];
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8(0x10, got[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x21, got[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x30, got[2]);
+
+    host_send(rs, &spi, 100000000ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(data, got, 3);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.corrupted[RADIO_LINK_DOWN]);
+
+    finish_radio(&spi);
+}
+
+static void test_corrupt_uplink_flips_a_bit_in_what_the_host_receives(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_corrupt(rs, RADIO_LINK_UP, 1, 2);
+
+    uint8_t up[4] = {0, 0, 0, 0};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT8(1, rs->rx_buffer[2]);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->rx_buffer[0] | rs->rx_buffer[1] | rs->rx_buffer[3]);
+
+    finish_radio(&spi);
+}
+
+static void test_corrupt_does_not_touch_packets_that_never_cross_the_link(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_mode(rs, LINK_NEVER_MODE);
+    bd_corrupt(rs, RADIO_LINK_DOWN, 1, 0);
+
+    uint8_t data[2] = {1, 2}, got[8];
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.corrupted[RADIO_LINK_DOWN]);
+    TEST_ASSERT_EQUAL_UINT16(1, rs->link.corrupt_remaining[RADIO_LINK_DOWN]);
+
+    finish_radio(&spi);
+}
+
+static void test_replay_downlink_resends_the_last_packet_even_out_of_view(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+
+    uint8_t dir = RADIO_LINK_DOWN, data[3] = {0xA0, 0xA1, 0xA2}, got[16];
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1); /* nothing has crossed yet */
+    TEST_ASSERT_EQUAL_UINT32(1, rs->backdoor_rejected);
+
+    host_send(rs, &spi, 0ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+
+    bd_mode(rs, LINK_NEVER_MODE);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(data, got, 3);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.replayed[RADIO_LINK_DOWN]);
+
+    finish_radio(&spi);
+}
+
+static void test_replay_uplink_redelivers_the_last_packet_when_the_radio_can_hear_it(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+
+    uint8_t up[4] = {5, 6, 7, 8}, dir = RADIO_LINK_UP;
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(8, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(up, &rs->rx_buffer[4], 4);
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->config.Mode = RADIO_MODE_TX;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(8, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->backdoor_rejected);
+
+    finish_radio(&spi);
+}
+
+static void test_tamper_backdoors_validate_payloads_and_reset_clears_them(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+
+    uint8_t two[2] = {0, 0}, bad_dir[5] = {3, 0, 1, 0, 0}, dir = 2;
+    backdoor(rs, RADIO_BD_CORRUPT_PACKETS, two, 2);
+    backdoor(rs, RADIO_BD_CORRUPT_PACKETS, bad_dir, 5);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1); /* both is not a replay direction */
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, two, 2);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->backdoor_accepted);
+    TEST_ASSERT_EQUAL_UINT32(4, rs->backdoor_rejected);
+
+    bd_corrupt(rs, RADIO_LINK_DIR_BOTH, 4, 9);
+    TEST_ASSERT_EQUAL_UINT16(4, rs->link.corrupt_remaining[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT16(4, rs->link.corrupt_remaining[RADIO_LINK_DOWN]);
+    TEST_ASSERT_EQUAL_UINT16(9, rs->link.corrupt_offset[RADIO_LINK_DOWN]);
+    bd_corrupt(rs, RADIO_LINK_DIR_BOTH, 0, 9); /* a count of zero cancels */
+    TEST_ASSERT_EQUAL_UINT16(0, rs->link.corrupt_remaining[RADIO_LINK_UP]);
+
+    bd_corrupt(rs, RADIO_LINK_UP, 2, 0);
+    backdoor(rs, RADIO_BD_RESET_LINK, NULL, 0);
+    TEST_ASSERT_EQUAL_UINT16(0, rs->link.corrupt_remaining[RADIO_LINK_UP]);
+
+    finish_radio(&spi);
+}
+
+/* Queues a packet straight onto the uplink delay queue, already due, to exercise delivery conditions. */
+static void queue_due_uplink(radio_sim_state_t *rs, const uint8_t *data, uint32_t len)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    TEST_ASSERT_TRUE(g_link_enqueue(&rs->link, RADIO_LINK_UP, 0, data, len));
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void set_mode(radio_sim_state_t *rs, uint8_t mode)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->config.Mode = mode;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void remember_packet(radio_sim_state_t *rs, unsigned int dir, const uint8_t *data, uint32_t len)
+{
+    pthread_mutex_lock(&rs->buffer_mutex);
+    g_link_remember(&rs->link, dir, data, len);
+    pthread_mutex_unlock(&rs->buffer_mutex);
+}
+
+static void test_delayed_uplink_delivery_depends_on_power_and_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    const uint8_t data[4] = {1, 2, 3, 4};
+
+    /* Powered off when the delay elapses: lost. */
+    queue_due_uplink(rs, data, sizeof(data));
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    g_iface->on_tick((component_state_t *)rs, 1000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_UP].count);
+
+    /* Powered but still booting: lost. */
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 1;
+    rs->power.managed = 1;
+    rs->power.supply_on = 1;
+    rs->power.enabled = 1;
+    rs->power.boot_ready_ns = 5000000000ULL;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    queue_due_uplink(rs, data, sizeof(data));
+    g_iface->on_tick((component_state_t *)rs, 2000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    /* Booted, and receive-only is enough to hear it. */
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power.boot_ready_ns = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    set_mode(rs, RADIO_MODE_RX);
+    queue_due_uplink(rs, data, sizeof(data));
+    g_iface->on_tick((component_state_t *)rs, 3000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+
+    finish_radio(&spi);
+}
+
+static void test_backdoor_rejects_malformed_payloads_for_every_command(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    radio_link_t *l = &rs->link;
+    const radio_link_mode_t mode_before = l->mode;
+
+    uint8_t five[5] = {0, 0, 0, 0, 1}, bad_dir[5] = {7, 0, 0, 0, 1}, bad_ppm[5] = {0, 0, 0xF4, 0x24, 0x1};
+    uint8_t one = 0, bad_one = 9, two[2] = {0, 1}, four[4] = {0, 0, 0, 1}, three[3] = {0, 0, 0};
+    unsigned int expected_rejected = 0;
+
+    struct { uint16_t id; const uint8_t *p; uint16_t n; } cases[] = {
+        {RADIO_BD_SET_LINK_MODE, two, 2},              {RADIO_BD_SET_LINK_MODE, NULL, 0},
+        {RADIO_BD_SET_DELAY, four, 4},                 {RADIO_BD_SET_DELAY, bad_dir, 5},
+        {RADIO_BD_SET_DROP_RATE, four, 4},             {RADIO_BD_SET_DROP_RATE, bad_dir, 5},
+        {RADIO_BD_SET_DROP_RATE, bad_ppm, 5},          {RADIO_BD_SET_IMPAIRMENTS_ENABLED, two, 2},
+        {RADIO_BD_SET_IMPAIRMENTS_ENABLED, &bad_one, 1}, {RADIO_BD_SET_STATION_ENABLED, &one, 1},
+        {RADIO_BD_SET_STATION_ENABLED, three, 3},      {RADIO_BD_SET_SEED, three, 3},
+        {RADIO_BD_SET_SEED, five, 5},                  {RADIO_BD_RESET_LINK, &one, 1},
+        {RADIO_BD_CORRUPT_PACKETS, four, 4},           {RADIO_BD_CORRUPT_PACKETS, bad_dir, 5},
+        {RADIO_BD_REPLAY_PACKET, two, 2},              {RADIO_BD_REPLAY_PACKET, &bad_one, 1},
+        {0xFFFF, NULL, 0},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
+        backdoor(rs, cases[i].id, cases[i].p, cases[i].n);
+        expected_rejected++;
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(expected_rejected, rs->backdoor_rejected, "command was not rejected");
+    }
+    TEST_ASSERT_EQUAL_UINT32(0, rs->backdoor_accepted);
+    TEST_ASSERT_EQUAL_INT(mode_before, l->mode);
+    TEST_ASSERT_EQUAL_UINT64((uint64_t)RADIO_CFG_LINK_UPLINK_DELAY_MS * 1000000ULL, l->delay_ns[RADIO_LINK_UP]);
+    TEST_ASSERT_EQUAL_UINT16(0, l->corrupt_remaining[RADIO_LINK_UP]);
+
+    /* A payload length with no payload pointer cannot be read and is rejected too. */
+    backdoor(rs, RADIO_BD_SET_LINK_MODE, NULL, 1);
+    TEST_ASSERT_EQUAL_UINT32(expected_rejected + 1, rs->backdoor_rejected);
+
+    /* A missing component state is ignored. */
+    g_iface->backdoor(NULL, RADIO_BD_SET_LINK_MODE, &one, 1);
+
+    finish_radio(&spi);
+}
+
+static void test_station_backdoor_addresses_one_station_or_all(void)
+{
+    if (RADIO_LINK_MAX_STATIONS < 2) TEST_IGNORE_MESSAGE("needs a build with two ground stations");
+
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->link.num_stations = 2;
+    for (int i = 0; i < 2; i++) rs->link.stations[i].enabled = 1;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    uint8_t second_off[2] = {1, 0}, first_off[2] = {0, 0}, all_on[2] = {RADIO_BD_ALL_STATIONS, 1};
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, second_off, 2);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.stations[0].enabled);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->link.stations[1].enabled);
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, first_off, 2);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->link.stations[0].enabled);
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, all_on, 2);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.stations[0].enabled);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.stations[1].enabled);
+
+    finish_radio(&spi);
+}
+
+static void test_replay_uplink_requires_power_boot_and_a_receiving_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    const uint8_t data[4] = {9, 8, 7, 6};
+    uint8_t dir = RADIO_LINK_UP;
+    remember_packet(rs, RADIO_LINK_UP, data, sizeof(data));
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power_gpio.value = 1;
+    rs->power.managed = 1;
+    rs->power.supply_on = 1;
+    rs->power.enabled = 1;
+    rs->power.boot_ready_ns = 5000000000ULL;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->power.boot_ready_ns = 0;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+    set_mode(rs, RADIO_MODE_RX); /* receive-only still hears the replay */
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_UINT32(4, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->backdoor_accepted);
+
+    finish_radio(&spi);
+}
+
+static void test_replay_downlink_requires_a_transmitting_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    const uint8_t data[3] = {4, 5, 6};
+    uint8_t dir = RADIO_LINK_DOWN, got[8];
+    remember_packet(rs, RADIO_LINK_DOWN, data, sizeof(data));
+
+    set_mode(rs, RADIO_MODE_RX);
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->backdoor_rejected);
+
+    set_mode(rs, RADIO_MODE_TX); /* transmit-only is enough to send it */
+    backdoor(rs, RADIO_BD_REPLAY_PACKET, &dir, 1);
+    TEST_ASSERT_EQUAL_INT(3, (int)ground_recv(got, sizeof(got)));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(data, got, 3);
+
+    finish_radio(&spi);
+}
+
+static void ignore_signal(int signal) { (void)signal; }
+
+static void test_udp_thread_survives_interrupted_select(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = ignore_signal; /* no SA_RESTART: select() must return EINTR */
+    sigemptyset(&action.sa_mask);
+    struct sigaction previous;
+    TEST_ASSERT_EQUAL_INT(0, sigaction(SIGUSR1, &action, &previous));
+    for (int i = 0; i < 20; i++)
+    {
+        pthread_kill(rs->udp_thread, SIGUSR1);
+        usleep(2000);
+    }
+    sigaction(SIGUSR1, &previous, NULL);
+
+    /* The thread keeps serving the ground interface afterwards. */
+    uint8_t up[3] = {1, 2, 3};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(3, rx_count(rs));
+
+    finish_radio(&spi);
+}
+
+static void test_delayed_downlink_send_failure_is_tolerated(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DOWN, 100);
+
+    uint8_t data = 0x55;
+    host_send(rs, &spi, 0ULL, &data, 1);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.queue[RADIO_LINK_DOWN].count);
+
+    close(rs->udp_tx_socket); /* the transmit will fail when the delay elapses */
+    rs->udp_tx_socket = -1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS,
+                          g_iface->on_tick((component_state_t *)rs, 200000000ULL, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_DOWN].count);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->hk.BytesSent);
+
+    finish_radio(&spi);
+}
+
+static void test_downlink_delay_queue_overflow_drops_and_counts(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DOWN, 60000);
+
+    uint8_t data = 0x66;
+    for (int i = 0; i < RADIO_CFG_LINK_QUEUE_DEPTH + 2; i++)
+        host_send(rs, &spi, (uint64_t)i * 1000000ULL, &data, 1);
+
+    TEST_ASSERT_EQUAL_UINT32(RADIO_CFG_LINK_QUEUE_DEPTH, rs->link.queue[RADIO_LINK_DOWN].count);
+    TEST_ASSERT_EQUAL_UINT32(2, rs->link.overflowed[RADIO_LINK_DOWN]);
+
+    finish_radio(&spi);
+}
+
+static void test_uplink_discarded_when_never_in_view(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_mode(rs, LINK_NEVER_MODE);
+
+    uint8_t up[5] = {1, 2, 3, 4, 5};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.out_of_view[RADIO_LINK_UP]);
+
+    bd_mode(rs, LINK_ALWAYS_MODE);
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(5, rx_count(rs));
+
+    finish_radio(&spi);
+}
+
+static void test_uplink_total_loss(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DROP_RATE, RADIO_LINK_UP, 1000000);
+
+    uint8_t up[5] = {1, 2, 3, 4, 5};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.dropped[RADIO_LINK_UP]);
+
+    finish_radio(&spi);
+}
+
+static void test_uplink_delay_is_held_until_sim_time_elapses(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_UP, 500);
+
+    uint8_t up[6] = {9, 8, 7, 6, 5, 4};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.queue[RADIO_LINK_UP].count);
+
+    g_iface->on_tick((component_state_t *)rs, 499000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+
+    g_iface->on_tick((component_state_t *)rs, 500000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(6, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(up, rs->rx_buffer, 6);
+    TEST_ASSERT_EQUAL_UINT32(6, rs->bytes_received);
+
+    finish_radio(&spi);
+}
+
+static void test_delayed_uplink_is_lost_if_radio_leaves_rx_mode(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_UP, 100);
+
+    uint8_t up[2] = {1, 2};
+    TEST_ASSERT_TRUE(inject_udp(up, sizeof(up)) > 0);
+    usleep(50000);
+    pthread_mutex_lock(&rs->buffer_mutex);
+    rs->config.Mode = RADIO_MODE_TX;
+    pthread_mutex_unlock(&rs->buffer_mutex);
+
+    g_iface->on_tick((component_state_t *)rs, 200000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(0, rx_count(rs));
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_UP].count);
+
+    finish_radio(&spi);
+}
+
+static void test_power_cycle_discards_packets_in_flight_but_keeps_link_settings(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    bd_u8_u32(rs, RADIO_BD_SET_DELAY, RADIO_LINK_DIR_BOTH, 5000);
+
+    uint8_t data = 0x42;
+    host_send(rs, &spi, 0ULL, &data, 1);
+    TEST_ASSERT_TRUE(inject_udp(&data, 1) > 0);
+    usleep(50000);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.queue[RADIO_LINK_DOWN].count);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.queue[RADIO_LINK_UP].count);
+
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_reset((component_state_t *)rs, 1000000000ULL));
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_DOWN].count);
+    TEST_ASSERT_EQUAL_UINT32(0, rs->link.queue[RADIO_LINK_UP].count);
+    TEST_ASSERT_EQUAL_UINT64(5000000000ULL, rs->link.delay_ns[RADIO_LINK_UP]);
+
+    finish_radio(&spi);
+}
+
+static void test_auto_mode_follows_spacecraft_geometry(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    use_single_station(rs);
+    uint8_t auto_mode = 0;
+    backdoor(rs, RADIO_BD_SET_LINK_MODE, &auto_mode, 1);
+
+    simulith_42_context_t overhead = over_station_context(0);
+    simulith_42_context_t far_side = over_station_context(1);
+
+    g_iface->on_tick((component_state_t *)rs, 100000000ULL, &overhead);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->hk.GroundLock);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->link.up);
+
+    g_iface->on_tick((component_state_t *)rs, 200000000ULL, &far_side);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->hk.GroundLock);
+
+    /* An invalid context holds the last answer rather than guessing. */
+    g_iface->on_tick((component_state_t *)rs, 300000000ULL, &overhead);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->hk.GroundLock);
+    overhead.valid = 0;
+    g_iface->on_tick((component_state_t *)rs, 400000000ULL, &overhead);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->hk.GroundLock);
+    g_iface->on_tick((component_state_t *)rs, 500000000ULL, NULL);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->hk.GroundLock);
+
+    finish_radio(&spi);
+}
+
+static void test_station_backdoor_gates_auto_visibility(void)
+{
+    transport_port_t spi;
+    radio_sim_state_t *rs = start_radio(&spi);
+    use_single_station(rs);
+    uint8_t auto_mode = 0;
+    backdoor(rs, RADIO_BD_SET_LINK_MODE, &auto_mode, 1);
+    simulith_42_context_t overhead = over_station_context(0);
+
+    uint8_t disable[2] = {0, 0};
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, disable, 2);
+    g_iface->on_tick((component_state_t *)rs, 100000000ULL, &overhead);
+    TEST_ASSERT_EQUAL_UINT8(0, rs->hk.GroundLock);
+
+    uint8_t got[8];
+    uint8_t data[2] = {3, 4};
+    host_send(rs, &spi, 200000000ULL, data, sizeof(data));
+    TEST_ASSERT_TRUE(ground_recv(got, sizeof(got)) <= 0);
+    TEST_ASSERT_EQUAL_UINT32(1, rs->link.out_of_view[RADIO_LINK_DOWN]);
+
+    uint8_t enable[2] = {RADIO_BD_ALL_STATIONS, 1};
+    backdoor(rs, RADIO_BD_SET_STATION_ENABLED, enable, 2);
+    g_iface->on_tick((component_state_t *)rs, 300000000ULL, &overhead);
+    TEST_ASSERT_EQUAL_UINT8(1, rs->hk.GroundLock);
+    host_send(rs, &spi, 400000000ULL, data, sizeof(data));
+    TEST_ASSERT_EQUAL_INT(2, (int)ground_recv(got, sizeof(got)));
+
+    finish_radio(&spi);
+}
+
 int main(void)
 {
     /* Bypass gethostbyname("shire-cryptolib") which blocks for DNS timeout in CI/test envs. */
@@ -1627,6 +2505,8 @@ int main(void)
 
     g_radio_sim_init    = (radio_init_fn)dlsym(g_handle,    "radio_sim_init");
     g_radio_sim_cleanup = (radio_cleanup_fn)dlsym(g_handle, "radio_sim_cleanup");
+    *(void **)(&g_link_enqueue)  = dlsym(g_handle, "radio_link_enqueue");
+    *(void **)(&g_link_remember) = dlsym(g_handle, "radio_link_remember");
 
     UNITY_BEGIN();
 
@@ -1701,6 +2581,37 @@ int main(void)
     RUN_TEST(test_init_fails_when_spi_address_is_dir);
     RUN_TEST(test_init_fails_when_power_gpio_address_is_dir);
     RUN_TEST(test_init_fails_when_interrupt_gpio_address_is_dir);
+
+    /* RF link model */
+    RUN_TEST(test_link_defaults_leave_both_directions_transparent);
+    RUN_TEST(test_backdoor_commands_validate_and_apply);
+    RUN_TEST(test_backdoor_reset_restores_configured_defaults);
+    RUN_TEST(test_downlink_discarded_when_never_in_view);
+    RUN_TEST(test_downlink_total_loss_and_impairment_bypass);
+    RUN_TEST(test_downlink_delay_is_held_until_sim_time_elapses);
+    RUN_TEST(test_downlink_delay_keeps_packet_order);
+    RUN_TEST(test_delayed_downlink_carries_a_full_telemetry_frame);
+    RUN_TEST(test_corrupt_downlink_flips_a_bit_in_the_next_packets_only);
+    RUN_TEST(test_corrupt_uplink_flips_a_bit_in_what_the_host_receives);
+    RUN_TEST(test_corrupt_does_not_touch_packets_that_never_cross_the_link);
+    RUN_TEST(test_replay_downlink_resends_the_last_packet_even_out_of_view);
+    RUN_TEST(test_replay_uplink_redelivers_the_last_packet_when_the_radio_can_hear_it);
+    RUN_TEST(test_tamper_backdoors_validate_payloads_and_reset_clears_them);
+    RUN_TEST(test_delayed_uplink_delivery_depends_on_power_and_mode);
+    RUN_TEST(test_backdoor_rejects_malformed_payloads_for_every_command);
+    RUN_TEST(test_station_backdoor_addresses_one_station_or_all);
+    RUN_TEST(test_replay_uplink_requires_power_boot_and_a_receiving_mode);
+    RUN_TEST(test_replay_downlink_requires_a_transmitting_mode);
+    RUN_TEST(test_udp_thread_survives_interrupted_select);
+    RUN_TEST(test_delayed_downlink_send_failure_is_tolerated);
+    RUN_TEST(test_downlink_delay_queue_overflow_drops_and_counts);
+    RUN_TEST(test_uplink_discarded_when_never_in_view);
+    RUN_TEST(test_uplink_total_loss);
+    RUN_TEST(test_uplink_delay_is_held_until_sim_time_elapses);
+    RUN_TEST(test_delayed_uplink_is_lost_if_radio_leaves_rx_mode);
+    RUN_TEST(test_power_cycle_discards_packets_in_flight_but_keeps_link_settings);
+    RUN_TEST(test_auto_mode_follows_spacecraft_geometry);
+    RUN_TEST(test_station_backdoor_gates_auto_visibility);
 
     /* Symbol alias (also calls the REGISTER_COMPONENT body) */
     RUN_TEST(test_register_component_alias);

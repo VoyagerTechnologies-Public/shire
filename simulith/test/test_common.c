@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "simulith.h"
@@ -156,9 +158,71 @@ static void test_log_file_and_both(void)
     unsetenv("SIMULITH_LOG_MODE");
 }
 
+static bool log_file_contains(const char *needle)
+{
+    FILE *f = fopen("/tmp/simulith.log", "r");
+    char  line[128];
+    bool  found = false;
+
+    if (!f) return false;
+    while (fgets(line, sizeof(line), f))
+        if (strstr(line, needle)) found = true;
+    fclose(f);
+    return found;
+}
+
+static void test_log_keeps_one_file_open_across_messages(void)
+{
+    unlink("/tmp/simulith.log");
+    const char *modes[] = {"file", "both"};
+
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
+    {
+        unlink("/tmp/simulith.log");
+        setenv("SIMULITH_LOG_MODE", modes[i], 1);
+        simulith_log_reset_for_tests();
+        simulith_log("%s", "first-message\n");
+        FILE *opened = simulith_log_file;
+        TEST_ASSERT_NOT_NULL(opened);
+        simulith_log("%s", "second-message\n");
+        TEST_ASSERT_TRUE_MESSAGE(simulith_log_file == opened, "the log file is opened once, not per message");
+        fflush(NULL);
+        TEST_ASSERT_TRUE(log_file_contains("first-message"));
+        TEST_ASSERT_TRUE(log_file_contains("second-message"));
+    }
+    simulith_log_reset_for_tests();
+    unsetenv("SIMULITH_LOG_MODE");
+    unlink("/tmp/simulith.log");
+}
+
+static void test_log_survives_an_unwritable_log_file(void)
+{
+    /* A directory in place of the log file makes fopen() fail; logging must not crash or lose stdout output. */
+    unlink("/tmp/simulith.log");
+    TEST_ASSERT_EQUAL_INT(0, mkdir("/tmp/simulith.log", 0700));
+
+    setenv("SIMULITH_LOG_MODE", "file", 1);
+    simulith_log_reset_for_tests();
+    simulith_log("%s", "dropped-message\n");
+    TEST_ASSERT_NULL(simulith_log_file);
+
+    setenv("SIMULITH_LOG_MODE", "both", 1);
+    simulith_log_reset_for_tests();
+    char *out = capture_stdout_of(call_log);
+    TEST_ASSERT_NOT_NULL(strstr(out, "hello-from-test"));
+    free(out);
+    TEST_ASSERT_NULL(simulith_log_file);
+
+    simulith_log_reset_for_tests();
+    unsetenv("SIMULITH_LOG_MODE");
+    rmdir("/tmp/simulith.log");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_log_keeps_one_file_open_across_messages);
+    RUN_TEST(test_log_survives_an_unwritable_log_file);
     RUN_TEST(test_log_default_stdout);
     RUN_TEST(test_log_none);
     RUN_TEST(test_log_invalid_mode_falls_back_and_reset_closes_file);

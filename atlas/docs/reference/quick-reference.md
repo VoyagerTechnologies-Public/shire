@@ -93,7 +93,8 @@ Component simulators run as shared libraries inside `shire-director` rather than
 | 42 IPC | Director and 42 exchange data through the Unix socket at `/tmp/42_ipc.sock` |
 
 The UDP endpoints remain inside the Compose bridge because the templates do not publish them to the host.
-EPS backdoors use the existing simulator backdoor endpoint.
+EPS and Radio backdoors use the existing simulator backdoor endpoint.
+Radio backdoors control link visibility, delay and packet loss inside the Radio simulator, so they do not change which UDP ports carry the radio path.
 EPS displays and stack verification use FSW housekeeping.
 Optional EPS simulator diagnostics are console output, with no dedicated Yamcs truth stream.
 
@@ -111,7 +112,7 @@ The current `cfg/shire_defs/targets.cmake` still compiles all four reference com
 The DRM scenarios include `nominal`, `debug`, `checkout`, `eclipse-entry-adcs`,
 `eclipse-exit-adcs`, `adcs-gps-time-sync`, `adcs-boot-config`,
 `adcs-sunpoint-rotisserie`, `adcs-truth-verification`, `adcs-target-track`,
-`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, and `eps-backdoor-testing`.
+`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, `eps-backdoor-testing`, `radio-link-testing`, and `radio-security-testing`.
 `nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
 `eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
 Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.

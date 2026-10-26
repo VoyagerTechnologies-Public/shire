@@ -18,6 +18,24 @@
 #define RADIO_CFG_MAX_RX_MSGS_PER_POLL {{ config.max_rx_msgs_per_poll }}
 #define RADIO_CFG_MAX_TX_MSGS_PER_POLL {{ config.max_tx_msgs_per_poll }}
 #define RADIO_CFG_MAX_SUBSCRIPTIONS    {{ config.max_subscriptions }}
+#define RADIO_CFG_LINK_MODE                 RADIO_LINK_MODE_{{ config.link_mode | upper }}
+#define RADIO_CFG_LINK_UPLINK_DELAY_MS      {{ config.uplink_delay_ms }}
+#define RADIO_CFG_LINK_DOWNLINK_DELAY_MS    {{ config.downlink_delay_ms }}
+#define RADIO_CFG_LINK_UPLINK_DROP_PPM      {{ config.uplink_drop_ppm }}
+#define RADIO_CFG_LINK_DOWNLINK_DROP_PPM    {{ config.downlink_drop_ppm }}
+#define RADIO_CFG_LINK_SEED                 {{ config.link_seed }}U
+#define RADIO_CFG_LINK_QUEUE_DEPTH          {{ config.link_queue_depth }}
+#define RADIO_CFG_UPLINK_ENCRYPTION         {{ 1 if config.uplink_encryption else 0 }}
+#define RADIO_CFG_DOWNLINK_ENCRYPTION       {{ 1 if config.downlink_encryption else 0 }}
+#define RADIO_CFG_NUM_GROUND_STATIONS       {{ config.ground_stations | length }}
+/* Rows are {lat_deg, lon_deg, min_elev_deg, enabled}; a placeholder row keeps the table non-empty. */
+#define RADIO_CFG_GROUND_STATIONS { \
+{%- for station in config.ground_stations %}
+    { {{ '%.9f' % station.lat_deg }}, {{ '%.9f' % station.lon_deg }}, {{ '%.3f' % station.min_elev_deg }}, {{ 1 if station.enabled else 0 }} }, /* {{ station.name | replace('*/', '') }} */ \
+{%- else %}
+    { 0.0, 0.0, 0.0, 0 } \
+{%- endfor %}
+}
 {% if config.debug %}#define RADIO_CFG_DEBUG{% endif %}
 #endif
 

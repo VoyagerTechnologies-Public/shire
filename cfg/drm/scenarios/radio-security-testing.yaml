@@ -1,0 +1,54 @@
+scenario_name: radio-security-testing
+description: Radio link security - AES-256-GCM encrypted and authenticated uplink and downlink, tampering and replay rejection
+initial_conditions: nominal-baseline
+overrides:
+  debug: false
+radio:
+  # Link security is on by default; stated here so the scenario documents what it verifies.
+  uplink_encryption: true
+  downlink_encryption: true
+  link_mode: always
+run_duration_s: 600
+simulith_speed: 2
+verify_stacks:
+- stack: comp/radio/gsw/procedures/RadioSecurity.ycs
+  at_s: 0
+accelerate_after_verification: true
+post_verification_speed: 0
+synchronize_ground_output: true
+# Evidence that is only in container logs. A failure status is -21 (authentication failed) or -23 (outside the
+# anti-replay window); exactly one of each means the link recovered after every attack.
+log_assertions:
+- container: cryptolib
+  pattern: 'link security: uplink \(TC\) encrypted, downlink \(TM\) encrypted'
+  description: ground CryptoLib starts with both directions encrypted
+- container: cryptolib
+  pattern: 'Crypto_TM_ProcessSecurity Failed with status = -21$'
+  min: 1
+  max: 1
+  description: the tampered telemetry frame failed authentication, once
+- container: cryptolib
+  pattern: 'Crypto_TM_ProcessSecurity Failed with status = -23$'
+  min: 1
+  max: 1
+  description: the replayed telemetry frame was rejected, once
+- container: cryptolib
+  pattern: 'ProcessSecurity Failed with status = (?!-21$|-23$)'
+  min: 0
+  max: 0
+  description: no other ground security failure
+- container: fsw
+  pattern: 'Crypto_TC_ProcessSecurity failed, status=-21$'
+  min: 1
+  max: 1
+  description: the tampered command failed authentication onboard, once
+- container: fsw
+  pattern: 'Crypto_TC_ProcessSecurity failed, status=-23$'
+  min: 1
+  max: 1
+  description: the replayed command was rejected onboard, once
+- container: fsw
+  pattern: 'Crypto_TC_ProcessSecurity failed, status=(?!-21$|-23$)'
+  min: 0
+  max: 0
+  description: no other onboard security failure

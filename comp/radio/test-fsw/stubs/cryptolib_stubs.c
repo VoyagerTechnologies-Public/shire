@@ -59,6 +59,17 @@ int32_t Crypto_TM_ApplySecurity(uint8_t *tm_frame, uint16_t frame_len)
 /*
 ** Stub for get_sa_interface_inmemory
 */
+#define UT_CRYPTO_STUB_SA_COUNT 16
+SecurityAssociation_t UT_CRYPTO_Stub_Sas[UT_CRYPTO_STUB_SA_COUNT];
+
+static int32_t UT_CRYPTO_Stub_Sa_Get_From_Spi(uint16_t spi, SecurityAssociation_t **sa)
+{
+    if (sa == NULL || spi >= UT_CRYPTO_STUB_SA_COUNT)
+        return CRYPTO_LIB_ERR_NULL_SA;
+    *sa = &UT_CRYPTO_Stub_Sas[spi];
+    return CRYPTO_LIB_SUCCESS;
+}
+
 SaInterface get_sa_interface_inmemory(void)
 {
     if (!UT_CRYPTO_Enable_Stubs)
@@ -66,6 +77,7 @@ SaInterface get_sa_interface_inmemory(void)
         
     /* Return a simple stub interface */
     static SaInterfaceStruct stub_interface = {0};
+    stub_interface.sa_get_from_spi = UT_CRYPTO_Stub_Sa_Get_From_Spi;
     return &stub_interface;
 }
 
@@ -93,4 +105,29 @@ int32_t UT_CRYPTO_Sa_Default(uint8_t gvcid, uint16_t scid, uint16_t vcid, uint8_
         return 0;
     }
     return -1;
+}
+
+/* Hook for tests: the lookup reports success but provides no SA. */
+int32_t UT_CRYPTO_Sa_NullPointer(uint8_t gvcid, uint16_t scid, uint16_t vcid, uint8_t mapid,
+                                 SecurityAssociation_t **sa)
+{
+    if (sa)
+        *sa = NULL;
+    return 0;
+}
+
+/* Wrappers so tests can select an SA lookup without naming SecurityAssociation_t. */
+void UT_CRYPTO_Use_OperationalSa(void)
+{
+    UT_CRYPTO_Set_SaHook(UT_CRYPTO_Sa_Default);
+}
+
+void UT_CRYPTO_Use_NullSa(void)
+{
+    UT_CRYPTO_Set_SaHook(UT_CRYPTO_Sa_NullPointer);
+}
+
+void UT_CRYPTO_Clear_SaHook(void)
+{
+    UT_CRYPTO_Set_SaHook(NULL);
 }

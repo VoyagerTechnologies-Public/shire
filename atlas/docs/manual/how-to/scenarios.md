@@ -110,6 +110,9 @@ new plumbing.
 Ground stations referenced by name (for a pass-acquisition/loss bin) come
 from the single catalog `cfg/drm/ground_stations.yaml`, which also renders
 `Inp_Sim.txt`'s "Ground Stations" block, so the two never drift apart.
+The Radio simulator uses the same catalog (optionally narrowed by the scenario's
+`radio.ground_stations` list) to decide when the spacecraft is in view, using each
+station's optional `min_elev_deg` and `enabled` fields.
 
 ### Reproducibility
 
@@ -284,6 +287,26 @@ Using it needs `requests`/`yamcs-client` installed on whatever host runs
 (`python3 -m pip install --requirement yamcs/requirements-commander.txt`),
 a prerequisite only for scenarios that set `verify_stacks`, not for
 `make scenario` in general.
+
+### Asserting on container logs (`log_assertions`)
+
+Some evidence never reaches a YAMCS parameter, such as the ground CryptoLib container rejecting a tampered telemetry frame.
+A scenario can assert on the captured container logs instead:
+
+```yaml
+# cfg/drm/scenarios/radio-security-testing.yaml
+log_assertions:
+  - container: cryptolib
+    pattern: 'Crypto_TM_ProcessSecurity Failed with status = -21$'
+    min: 1
+    max: 1
+    description: the tampered telemetry frame failed authentication, once
+```
+
+`container` is a role (`cryptolib`, `fsw`, `director`, `gsw`, `server`, or `42`), `pattern` is a regular expression matched per log line, and `min` (default 1) and `max` bound how many lines may match.
+A `max` of 0 asserts absence.
+Each result is recorded in `result["log_assertions"]` in `result.json`, and a failed assertion fails the run with a distinct reason.
+These checks run once, after the run completes, so use them for totals rather than for ordering inside a stack.
 
 ### Tuning wall-clock speed
 

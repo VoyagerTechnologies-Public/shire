@@ -137,6 +137,10 @@ services:
     tty: true
     depends_on:
       - shire-gsw
+    environment:
+      # SDLS link security; must match the flight radio app (radio uplink_encryption / downlink_encryption).
+      - SHIRE_UPLINK_ENCRYPTION={{ 0 if (radio_cfg | default({})).get('uplink_encryption', true) == false else 1 }}
+      - SHIRE_DOWNLINK_ENCRYPTION={{ 0 if (radio_cfg | default({})).get('downlink_encryption', true) == false else 1 }}
     cpus: "1.0"
     mem_limit: 512m
     volumes:

@@ -29,6 +29,7 @@ The instance defines three operator facing paths:
 
 * **Debug:** commands go directly to CI_LAB on UDP 1234, and TO_LAB telemetry returns on UDP 1235.
 * **Radio:** commands pass through CryptoLib and the Radio simulator, and telemetry returns through the reciprocal pipeline.
+  Both directions are encrypted and authenticated by default.
 * **Simulation:** YAMCS can send component backdoor commands to the Director and receive periodic 42 truth telemetry.
 
 See [System Architecture](architecture.md#ground-links) for the complete endpoint table.

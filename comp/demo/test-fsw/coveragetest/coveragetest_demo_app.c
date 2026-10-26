@@ -197,6 +197,43 @@ void Test_DEMO_AppMain(void)
     UtAssert_True(EventTest.MatchCount == 1, "DEMO_PIPE_ERR_EID generated (%u)", (unsigned int)EventTest.MatchCount);
 }
 
+static void EnableDeviceThenFailReceive_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    int32 ret = CFE_SB_PIPE_RD_ERR;
+
+    (void)UserObj;
+    (void)Context;
+    /* The command loop ends with the device left enabled, as after a ground ENABLE command. */
+    DEMO_AppData.HkTelemetryPkt.DeviceEnabled = DEMO_DEVICE_ENABLED;
+    UT_Stub_CopyToReturnValue(FuncKey, &ret, sizeof(ret));
+}
+
+void Test_DEMO_AppMain_DisablesDeviceOnExit(void)
+{
+    UT_CheckEvent_t EventTest;
+
+    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), EnableDeviceThenFailReceive_Handler, NULL);
+    UT_SetDeferredRetcode(UT_KEY(CFE_ES_RunLoop), 1, true); /* run the command loop once */
+    UT_CheckEvent_Setup(&EventTest, DEMO_DISABLE_INF_EID, NULL);
+
+    DEMO_AppMain();
+
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(DEMO_AppData.HkTelemetryPkt.DeviceEnabled, DEMO_DEVICE_DISABLED);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_ES_ExitApp)), 1);
+    UT_SetHandlerFunction(UT_KEY(CFE_SB_ReceiveBuffer), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_DEMO_AppInit_StartupEventFailure(void)
+{
+    /* Not being able to announce startup is logged to the system log but does not fail initialization. */
+    UT_SetDefaultReturnValue(UT_KEY(CFE_EVS_SendEvent), CFE_EVS_INVALID_PARAMETER);
+    UT_TEST_FUNCTION_RC(DEMO_AppInit(), CFE_EVS_INVALID_PARAMETER);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_ES_WriteToSysLog)), 1);
+    UT_ResetState(0);
+}
+
 void Test_DEMO_AppInit(void)
 {
     /*
@@ -725,6 +762,8 @@ void Demo_UT_TearDown(void) {}
 void UtTest_Setup(void)
 {
     ADD_TEST(DEMO_AppMain);
+    ADD_TEST(DEMO_AppMain_DisablesDeviceOnExit);
+    ADD_TEST(DEMO_AppInit_StartupEventFailure);
     ADD_TEST(DEMO_AppInit);
     ADD_TEST(DEMO_ProcessCommandPacket);
     ADD_TEST(DEMO_ProcessGroundCommand);
