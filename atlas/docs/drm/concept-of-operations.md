@@ -17,7 +17,7 @@ The current implementation provides the following operational building blocks.
 | --- | --- | --- |
 | ADCS | cFS enable, disable, mode, target, and sensor requests with six simulator control modes against 42 | No current LC action or mode manager selects an ADCS recovery mode automatically. |
 | Demo | cFS control of a representative device whose three channels normally encode the 42 body Sun vector | Demo publishes telemetry and does not create standalone science data files. |
-| EPS | Simulated solar input, battery energy, and eight switched loads with cFS switch control and device telemetry | The current model has no named power modes, component power connections, automatic load shedding, state of charge telemetry, or battery protection response. |
+| EPS | Simulated solar input, battery energy, and eight switched loads with cFS switch control and device telemetry | The DRM wires the Demo, ADCS, and Radio loads to switches 0, 4, and 6 and the EPS power cycles them as their switches change, but the model has no named power modes, automatic load shedding, state of charge telemetry, or battery protection response. |
 | Radio | Command and telemetry packet exchange using `SLEEP`, `TX`, `RX`, and `DUPLEX` configurations | The model has no RF propagation, ground visibility, signal strength, or geometry driven link availability. |
 | CryptoLib | Flight Radio security processing with reciprocal processing by the standalone ground service | The checked in configuration is a development example rather than an operational key management or security deployment. |
 | Flight data | Selected DS packet storage under `/d`, FM file operations, and CF with YAMCS CFDP services | DS does not record every telemetry packet and no payload processing pipeline is implemented. |
@@ -64,7 +64,7 @@ The default `sat-1` power on path is assembled as follows.
 | Step | Current implementation |
 | --- | --- |
 | Application load | The CPU1 startup script loads CryptoLib, IO Lib, CF, DS, FM, LC, SC, SCH, ADCS, Demo, EPS, Radio, CI_LAB, and TO_LAB. |
-| Initial component state | The ADCS, Demo, and Radio cFS apps initialize their device state as disabled, the ADCS simulator starts in `PASSIVE`, and the EPS simulator starts all eight switches off. |
+| Initial component state | The ADCS, Demo, and Radio cFS apps initialize their device state as disabled, the ADCS simulator starts in `PASSIVE`, and the EPS simulator starts the Demo, ADCS, and Radio switches (0, 4, and 6) on and the other five switches off. |
 | Initial dynamics | The checked in 42 spacecraft starts with body rates of 5, negative 5, and 10 degrees per second while ADCS control is inactive. |
 | Automatic sequence | SC is configured to start RTS 1 after a power on reset and not after a processor reset. |
 | Core services | RTS 1 enables DS, enables TO_LAB output to `shire-gsw`, sets LC active, enables RTS numbers 1 through 15, and starts RTS 3. |
@@ -81,7 +81,7 @@ The settled observable Do No Harm checkpoint is:
 
 * ADCS device disabled with the simulated controller in `PASSIVE`
 * Demo device disabled
-* all eight EPS switches off
+* EPS switches 0, 4, and 6 on for the Demo, ADCS, and Radio loads, and the other five switches off
 * Radio device enabled in `RX`
 * DS and LC active
 * TO_LAB debug telemetry enabled
@@ -217,7 +217,8 @@ The DRM is a software development and integration environment with these limits:
 
 * 42 calculates orbital and vehicle dynamics from the checked in configuration, including the initial body rates, but many environmental torque sources are disabled.
 * The current ADCS simulator uses 42 truth and sends modeled wheel and magnetic torquer commands, but this does not establish physical sensor or actuator performance.
-* The EPS simulator uses a simple solar, battery energy, and fixed load model, and its switch states do not power other simulated components on or off.
+* The EPS simulator uses a simple solar, battery energy, and fixed load model.
+  Its switches power the Demo, ADCS, and Radio simulators on and off, and each load draws a configured power for its mode.
 * The Radio and CryptoLib path exchanges packets but does not model RF propagation, antenna geometry, contact visibility, bit errors, or measured throughput.
 * RTS 6 creates a fixed pass interval instead of using the two ground stations listed in the 42 configuration.
 * DS records only the packets named in its filter table.
@@ -251,4 +252,4 @@ The [Verification and Validation](verification-and-validation.md) page describes
 Begin hands on review with the [Commissioning](../scenarios/commissioning.md) scenario.
 
 ***
-Last reviewed: 20260819
+Last reviewed: 20261026

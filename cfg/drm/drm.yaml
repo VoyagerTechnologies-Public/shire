@@ -2,6 +2,17 @@ mission_name: "drm"
 eps:
   wire_default_loads: true
 
+# Yellow and red telemetry limits, in engineering units. Outside the yellow range a parameter is WARNING and
+# outside the red range it is CRITICAL in YAMCS. A scenario's own `limits:` key overrides these per parameter,
+# and `null` removes one. Battery voltage is 16 + 8 x state of charge with the default 16 to 24 V span.
+limits:
+  /EPS/BATTERY_VOLTAGE:
+    yellow: {min: 20.0}
+    red: {min: 18.0}
+  /EPS/BATTERY_TEMPERATURE:
+    yellow: {min: 0.0, max: 40.0}
+    red: {min: -10.0, max: 50.0}
+
 # Spacecraft configurations
 spacecraft:
   - name: "flatsat"

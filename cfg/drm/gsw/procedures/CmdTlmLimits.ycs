@@ -1,0 +1,315 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Cmd/Tlm validation, part 1. Commands are accepted, counted, and rejected when invalid. Part 2 checks yellow and red limits. Keep the simulation playing and leave sim-backdoor enabled in YAMCS Links.",
+      "comment": "Cmd/Tlm validation, part 1. Commands are accepted, counted, and rejected when invalid. Part 2 checks yellow and red limits. Keep the simulation playing and leave sim-backdoor enabled in YAMCS Links."
+    },
+    {
+      "type": "text",
+      "text": "Command acceptance: reset the counters, send a NOOP, and confirm the counter moves by exactly one with no errors",
+      "comment": "Command acceptance: reset the counters, send a NOOP, and confirm the counter moves by exactly one with no errors"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "text",
+      "text": "Command rejection: an invalid RTS number must be rejected and counted as an error, not as a success",
+      "comment": "Command rejection: an invalid RTS number must be rejected and counted as an error, not as a success"
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_RESET_COUNTERS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_START_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "99"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "1"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "the rejected command raised the error counter and not the success counter"
+    },
+    {
+      "type": "text",
+      "text": "Limits: battery voltage and temperature are reported with yellow (WARNING) and red (CRITICAL) alarm ranges",
+      "comment": "Limits: battery voltage and temperature are reported with yellow (WARNING) and red (CRITICAL) alarm ranges"
+    },
+    {
+      "type": "text",
+      "text": "Start from a full battery so the stack does not depend on earlier runs",
+      "comment": "Start from a full battery so the stack does not depend on earlier runs"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "800000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "monitoring",
+          "value": "IN_LIMITS"
+        },
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gt",
+          "value": "20"
+        },
+        {
+          "parameter": "/EPS/BATTERY_TEMPERATURE",
+          "operator": "monitoring",
+          "value": "IN_LIMITS"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "nominal: battery voltage is above its yellow limit and the temperature is inside its range"
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE"
+        },
+        {
+          "parameter": "/EPS/BATTERY_TEMPERATURE"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Yellow: a state of charge of 40 percent is about 19.2 V, below the 20 V yellow limit and above the 18 V red limit",
+      "comment": "Yellow: a state of charge of 40 percent is about 19.2 V, below the 20 V yellow limit and above the 18 V red limit"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "400000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "monitoring",
+          "value": "WARNING"
+        },
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "lt",
+          "value": "20"
+        },
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gt",
+          "value": "18"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "yellow, and not red"
+    },
+    {
+      "type": "text",
+      "text": "Red: a state of charge of 15 percent is about 17.2 V, below the 18 V red limit",
+      "comment": "Red: a state of charge of 15 percent is about 17.2 V, below the 18 V red limit"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "150000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "monitoring",
+          "value": "CRITICAL"
+        },
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "lt",
+          "value": "18"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "red"
+    },
+    {
+      "type": "text",
+      "text": "Recovery: restoring the charge returns the voltage inside its limits",
+      "comment": "Recovery: restoring the charge returns the voltage inside its limits"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "800000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "monitoring",
+          "value": "IN_LIMITS"
+        },
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gt",
+          "value": "22"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "nominal again"
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE"
+        },
+        {
+          "parameter": "/EPS/BATTERY_TEMPERATURE"
+        }
+      ]
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}
