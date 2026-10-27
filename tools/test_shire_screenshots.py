@@ -64,6 +64,7 @@ class ManifestTests(unittest.TestCase):
             "qualified": "scenario: demo\nsteps: [{command: {name: SC_START_RTS}}]",
             "wait_param needs": "scenario: demo\nsteps: [{wait_param: {timeout_s: 3}}]",
             "wait_log needs": "scenario: demo\nsteps: [{wait_log: {timeout_s: 3}}]",
+            "press needs": "scenario: demo\nsteps: [{press: {selector: input}}]",
             "record needs": "scenario: demo\nsteps: [{record: {name: /A/B}}]",
             "invalid redact": "scenario: demo\nredact: [{pattern: '('}]\nsteps: [{goto: /}]",
             "duplicate shot": "scenario: demo\nsteps: [{shot: {name: a}}, {shot: {name: a}}]",
@@ -448,6 +449,10 @@ class RunnerTests(unittest.TestCase):
         text = {"engValue": {"type": "STRING", "stringValue": "abc"}}
         with self.assertRaises(CaptureError):
             self.runner([{"wait_param": {"name": "/X", "min": 1, "timeout_s": 1}}], FakeYamcs(text)).run()
+
+    def test_press_sends_a_key_to_the_located_element(self):
+        self.runner([{"press": {"selector": "input.filter", "key": "Enter"}}]).run()
+        self.page.locator.return_value.first.press.assert_called_once_with("Enter")
 
     def test_hover_and_scroll_to_use_locators(self):
         self.runner([{"hover": {"selector": "[mattooltip=Run]"}}, {"scroll_to": "ANGRATE_Z"}]).run()

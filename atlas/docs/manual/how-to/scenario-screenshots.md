@@ -69,6 +69,7 @@ Each step has exactly one action:
 | `goto: /links` | Open a YAMCS page, with the realtime processor selected, or the viewer at `/visualization/`. |
 | `click: <text>` | Click the first element showing that text, or use `{selector: <css>}`. |
 | `fill: {selector: <css>, value: <text>}` | Type a value into a field. |
+| `press: {selector: <css>, key: <key>}` | Press a key in a field, such as Enter to apply a search. |
 | `command: {name, args, send}` | Open a command form, fill its arguments, and send it when `send` is true. |
 | `wait: {text, selector, or ms}` | Wait for page content or a fixed time, with an optional `timeout_s`. |
 | `wait_param: {name, equals, fresh}` | Wait until telemetry holds a value, and with `fresh` until a new packet arrives. |

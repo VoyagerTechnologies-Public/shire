@@ -38,6 +38,7 @@ nav = [
       { "Scenarios and Initial Conditions" = "manual/how-to/scenarios.md" },
       { "Scenario Screenshots" = "manual/how-to/scenario-screenshots.md" },
       { "Telemetry Limits" = "manual/how-to/telemetry-limits.md" },
+      { "Uploading Tables and Patches" = "manual/how-to/uplink-patches.md" },
     ] },
   ] },
   { "Reference" = [
@@ -53,6 +54,7 @@ nav = [
   { "Scenarios" = [
     { "Overview" = "scenarios/overview.md" },
     { "Commissioning" = "scenarios/commissioning.md" },
+    { "Cmd/Tlm Validation" = "scenarios/cmd-tlm-validation.md" },
   ] },
 ]
 

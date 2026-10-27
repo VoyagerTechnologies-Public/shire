@@ -8,8 +8,9 @@ They explain the operator goal, the available implementation, the expected obser
 | Scenario | What a new user learns | Current status |
 | --- | --- | --- |
 | [Commissioning](commissioning.md) | How SHIRE boots into Do No Harm, how to establish a pass, and how to check out core functions | Manual exercise using current commands, tables, links, and component procedures |
+| [Cmd/Tlm Validation](cmd-tlm-validation.md) | How commands, telemetry limits, alarms, stored command uploads, and flight software patches behave | Manual exercise using YAMCS stacks, with an automated run of the stacks |
 
-Commissioning is the only scenario currently included in the published Atlas navigation.
+Commissioning and Cmd/Tlm Validation are the scenarios currently included in the published Atlas navigation.
 Additional scenario drafts remain planned work until their procedures, assertions, and review evidence are ready.
 
 ## Before every run

@@ -25,7 +25,11 @@ add_cfe_tables(sc
     sc_rts015.c
     # Built with the flight software and uploaded by the ground. SC does not load it at boot.
     up_sc_rts012.c
+    up_sc_rts13bad.c
 )
+
+# Alternate LC watchpoint table for the ground to upload (see up_lc_wdt.c).
+add_cfe_tables(lc up_lc_wdt.c)
 
 # Repository-owned coverage tests for upstream applications live in the
 # mission layer so upstream submodules stay pristine.  This hook runs after

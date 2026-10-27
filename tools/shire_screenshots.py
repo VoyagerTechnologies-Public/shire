@@ -32,7 +32,7 @@ MANIFEST_DIR = ATLAS / "screenshots"
 VENV_DIR = ROOT / "build" / "screenshots-venv"
 LIBS_DIR = ROOT / "build" / "screenshots-libs"
 
-ACTIONS = ("goto", "click", "hover", "scroll_to", "fill", "wait", "wait_param", "wait_log", "wait_transfer", "record", "command", "send", "shot")
+ACTIONS = ("goto", "click", "hover", "scroll_to", "fill", "press", "wait", "wait_param", "wait_log", "wait_transfer", "record", "command", "send", "shot")
 SHOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 SHOT_KINDS = ("web", "terminal")
 LOG_SOURCES = ("start_log", "compose_logs")
@@ -130,7 +130,7 @@ def validate_step(index: int, step: object, seen: set[str]) -> None:
     action, arg = next(iter(step.items()))
     if action not in ACTIONS:
         raise ManifestError(f"{where}: unknown action {action!r} (expected one of {', '.join(ACTIONS)})")
-    needs_mapping = {"fill", "wait", "wait_param", "wait_log", "record", "command", "shot"}
+    needs_mapping = {"fill", "press", "wait", "wait_param", "wait_log", "record", "command", "shot"}
     if action in needs_mapping and not isinstance(arg, dict):
         raise ManifestError(f"{where}: {action} takes a mapping")
     if action in {"goto", "click", "hover", "scroll_to"} and not isinstance(arg, (str, dict)):
@@ -141,6 +141,8 @@ def validate_step(index: int, step: object, seen: set[str]) -> None:
         raise ManifestError(f"{where}: command needs a qualified 'name' such as /SC/SC_COMMANDS/SC_START_RTS")
     elif action == "wait_param" and "name" not in arg:
         raise ManifestError(f"{where}: wait_param needs 'name'")
+    elif action == "press" and "key" not in arg:
+        raise ManifestError(f"{where}: press needs 'key'")
     elif action == "record" and not {"name", "as"} <= arg.keys():
         raise ManifestError(f"{where}: record needs 'name' and 'as'")
     elif action == "wait_transfer" and not isinstance(arg, (dict, type(None))):
@@ -401,6 +403,9 @@ class Runner:
 
     def do_fill(self, arg: dict) -> None:
         self.locator(arg).fill(str(arg["value"]))
+
+    def do_press(self, arg: dict) -> None:
+        self.locator(arg).press(str(arg["key"]))
 
     def locator(self, target: dict):
         page = self.env.page

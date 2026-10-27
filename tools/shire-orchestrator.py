@@ -84,7 +84,9 @@ def main():
         mission_cfg_path = os.path.join(CFG_DIR, missions[0]["config_file"])
         mission_cfg = load_yaml(mission_cfg_path)
         scenarios = mission_cfg.get("scenarios", [])
-        scenario = scenarios[0]["name"] if scenarios else "nominal"
+        # The default is "nominal" by name, so the order of the mission's scenario list (which is alphabetical) does not matter.
+        names = [entry["name"] for entry in scenarios]
+        scenario = "nominal" if "nominal" in names or not names else names[0]
         
         # Default spacecraft selection from global or mission config
         if "spacecraft" in global_cfg["build"] and global_cfg["build"]["spacecraft"]:

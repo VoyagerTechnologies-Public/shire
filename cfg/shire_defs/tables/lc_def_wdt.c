@@ -40,6 +40,7 @@
 /* Component includes */
 #include "demo_msgids.h"
 #include "radio_msgids.h"
+#include "eps_msgids.h"
 
 #ifdef __GNUC__
 #pragma GCC diagnostic push
@@ -99,8 +100,11 @@
 /*
 ** Table file header
 */
+#ifndef SHIRE_LC_WDT_FILE
+#define SHIRE_LC_WDT_FILE "lc_def_wdt.tbl"
+#endif
 CFE_TBL_FileDef_t CFE_TBL_FileDef = {"LC_WDT", LC_APP_NAME "." LC_WDT_TABLENAME, "LC watchpoint definition table",
-                                     "lc_def_wdt.tbl", (sizeof(LC_WDTEntry_t) * LC_MAX_WATCHPOINTS)};
+                                     SHIRE_LC_WDT_FILE, (sizeof(LC_WDTEntry_t) * LC_MAX_WATCHPOINTS)};
 
 /*
 ** Default watchpoint definition table (WDT) data
@@ -166,12 +170,14 @@ LC_WDTEntry_t LC_WDT[LC_MAX_WATCHPOINTS] = {
         .ComparisonValue.Unsigned32 = 0,
     },
 
-    /* #5 - Radio Enable */
+    /* #5 - Radio Enable
+     * DeviceEnabled is byte 22 of the Radio housekeeping packet: a 16 byte telemetry header, then 6 bytes of command
+     * and device counters. */
     {
         .DataType                   = LC_DATA_WATCH_UBYTE,
         .OperatorID                 = LC_OPER_NE,
         .MessageID                  = RADIO_HK_TLM_MID,
-        .WatchpointOffset           = 20,
+        .WatchpointOffset           = 22,
         .BitMask                    = LC_BITMASK_NONE,
         .CustomFuncArgument         = 0,
         .ResultAgeWhenStale         = 0,
@@ -226,30 +232,49 @@ LC_WDTEntry_t LC_WDT[LC_MAX_WATCHPOINTS] = {
         .ComparisonValue.Unsigned32 = 0,
     },
 
-    /* #10 Demo Enabled */
+    /* #10 Demo Enabled
+     * DeviceEnabled is byte 22 of the Demo housekeeping packet, laid out like the Radio's. */
     {
         .DataType                   = LC_DATA_WATCH_UBYTE,
         .OperatorID                 = LC_OPER_EQ,
         .MessageID                  = DEMO_HK_TLM_MID,
-        .WatchpointOffset           = 20,
+        .WatchpointOffset           = 22,
         .BitMask                    = LC_BITMASK_NONE,
         .CustomFuncArgument         = 0,
         .ResultAgeWhenStale         = 0,
         .ComparisonValue.Unsigned8  = 1,
     },
 
-    /* #11 Demo Chan 1 Invalid Range */
+    /* #11 Demo Chan 1 Invalid Range
+     * Chan1 is the first field after the 16 byte telemetry header of the Demo device packet. It is an unsigned 16 bit
+     * value, and real readings sit around 32768, so a signed compare would read them as negative. */
     {
-        .DataType                   = LC_DATA_WATCH_WORD_LE,
+        .DataType                   = LC_DATA_WATCH_UWORD_LE,
         .OperatorID                 = LC_OPER_LT,
         .MessageID                  = DEMO_DEVICE_TLM_MID,
-        .WatchpointOffset           = 11,
+        .WatchpointOffset           = 16,
         .BitMask                    = LC_BITMASK_NONE,
         .CustomFuncArgument         = 0,
         .ResultAgeWhenStale         = 0,
         .ComparisonValue.Unsigned16 = 256,
     },
 
+#ifdef LC_WDT_UPLINK_PATCH
+    /* #12 EPS Battery Below Yellow Limit (uplink patch only)
+     * The battery voltage byte encodes 16 V + count * 8 V / 255 with the default span, so a count below 128 is
+     * below 20 V, the yellow limit configured for /EPS/BATTERY_VOLTAGE on the ground. It is byte 22 of the EPS
+     * housekeeping packet: a 16 byte telemetry header, then 6 bytes of command and device counters. */
+    {
+        .DataType                   = LC_DATA_WATCH_UBYTE,
+        .OperatorID                 = LC_OPER_LT,
+        .MessageID                  = EPS_HK_TLM_MID,
+        .WatchpointOffset           = 22,
+        .BitMask                    = LC_BITMASK_NONE,
+        .CustomFuncArgument         = 0,
+        .ResultAgeWhenStale         = 0,
+        .ComparisonValue.Unsigned8  = 128,
+    },
+#else
     /* #12 (unused) */
     {
         .DataType                   = LC_DATA_WATCH_NOT_USED,
@@ -261,6 +286,7 @@ LC_WDTEntry_t LC_WDT[LC_MAX_WATCHPOINTS] = {
         .ResultAgeWhenStale         = 0,
         .ComparisonValue.Unsigned32 = 0,
     },
+#endif
 
     /* #13 (unused) */
     {

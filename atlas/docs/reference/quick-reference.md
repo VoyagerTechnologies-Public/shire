@@ -115,11 +115,12 @@ The current `cfg/shire_defs/targets.cmake` still compiles all four reference com
 The DRM scenarios include `nominal`, `debug`, `checkout`, `eclipse-entry-adcs`,
 `eclipse-exit-adcs`, `adcs-gps-time-sync`, `adcs-boot-config`,
 `adcs-sunpoint-rotisserie`, `adcs-truth-verification`, `adcs-target-track`,
-`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, `eps-backdoor-testing`, `radio-link-testing`, and `radio-security-testing`.
+`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, `eps-backdoor-testing`, `radio-link-testing`, `radio-security-testing`, and `cmd-tlm-validation`.
 `nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
 `eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
 Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.
 `checkout` runs YAMCS's CheckoutTest.ycs stack headlessly via `verify_stacks` instead of a human clicking through it.
+`cmd-tlm-validation` runs three stacks that check commanding, telemetry limits, RTS upload and activation, and flight software table and application patches.
 See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the IC bin and verify_stacks mechanisms.
 The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nominal`, and CLI component `demo`.
 

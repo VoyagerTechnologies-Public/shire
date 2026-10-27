@@ -1,0 +1,174 @@
+# Screenshots for atlas/docs/scenarios/cmd-tlm-validation.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=cmd-tlm-validation
+# The alarm and EPS patch sections are done by hand in YAMCS, and the three procedure stacks are run from Procedures.
+scenario: cmd-tlm-validation
+doc: scenarios/cmd-tlm-validation.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Limits and alarms ---------------------------------------------------------------------------------
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - shot: {name: 01-battery-nominal, settle_ms: 1500}
+
+  - command:
+      name: /EPS/BACKDOOR_EPS_SET_SOC
+      args: {SOC_PPM: 400000}
+  - shot: {name: 02-soc-yellow-command}
+  - send: true
+  - wait_param: {name: /EPS/BATTERY_VOLTAGE, max: 19.5, timeout_s: 90}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - shot: {name: 03-battery-yellow, settle_ms: 1500}
+
+  - goto: /alarms
+  - wait: {text: "/EPS/BATTERY_VOLTAGE"}
+  - click: {selector: 'td:has-text("Parameter")'}
+  - wait: {text: "Alarm detail"}
+  - shot: {name: 04-alarm-yellow, settle_ms: 1000}
+
+  - command:
+      name: /EPS/BACKDOOR_EPS_SET_SOC
+      args: {SOC_PPM: 150000}
+      send: true
+  - wait_param: {name: /EPS/BATTERY_VOLTAGE, max: 17.8, timeout_s: 90}
+  - goto: /alarms
+  - wait: {text: "/EPS/BATTERY_VOLTAGE"}
+  - click: {selector: 'td:has-text("Parameter")'}
+  - wait: {text: "Alarm detail"}
+  - shot: {name: 05-alarm-red, settle_ms: 1000}
+
+  - click: {selector: 'ya-page-button:has-text("Acknowledge")'}
+  - wait: {text: "Comment"}
+  - shot: {name: 06-alarm-acknowledge}
+  - click: {selector: 'button:has-text("OK")'}
+  - wait: {ms: 1500}
+  - shot: {name: 07-alarm-acknowledged}
+
+  - command:
+      name: /EPS/BACKDOOR_EPS_SET_SOC
+      args: {SOC_PPM: 800000}
+      send: true
+  - wait_param: {name: /EPS/BATTERY_VOLTAGE, min: 22, timeout_s: 90}
+  - goto: /alarms
+  - wait: {ms: 3000}
+  - shot: {name: 08-alarm-resolved}
+  - click: {text: History, exact: true}
+  - wait: {text: "/EPS/BATTERY_VOLTAGE"}
+  - shot: {name: 09-alarm-history, settle_ms: 1000}
+
+  # ---- Procedure stacks ----------------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/CmdTlmLimits.ycs
+  - wait: {text: CFE_ES_RESET}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 420}
+  - wait: {ms: 2000}
+  - scroll_to: {text: "/EPS/BATTERY_VOLTAGE > 22"}
+  - shot: {name: 10-limits-stack-complete, settle_ms: 2000}
+  # The stack drove the battery through its limits, which raised an alarm. Acknowledge it so later pages start clean.
+  - goto: /alarms
+  - wait: {text: "/EPS/BATTERY_VOLTAGE"}
+  - click: {selector: 'td:has-text("Parameter")'}
+  - wait: {text: "Alarm detail"}
+  - click: {selector: 'ya-page-button:has-text("Acknowledge")'}
+  - wait: {text: "Comment"}
+  - click: {selector: 'button:has-text("OK")'}
+  - wait: {ms: 2500}
+
+  - goto: /procedures/stacks/files/CmdTlmStoredCommands.ycs
+  - wait: {text: CFE_ES_RESET}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 420}
+  - wait: {ms: 2000}
+  - shot: {name: 11-rts-stack-complete, settle_ms: 2000}
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: up_sc_rts012.tbl}
+  - shot: {name: 12-rts-upload-transfer, settle_ms: 2000}
+
+  # ---- EPS application patch, by hand --------------------------------------------------------------------
+  - command:
+      name: /EPS/EPS_NOOP_CC
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_QUERY_ONE
+      args: {APPLICATION: EPS_APP}
+      send: true
+  - wait: {ms: 4000}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_ONEAPPTLM
+  - wait: {text: APPINFO_FILENAME}
+  - shot: {name: 13-eps-module-boot, settle_ms: 1500}
+
+  - command:
+      name: /CCSDS/CFDP_UPLOAD
+      args: {OBJECT_NAME: up_eps.so, REMOTE_PATH: /d/up_eps.so}
+  - shot: {name: 14-upload-command}
+  - send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: up_eps.so}
+  - wait_transfer: {timeout_s: 300}
+  - shot: {name: 15-eps-upload-transfer, settle_ms: 2500}
+
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_RELOAD_APP
+      args: {APPLICATION: EPS_APP, APPFILENAME: /d/up_eps.so}
+  - shot: {name: 16-reload-command}
+  - send: true
+  - wait_param: {name: /EPS/CMD_COUNT, equals: 0, timeout_s: 120}
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_QUERY_ONE
+      args: {APPLICATION: EPS_APP}
+      send: true
+  - wait: {ms: 4000}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_ONEAPPTLM
+  - wait: {text: APPINFO_FILENAME}
+  - shot: {name: 17-eps-module-patched, settle_ms: 1500}
+
+  - command:
+      name: /EPS/EPS_SWITCH_ON_CC
+      args: {SWITCH_NUMBER: 5}
+      send: true
+  - command:
+      name: /EPS/EPS_REQ_HK
+      send: true
+  - wait_param: {name: /EPS/CMD_ERR_COUNT, equals: 1, timeout_s: 90}
+  - shot:
+      name: 18-switch-refused-event
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      after: "EPS: Switch 5 is protected"
+      head: 1
+      title: SHIRE flight software
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: CMD_ERR_COUNT}
+  - shot: {name: 19-switch-refused-counters, settle_ms: 1500}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SWITCH_5}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 20-switch-refused-state}
+
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_RELOAD_APP
+      args: {APPLICATION: EPS_APP, APPFILENAME: /cf/eps.so}
+      send: true
+  - wait_param: {name: /EPS/CMD_ERR_COUNT, equals: 0, timeout_s: 120}
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_QUERY_ONE
+      args: {APPLICATION: EPS_APP}
+      send: true
+  - wait: {ms: 4000}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_ONEAPPTLM
+  - wait: {text: APPINFO_FILENAME}
+  - shot: {name: 21-eps-module-restored, settle_ms: 1500}
+
+  # ---- Patch stack ---------------------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/CmdTlmPatches.ycs
+  - wait: {text: CFE_ES_RESET}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 600}
+  - wait: {ms: 2000}
+  - shot: {name: 22-patches-stack-complete, settle_ms: 2000}

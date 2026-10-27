@@ -275,7 +275,7 @@ exclusively through `verify_stacks`, never ones also meant for manual GUI
 use.
 See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
 
-`checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
+`checkout`, `cmd-tlm-validation`, and several `adcs-*` scenarios (`adcs-gps-time-sync`,
 `adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,
 `adcs-target-track`) use `verify_stacks` today, the latter running
 `comp/adcs/gsw/procedures/*.ycs` stacks.

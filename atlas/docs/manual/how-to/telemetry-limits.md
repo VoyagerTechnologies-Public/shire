@@ -91,6 +91,7 @@ A parameter with no limits has no monitoring result, so the step fails at once a
 The YAMCS web interface cannot evaluate this condition, so use it only in stacks that `make scenario` runs.
 `CmdTlmLimits.ycs` does not use it.
 That stack drives the battery state of charge through the EPS backdoor into yellow and then red, and checks the voltage numerically, so it runs the same way in the web interface and in `make scenario`.
+The [Cmd/Tlm Validation](../../scenarios/cmd-tlm-validation.md) scenario walks through the alarms that those limits raise in YAMCS, from the first warning to the acknowledged and resolved alarm.
 
 ***
 Last reviewed: 20261026

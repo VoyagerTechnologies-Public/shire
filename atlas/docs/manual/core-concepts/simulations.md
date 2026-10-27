@@ -307,6 +307,23 @@ Its watchdog names the client holding a phase, while the PSP watchdog identifies
 the schedule entry, message ID, and participant state holding EXECUTE.
 No synchronized mode batches ticks, queues future ticks, or skips SCH slots.
 
+### Stopping, reloading, and restarting applications
+
+An application that leaves the Software Bus while a tick is open must not hold that tick open.
+Two safeguards in the PSP and cFE Executive Services make an application stop, reload, or restart safe.
+
+When an application task calls `CFE_ES_ExitApp()`, ES notifies the Software Bus observer first.
+The PSP then completes every delivery that is still bound to the pipe that task last received from.
+It also retires that pipe, so scheduled messages that the Software Bus keeps routing to it until ES finishes cleaning the application up are no longer tracked.
+This matters because ES measures its clean up delays on simulated time, which does not advance while a tick is open.
+
+OSAL stops an application's tasks with `pthread_cancel`.
+The PSP's wait for the next tick releases its mutex if the task is cancelled while it waits, so a stopped task never leaves the simulated clock locked for every later reader.
+
+An application that is killed without calling `CFE_ES_ExitApp()`, such as after an exception, is not covered by the first safeguard and can still hold a tick open.
+The PSP stall report names the schedule entry, message ID, pipe, and state of each participant that is still missing.
+It reports by elapsed time, so a stall is named even when other completions keep waking the wait.
+
 ## Performance regression runs
 
 See [Verify synchronized simulation performance](../how-to/performance.md) for
@@ -357,4 +374,4 @@ A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
 
 ***
-Last reviewed: 20261008
+Last reviewed: 20261026

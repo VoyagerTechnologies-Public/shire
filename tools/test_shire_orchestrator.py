@@ -147,6 +147,8 @@ class ConfigurationPathsTests(unittest.TestCase):
             self.assertEqual(selection['board'], 'rpi5')
             self.assertEqual(selection['mission'], 'drm')
             self.assertEqual(selection['spacecraft'], 'sat-1')
+            # The mission lists its scenarios alphabetically, so the default is named and not the first entry.
+            self.assertEqual(selection['scenario'], 'nominal')
 
     def test_configuration_generation_from_root_tools_and_outside(self):
         for location in ("root", "tools", "outside"):

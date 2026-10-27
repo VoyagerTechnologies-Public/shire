@@ -459,6 +459,18 @@ void EPS_SetSwitchOn(void)
                           "EPS: Invalid switch number %d", switch_cmd->SwitchNumber);
     }
 
+#ifdef EPS_PATCH_PROTECTED_SWITCH
+    /* Uplink patch: the protected switch cannot be switched on by command, so it cannot be used to run the battery
+     * down. Switching it off is still allowed. */
+    if (status == OS_SUCCESS && switch_cmd->SwitchNumber == EPS_PATCH_PROTECTED_SWITCH)
+    {
+        status = OS_ERROR;
+        EPS_AppData.HkTelemetryPkt.CommandErrorCount++;
+        CFE_EVS_SendEvent(EPS_CMD_SWITCH_ON_ERR_EID, CFE_EVS_EventType_ERROR,
+                          "EPS: Switch %d is protected and cannot be switched ON", switch_cmd->SwitchNumber);
+    }
+#endif
+
     if (status == OS_SUCCESS)
     {
         /* Increment command success counter */
