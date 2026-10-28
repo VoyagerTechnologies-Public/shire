@@ -26,7 +26,7 @@ flowchart LR
     H[Host clock and simulators] <--> S
 ```
 
-The Compose service named `shire-fsw-<spacecraft>` runs the host bridge.
+The Compose service `shire-fsw`, whose container is named `shire-fsw-<spacecraft>`, runs the host bridge.
 The cFS executable runs on the physical processor using its existing Linux kernel.
 It uses a supplied userspace in a temporary chroot with separate mount, IPC, and PID namespaces.
 The launcher does not boot an emulator or run Docker on the board.
@@ -42,7 +42,7 @@ Physical buses and FPGA peripherals require separate configuration and qualifica
 | --- | --- | --- |
 | `qemu-zynq` | ARMv7 hard-float, `armv7l-shire`, public Zynq ZC702 Linux guest | Emulator acceptance with separate physical board and peripheral gates. |
 | `zybo7020` | ARMv7 little-endian hard-float, `armv7l-shire`, matching public Buildroot SDK/userspace | Physical Zybo PIL validated with command acceptance, telemetry, fidelity, and repeatability. |
-| `rpi5` | AArch64 little-endian, `aarch64-shire`, matching public SDK/userspace with 16 KiB page alignment | Physical RPi5 processor PIL validated with command acceptance, telemetry, fidelity, and repeatability using a 16 KiB-page kernel. |
+| `rpi5` | AArch64 little-endian, `aarch64-shire`, matching public SDK/userspace with 16 KiB page alignment | Physical RPi5 processor PIL was exercised on a 16 KiB-page kernel, but the profile still describes the hardware as unvalidated and the repository retains no acceptance report for it. |
 
 The RPi example selects 64-bit userspace.
 Select the actual OS and executable ABI rather than inferring it from the board name.
@@ -96,7 +96,7 @@ The saved board selection affects only `board-*` commands.
 Native `make build`, `make start`, and `make perf` retain their existing behavior.
 
 Select `BOARD=qemu-zynq` for the emulator, or
-`BOARD=rpi5` after setting its SSH target and preparing its matching artifacts.
+`BOARD=rpi5` after replacing its `YOUR_USER@YOUR_HOST` SSH target placeholder and preparing its matching artifacts.
 
 | Command | SSH hardware backend | QEMU backend |
 | --- | --- | --- |
@@ -205,7 +205,7 @@ List the registered scenario names with:
 python3 tools/shire-scenario.py --list-scenarios
 ```
 
-For a 64-bit Linux RPi5, set `ssh.target` in `cfg/boards/rpi5.yaml`, then prepare its AArch64 artifacts:
+For a 64-bit Linux RPi5, replace the `YOUR_USER@YOUR_HOST` placeholder in `ssh.target` in `cfg/boards/rpi5.yaml` or pass `--target`, then prepare its AArch64 artifacts:
 
 ```bash
 make board-prepare BOARD=rpi5
@@ -425,7 +425,8 @@ Before treating a new target as supported, establish successful SDK/bundle archi
 clean startup, a Yamcs command accepted by physical cFS, returning board telemetry,
 pause/resume, repeated full acceptance, and cleanup with its original board settings preserved.
 Retain the resulting report as evidence for that specific profile and board image.
+The `rpi5` profile has no such retained report in this repository, so treat it as an example until you produce one.
 Physical peripheral compatibility and flight readiness remain separate gates.
 
 ***
-Last reviewed: 20261021
+Last reviewed: 20261027

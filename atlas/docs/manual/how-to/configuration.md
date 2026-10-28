@@ -47,9 +47,10 @@ Values for keys that are not mentioned carry forward unchanged.
 | 2 | Component values in `cfg/shire-config.yaml` | Replaces matching defaults when repository values are present. |
 | 3 | Component values in the selected mission file | Replaces matching values when mission values are present. |
 | 4 | Component values in the selected spacecraft file | Applies the device values for that spacecraft. |
-| 5 | Component values in the selected scenario file | Applies values specific to that component and scenario. |
-| 6 | The scenario `overrides` mapping | Applies the same named values to every selected component. |
-| 7 | `make cfg-cli` | Forces `debug: true` for the active `cli:` component before rendering its device header. |
+| 5 | The Initial Condition bin's `component_overrides` | Applies component state that the scenario's selected bin carries, such as EPS charge. |
+| 6 | Component values in the selected scenario file | Applies values specific to that component and scenario. |
+| 7 | The scenario `overrides` mapping | Applies the same named values to every selected component. |
+| 8 | `make cfg-cli` | Forces `debug: true` for the active `cli:` component before rendering its device header. |
 
 The current `sat-2` nominal Radio configuration provides a concrete example:
 
@@ -61,9 +62,18 @@ The current `sat-2` nominal Radio configuration provides a concrete example:
 The resolved Radio settings therefore combine values from several files rather than taking one complete configuration block from a single file.
 
 The Radio RF link model follows the same layering.
-A scenario can set `link_mode`, per-direction `uplink_delay_ms` / `downlink_delay_ms` and `uplink_drop_ppm` / `downlink_drop_ppm`, `link_seed`, and a `ground_stations` list of names from `cfg/drm/ground_stations.yaml` under its `radio:` block.
-`tools/shire-orchestrator.py` validates these, resolves the station list, and renders them into the Radio simulator's `device_cfg.h`, so re-run `make cfg` after changing them.
+A scenario can set the keys below under its `radio:` block.
+`tools/shire_radio_config.py` validates them with the ranges shown, `tools/shire-orchestrator.py` resolves the station list, and the result is rendered into the Radio simulator's `device_cfg.h`, so re-run `make cfg` after changing them.
 The backdoor can change the same settings while a simulation runs.
+
+| Key | Valid values and default |
+| --- | --- |
+| `link_mode` | `auto` is in view when a listed ground station sees the spacecraft, `always` is always in view, and `never` is never in view, with `always` as the default. |
+| `uplink_delay_ms`, `downlink_delay_ms` | Integer milliseconds from 0 to 4294967295, default 0. |
+| `uplink_drop_ppm`, `downlink_drop_ppm` | Integer packet drop in parts per million from 0 to 1000000, default 0. |
+| `link_seed` | Integer from 0 to 4294967295 that seeds the drop generator, default 1. |
+| `link_queue_depth` | Integer from 1 to 4096 for packets in flight per direction, default 64. |
+| `ground_stations` | A list of up to 16 distinct names from `cfg/drm/ground_stations.yaml`, defaulting to every Earth station in the catalog. |
 
 The Radio also resolves `uplink_encryption` and `downlink_encryption`, both `true` by default.
 The orchestrator renders them into the Radio's `device_cfg.h` for the flight app and into the `shire-cryptolib` service environment in `shire-compose.yaml` for the ground, so both ends of the link are always configured from the same resolved values.
@@ -79,7 +89,7 @@ make cfg
 
 This runs `tools/shire-orchestrator.py` inside the configured SHIRE build image.
 The current default image reference uses the `0.0.0` tag rather than an immutable digest.
-On the first run, the orchestrator creates `build/active.yaml` with DRM, `sat-1`, the nominal scenario, the Demo CLI, logging disabled, and headless 42 enabled.
+On the first run, the orchestrator creates `build/active.yaml` with DRM, `sat-1`, the nominal scenario, the Demo CLI, logging disabled, the default FSW and GSW directories, and the default board profile.
 
 The orchestrator currently produces:
 
@@ -109,11 +119,19 @@ cli: demo
 log_mode: none
 fsw_dir: cfs
 gsw_dir: yamcs
+board: qemu-zynq
 ```
 
+`log_mode` sets the `SIMULITH_LOG_MODE` of the Director and FSW containers.
+Valid values are `stdout`, `file`, `both`, and `none`, and the generated default is `none`.
+With `none`, the Simulith log lines from the Director and FSW are silenced.
+The Server container is always forced to `stdout`.
+Set `log_mode: stdout` and run `make cfg` before diagnosing Director or FSW startup (see [Inspect the DRM](docker.md#inspect-the-drm)).
+`board` selects the profile in `cfg/boards/` that board commands use, and `qemu-zynq` is the default.
+
 Valid DRM spacecraft in the current checkout are `flatsat`, `sat-1`, and `sat-2`.
-Valid DRM scenarios in the current checkout are `nominal`, `debug`, `eclipse-entry-adcs`, `eclipse-exit-adcs`, and `checkout`.
-See [Scenarios and initial conditions](scenarios.md) for what each one does.
+The DRM registers 17 scenarios in `cfg/drm/drm.yaml`, and `make scenario` with no argument lists them.
+See [Scenarios and initial conditions](scenarios.md#running-a-scenario) for what each one runs.
 The current spacecraft component sets are:
 
 | Spacecraft | Components |
@@ -193,4 +211,4 @@ Before a long build, verify:
 6. The generated compose files reference the intended mission and image tag, ordinarily the spacecraft name unless a Monte Carlo campaign trial set an explicit build-key tag.
 
 ***
-Last reviewed: 20261002
+Last reviewed: 20261027

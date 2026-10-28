@@ -9,25 +9,41 @@ Version numbers follow MAJOR.MINOR.PATCH:
 - **MINOR** — new components, new scenarios, new capabilities, or deprecation notices
 - **PATCH** — bug fixes, documentation corrections, security patches, and dependency updates
 
+No release has been tagged yet, so every change below is listed under Unreleased.
+The container images that the Makefile and CI use carry the placeholder tag `0.0.0`.
+
 ## [Unreleased]
 
 ### Added
-- Open-source release preparation: governance files (`CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CLAUDE.md`)
-- Submodule workflow documentation in Getting Started guide
-- Dependabot configuration for automated dependency updates
-- CodeQL workflow for C/C++ and Java static analysis
-- Cosign keyless signing for GHCR container images (`shire-base`, `shire-yamcs`)
-- Environment variable documentation added to Atlas Getting Started guide
-- Pinned Python dependencies in `cfg/requirements.txt`
+- Submodule workflow documentation in the Atlas Getting Started and Installation guides
+- Dependabot configuration for GitHub Actions, Docker, pip, and Maven dependency updates
+- Issue and pull request templates under `.github/`
+- Atlas documentation site with `atlas/scripts/check_docs.py` content checks and a strict build in the documentation workflow
+- Code coverage for flight software, component simulators, and the Simulith core uploaded to Codecov, plus a cyclomatic complexity report (`make complexity`)
+- Processor-in-the-loop (PIL) targets `make board-prepare`, `board-connect`, `board-inspect`, `board-build`, `board-deploy`, `board-start`, `board-stop`, `board-scenario`, and `board-test` with board profiles in `cfg/boards/` for a Zynq QEMU guest, a Zybo 7020, and a Raspberry Pi 5
+- Monte Carlo campaigns (`make campaign`) with campaign definitions in `cfg/drm/campaigns/`
+- Synchronized performance tooling (`make perf-smoke`, `make perf`, `make perf-compare`) and CPU placement for the simulation processes
+- Deterministic scenario initialization through Initial Condition bins in `cfg/drm/initial_conditions/` with a per-run snapshot
+- Headless `make scenario SCENARIO=<name>` and `make scenario-smoke`, with 17 DRM scenarios that run YAMCS stacks through `verify_stacks` and container log assertions through `log_assertions`
+- Replay archives per run (`make replay-list`, `make replay`, `make replay-delete`) and a Cesium based spacecraft visualization served by YAMCS
+- ADCS expansion with GPS time, a time file fallback, Sun point rotisserie roll, target tracking, and component stacks for each
+- EPS expansion with eight switched loads wired to the Demo, ADCS, and Radio simulators, EPS backdoors, a fault injection stack, and EPS campaigns
+- Radio link model with ground station visibility from `cfg/drm/ground_stations.yaml`, one-way delay, and packet loss, controlled through Radio backdoors
+- Radio link security with AES-256-GCM through CryptoLib by default, backdoors that corrupt or replay packets, and the `radio-security-testing` scenario
+- Yellow and red telemetry limits configured under `limits:` in `cfg/drm/drm.yaml` and resolved into the YAMCS mission database under `build/<mission>/scenario/mdb`
+- `/CCSDS/CFDP_UPLOAD` command for uploading a file from the YAMCS `cfdpUp` bucket to `/d`
+- Uploadable flight files built from `cfg/shire_defs/tables/up_*.c` and `comp/eps`, namely RTS 12, a deliberately corrupt RTS 13, an LC watchpoint table with the uplink-only watchpoint 12, and the `up_eps` application patch
+- Cmd/Tlm Validation scenario with the `CmdTlmLimits.ycs`, `CmdTlmStoredCommands.ycs`, and `CmdTlmPatches.ycs` stacks
+- Scripted scenario screenshot capture (`make screenshots-setup`, `make screenshots`, `make screenshots-check`)
+- Apple Silicon (arm64) support for the SHIRE build image and component CLI builds
 
 ### Changed
-- Repository migrated to a public repository
-- All container images moved to `ghcr.io/voyagertechnologies/` registry
-- `yamcs/` extracted to `VoyagerTechnologies/shire-yamcs` and wired back as a submodule
-- External vendored directories converted to git submodules (`external-42`, `external-cfe`, `external-osal`, `external-psp`, nine cFS apps, `external-cryptolib`)
-- `VNC_PASSWORD` fallback removed; variable is now required at container start
-- YAMCS `secretKey` moved from hardcoded `changeme` to `YAMCS_SECRET_KEY` environment variable
+- All container images moved to the `ghcr.io/voyagertechnologies-public/` registry
+- `yamcs/` is wired in as the `external-yamcs` submodule
+- External vendored directories converted to git submodules (`42`, `cfs/cfe`, `cfs/osal`, `cfs/psp`, `cfs/tools/elf2cfetbl`, nine cFS apps, `yamcs`, and `comp/cryptolib`)
+- Pinned Python dependencies live in `tools/requirements.txt`
 
-### Security
-- Removed hardcoded VNC password (`cfg/entrypoint-42.sh`)
-- Removed hardcoded YAMCS session secret (`yamcs/src/main/yamcs/etc/yamcs.yaml`)
+### Fixed
+- LC watchpoint table corrections that accompany the Cmd/Tlm Validation scenario
+- PSP retires the deliveries of exiting tasks, releases the tick mutex when a task is cancelled, and reports stalls by elapsed time so that application reload works in the synchronized simulation
+- Target tracking quaternion scalar order in the ADCS simulator

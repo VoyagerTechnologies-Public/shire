@@ -17,9 +17,10 @@ For every tick it:
 
 The DRM expects two clients: FSW and the Director.
 The focused CLI environment expects one Director client.
-From the attached Server console, use `p` to pause or resume, `speed 25` to
-request an exact rate, `speed max` for unbounded execution, and `+` or `-` to
-double or halve the current requested rate.
+From the attached Server console, use `p` to toggle pause, or `pause` and `resume` to set the state explicitly.
+`step` pauses the clock and advances a single tick, and each further `step` advances one more.
+`speed 25` requests an exact rate, `speed max` requests unbounded execution, and `+` or `-` double or halve the current requested rate.
+`quit` makes the Server exit.
 The Server reports simulated time, attempted speed, and achieved speed every 10
 seconds of simulated time regardless of the active synchronization transport.
 The interactive controls accept attempted rates from 1/64x through 1024x, but
@@ -320,6 +321,15 @@ This matters because ES measures its clean up delays on simulated time, which do
 OSAL stops an application's tasks with `pthread_cancel`.
 The PSP's wait for the next tick releases its mutex if the task is cancelled while it waits, so a stopped task never leaves the simulated clock locked for every later reader.
 
+The retired-pipe list is a fixed ring of 64 entries.
+Entries are never cleared, only overwritten by the 64th later application exit.
+While a pipe identifier is on the list, the PSP does not register child completions for messages routed to it.
+
+Stop, reload, or restart an application from YAMCS with the Executive Services commands `CFE_ES_STOP_APP`, `CFE_ES_RELOAD_APP`, and `CFE_ES_RESTART_APP`.
+Each takes the application name, and `CFE_ES_RELOAD_APP` also takes the path of the module to load.
+The cFS ES command definitions in `yamcs/src/main/yamcs/mdb/cfs/cfe_es.xtce` contain no `DELETE_APP` command, so use `CFE_ES_STOP_APP` to remove an application.
+See [Uploading tables and patches](../how-to/uplink-patches.md) for uploading a replacement module and reloading it.
+
 An application that is killed without calling `CFE_ES_ExitApp()`, such as after an exception, is not covered by the first safeguard and can still hold a tick open.
 The PSP stall report names the schedule entry, message ID, pipe, and state of each participant that is still missing.
 It reports by elapsed time, so a stall is named even when other completions keep waking the wait.
@@ -351,6 +361,7 @@ interactive controls.
 The Director listens for backdoor datagrams on UDP 50060 and dispatches a valid packet to the named component's `backdoor` callback.
 Backdoor behavior is specific to each component.
 Demo currently supports three backdoor commands, all routed over the `tc_backdoor` stream: `/DEMO/BACKDOOR_DEMO_SET_CONFIG` writes `DEVICE_CONFIG` directly, bypassing normal command processing (see `DemoFDIR.ycs` and the [FDIR scenario](../../scenarios/fdir.md) for the fault-injection pattern this enables), and `/DEMO/BACKDOOR_DEMO_RAND_HK` / `/DEMO/BACKDOOR_DEMO_RAND_DATA` toggle randomized housekeeping or channel data.
+EPS supports nine `/EPS/BACKDOOR_EPS_*` commands (`SET_SOC`, `SET_SOLAR`, `SET_SWITCH`, `SET_SWITCH_FAULT`, `FAIL_REQUESTS`, `CORRUPT_HK_CRC`, `CLEAR_FAULTS`, `SET_LOAD_SCALE`, and `RESET`), also routed over `tc_backdoor`, and the [EPS load switching scenario](../../scenarios/eps-load-switching.md) exercises them.
 Radio (target `radio_sim`) supports nine `/RADIO/BACKDOOR_RADIO_*` commands that force the RF link in view or out of view, set per-direction transmission delay and packet drop rate, bypass those impairments, enable or disable individual ground stations, reseed the loss generator, reset the link, corrupt packets in flight, and replay the last packet.
 See `comp/radio/README.md`, the [radio link scenario](../../scenarios/radio-link-testing.md), and the [radio security scenario](../../scenarios/radio-security-testing.md).
 This is a component-level backdoor into the Director, a different link from the Simulith Server's own pause/play/speed backdoor described above.
@@ -374,4 +385,4 @@ A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
 
 ***
-Last reviewed: 20261026
+Last reviewed: 20261027

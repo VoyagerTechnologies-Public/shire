@@ -33,7 +33,8 @@ Give `min`, `max`, or both.
 ## Where limits are set
 
 Limits cascade like component configuration, and a later layer wins.
-The layers are the mission file, the spacecraft file, and the scenario file.
+The layers are the repository catalog `cfg/shire-config.yaml`, the mission file, the spacecraft file, and the scenario file.
+The catalog layer ships with no limits, so a limit placed there applies to every mission.
 The shipped DRM limits are in `cfg/drm/drm.yaml`.
 
 A layer replaces a parameter's yellow range or red range as a whole, so a scenario can change one and keep the other.
@@ -94,4 +95,4 @@ That stack drives the battery state of charge through the EPS backdoor into yell
 The [Cmd/Tlm Validation](../../scenarios/cmd-tlm-validation.md) scenario walks through the alarms that those limits raise in YAMCS, from the first warning to the acknowledged and resolved alarm.
 
 ***
-Last reviewed: 20261026
+Last reviewed: 20261027

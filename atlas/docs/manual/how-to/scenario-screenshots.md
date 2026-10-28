@@ -11,7 +11,10 @@ make screenshots-setup
 ```
 
 This creates a Python environment under `build/screenshots-venv` and installs Playwright with headless Chromium.
-Nothing is installed system wide.
+The Python packages stay in that environment, and Playwright downloads Chromium into your user cache under `~/.cache/ms-playwright`, outside the checkout.
+Nothing is installed system wide and no root access is needed for the setup itself.
+`make screenshots-setup` and `make screenshots-check` run under the system `python3`, which needs PyYAML and `requests`.
+`make screenshots` runs from the environment that the setup created.
 If the host lacks shared libraries that Chromium needs, the setup unpacks them under `build/screenshots-libs` without requiring root.
 When that is not possible, it prints the `playwright install-deps` command to run with `sudo`.
 
@@ -30,6 +33,17 @@ Run `make` first so the images match the current source.
 | --- | --- |
 | `ONLY="<shot> <shot>"` | Write only the named shots, while every step still runs so later state is correct. |
 | `ATTACH=1` | Capture from a lab that is already running instead of starting and stopping one. |
+
+Call `tools/shire-screenshots.py run` from the environment's Python for options that `make` does not pass.
+
+| Flag | Effect |
+| --- | --- |
+| `--manifest <path>` | Read this manifest instead of `atlas/screenshots/<name>.yaml`. |
+| `--keep-running` | Leave the lab up when the capture finishes. |
+| `--start-log <path>` | Supply saved `make start` output for `start_log` shots when using `--attach`. |
+| `--base-url <url>` | Override the manifest's YAMCS address. |
+| `--output-dir <path>` | Write images here instead of the scenario's asset folder. |
+| `--dry-run` | Run every step but write no images. |
 
 Images are written to `atlas/docs/assets/scenarios/<name>/`.
 Review each one before committing it, as described in [Review the images](#review-the-images).
@@ -68,12 +82,17 @@ Each step has exactly one action:
 | --- | --- |
 | `goto: /links` | Open a YAMCS page, with the realtime processor selected, or the viewer at `/visualization/`. |
 | `click: <text>` | Click the first element showing that text, or use `{selector: <css>}`. |
+| `hover: <text>` | Move the pointer over the first element showing that text, or use `{selector: <css>}`, for example to show a tooltip. |
+| `scroll_to: <text>` | Scroll the first element showing that text, or `{selector: <css>}`, into view. |
 | `fill: {selector: <css>, value: <text>}` | Type a value into a field. |
 | `press: {selector: <css>, key: <key>}` | Press a key in a field, such as Enter to apply a search. |
 | `command: {name, args, send}` | Open a command form, fill its arguments, and send it when `send` is true. |
 | `wait: {text, selector, or ms}` | Wait for page content or a fixed time, with an optional `timeout_s`. |
 | `wait_param: {name, equals, fresh}` | Wait until telemetry holds a value, and with `fresh` until a new packet arrives. |
 | `wait_log: {pattern, source}` | Wait until a log line appears, so timing follows the run and not a guess. |
+| `wait_transfer: {service, timeout_s}` | Wait until the file transfer service, `cfdp` by default, has at least one transfer and all have completed, and fail if one fails or is cancelled. |
+| `record: {name, as}` | Store a parameter's current value as `{as}` so later steps can use it in any string, such as a counter before a command. |
+| `send: true` | Send the command form that is already open, so the form can be captured before it is sent. |
 | `shot: {name, ...}` | Write `<name>.png`. |
 
 Prefer `wait_param` and `wait_log` over `wait: {ms: ...}`.
@@ -137,4 +156,4 @@ Check that nothing private appears, such as host names, keys, or unrelated missi
 Counters, times, and file names differ between runs, so the page text describes values to look for and not the exact numbers.
 
 ***
-Last reviewed: 20261026
+Last reviewed: 20261027

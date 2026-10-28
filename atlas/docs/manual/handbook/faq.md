@@ -16,13 +16,13 @@ docker compose -f build/drm/shire-compose.yaml logs --tail 200
 
 | Symptom | First place to look |
 | --- | --- |
-| Build cannot pull an image | Docker login, network access, proxy settings, and the image named by `BUILD_IMAGE`. |
+| An image build fails to download a base image or package | Network access and proxy settings for Docker Hub, the Debian mirrors, Maven Central, and the npm registry, and whether `make container` completed. |
 | Simulation time does not advance | Server, Director, and FSW logs for missing Simulith registration. |
 | Visualization does not open | The `shire-gsw` service state and host port 8090. |
 | YAMCS opens without telemetry | YAMCS link state and FSW, Director, CryptoLib, and GSW logs. |
 | A component is absent | Active spacecraft selection, merged configuration, and Director image contents. |
 | A procedure change does not appear | The persistent YAMCS stacks bucket. |
-| A command uses the debug path unexpectedly | The state of the preferred `radio-out` link. |
+| A command uses an unexpected path | Which command links are enabled on the YAMCS **Links** page. |
 | Generated files have the wrong owner | The UID and GID used by build containers. |
 
 ## A generated file is missing
@@ -152,11 +152,13 @@ This protects changes made through YAMCS, but it also means rebuilding the image
 Export any work that must be preserved before resetting storage.
 Inspect the generated mission volume and the cleanup behavior in [Docker](../how-to/docker.md) before deleting it.
 
-## A command uses the debug path unexpectedly
+## A command uses an unexpected path
 
-YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
+Both `debug-out` and `radio-out` are enabled at startup, and YAMCS sends each command on every enabled command link.
+It has no preferred path and no fallback.
 
-Check the `radio-out` state and service logs to determine why YAMCS selected the fallback.
+Send `/SHIRE_GROUND/USE_DEBUG_UPLINK` to use only `debug-out`.
+See [Choosing a command path](../core-concepts/ground-software.md#choosing-a-command-path) for the radio selection.
 Command history shows submission and acknowledgements, while link counters and service logs establish the transport path.
 
 ## Port 8090 is already in use
@@ -201,4 +203,4 @@ Include:
 Remove credentials, keys, proprietary mission data, and other secrets before attaching files.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261027

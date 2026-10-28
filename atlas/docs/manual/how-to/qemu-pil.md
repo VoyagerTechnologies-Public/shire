@@ -7,7 +7,8 @@ Physical Zybo acceptance is a separate gate.
 
 ## Prerequisites
 
-Use a Linux host with Docker, Python 3.12 or later, and PyYAML.
+Use a Linux host with Docker, a recent Python 3, and PyYAML.
+The tools use current Python syntax and no script checks the interpreter version, so use the Python 3 release of a current distribution.
 The first build downloads public sources and packages.
 Allow several gigabytes for the SDK, kernel build, and source/license archive.
 The tools image builds on the public SHIRE base image.
@@ -169,4 +170,4 @@ The QEMU ZC702 reference image is not an SD-card image for the Zybo.
 QEMU success does not establish board boot, physical bus compatibility, or flight readiness.
 
 ***
-Last reviewed: 20261021
+Last reviewed: 20261027

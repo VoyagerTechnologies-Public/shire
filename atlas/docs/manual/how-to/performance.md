@@ -43,6 +43,29 @@ output mode, and reasons for any failure.
 Use `make perf-smoke` for one short diagnostic trial.
 A smoke result is not a performance acceptance result.
 
+The workload commands ADCS through `cfg/perf-scenario.json`, so the active spacecraft must include ADCS.
+`sat-1` and `sat-2` do, while `flatsat` does not and fails the ADCS actuator check.
+
+### Performance options
+
+Call `tools/shire-perf.py` directly for options that `make` does not pass.
+
+| Option | Meaning |
+| --- | --- |
+| `--mode smoke` | One unbounded trial for a quick diagnostic, which is the default and what `make perf-smoke` runs. |
+| `--mode perf` | The full gate that `make perf` runs, with the 50x target. |
+| `--mode perf-200` | The full gate plus a 200x trial, with a 200x target. |
+| `--mode compare` | Repeat the gate against `--baseline`, which `make perf-compare` runs. |
+| `--mode determinism` | Two identical unbounded trials, which `make scenario-smoke` uses. |
+| `--duration <seconds>` | Simulated seconds per trial, default 75. |
+| `--warmup <seconds>` | Excluded startup seconds, default 5, which must be shorter than the duration. |
+| `--artifact-dir <path>` | Report directory, default `build/performance/shire-perf-<UTC timestamp>`. |
+| `--resource-snapshot` | Collect a Docker stats snapshot during the excluded startup. |
+| `SHIRE_PERF_CPU_PLACEMENT` | Environment variable that is `auto` by default, `off` to disable CPU pinning, or `service=cpuset,...` for a manual placement. |
+
+Each trial writes its logs and trace under `<artifact dir>/<speed>x-trial-<n>/`.
+For example, `1x-trial-1/traces/control-trace.v1` holds the 1x trace, unbounded trials use `maxx-trial-<n>`, and the full-output reference uses `1x-trial-0-full-reference`.
+
 ## Build and startup cost
 
 The 42 compiler stage copies source and headers separately from runtime model data, so an imagery or model change does not trigger C recompilation.
@@ -65,16 +88,21 @@ SHIRE_42_REPORT_MODE=full make start
 Both modes record every published 42 state and acknowledged actuator batch in
 an ordered, versioned control trace.
 Completed traces are stored in run-specific directories under `build/`.
+For `make start` and `make scenario`, `make cfg` creates a random run directory at `build/<mission>/traces/<spacecraft>/<random id>/`, for example `build/drm/traces/sat-1/<random id>/control-trace.v1`.
+The directory name is a random identifier created each time the Compose file is rendered, so list the directory to find it.
+A Monte Carlo trial uses `build/<mission>/<instance>/traces/` instead.
+`make perf` writes each trace under its own trial directory, as described in [Performance options](#performance-options).
 The trace writer blocks if its bounded queue fills, and the final timed tick
 includes the trace drain.
 A failed run retains its partial trace for diagnosis.
 To inspect a trace, run:
 
 ```sh
-python3 tools/shire-control-trace.py build/drm/traces/sat-1/RUN_ID/control-trace.v1
+python3 tools/shire-control-trace.py build/drm/traces/sat-1/<random id>/control-trace.v1
 ```
 
-Replace `RUN_ID` with the directory for the run.
+Replace `<random id>` with the directory for the run.
+For a `make perf` trial, use `build/performance/shire-perf-<UTC timestamp>/<trial>/traces/control-trace.v1`.
 Add `--jsonl` to stream the decoded ticks.
 The trace records control inputs and outputs, not the legacy report-file format.
 
@@ -92,3 +120,6 @@ It rejects reports with different workload, output configuration, CPU
 placement, or performance target.
 Historical full-output reports and reports targeting a different speed are
 not interchangeable with the current control-mode baseline.
+
+***
+Last reviewed: 20261027

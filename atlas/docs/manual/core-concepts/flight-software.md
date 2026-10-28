@@ -1,7 +1,7 @@
 # Flight Software
 
 SHIRE uses NASA's core Flight System (cFS) as its DRM flight software framework.
-The current simulation target runs cFS on the SHIRE PSP/OSAL configuration inside the `shire-fsw` container.
+The default simulation target runs cFS on the SHIRE PSP/OSAL configuration inside the `shire-fsw` container.
 An alternate flight software framework would need its own build and runtime integration, device interfaces, and command and telemetry paths.
 It needs a Simulith timing client only when it participates in the synchronized simulation.
 The repository does not currently include another integrated flight software framework.
@@ -51,12 +51,14 @@ flowchart TB
 ```
 
 The enabled CPU1 SHIRE PSP compiles the simulation implementations from `cfs/psp/fsw/hwlib/src/sim/` and links them with Simulith and ZeroMQ.
-Linux HWLIB implementations also exist under `cfs/psp/fsw/hwlib/src/linux/`, but the disabled CPU2 cFS target does not currently assemble them into a validated board build.
-Moving to physical hardware therefore requires target specific PSP, OSAL, board support, driver, configuration, and deployment work.
+The ARM32 and AArch64 processor targets described in [Board and PIL targets](#board-and-pil-targets) also use the simulation implementations, so their devices stay simulated on the host.
+Linux HWLIB implementations also exist under `cfs/psp/fsw/hwlib/src/linux/`, but no enabled target assembles them, and the CPU2 cFS target remains disabled.
+Physical component buses are therefore unsupported.
+Using them requires target specific PSP, OSAL, board support, driver, configuration, and deployment work.
 
 ### Simulation and flight target boundary
 
-Simulith is a dependency of the `amd64-shire` simulation target, not of the flight applications or the default cFS target.
+Simulith is a dependency of the Shire simulation targets (`amd64-shire`, `armv7l-shire`, and `aarch64-shire`), not of the flight applications or the default cFS target.
 The Shire toolchain explicitly selects the Shire PSP/OSAL, the Software Bus completion observer, and the Simulith-backed SCH clock and completion barrier.
 Those selections are absent from physical-target toolchains.
 
@@ -66,6 +68,16 @@ A physical target supplies its normal PSP, OSAL, and HWLIB drivers and neither l
 
 The disabled `armv7l-linux` target already selects the portable `pc-linux` PSP and POSIX OSAL path and does not opt into either Shire extension.
 It remains disabled because the complete board image and physical drivers have not yet been validated, not because Simulith is required.
+
+### Board and PIL targets
+
+`cfg/shire_defs/targets.cmake` selects the CPU1 system from the `SHIRE_FSW_SYSTEM` environment variable.
+An empty value or `amd64-shire` builds the default simulation target, `armv7l-shire` builds the ARM32 target, and `aarch64-shire` builds the AArch64 target.
+Any other value stops the build.
+The `board-prepare`, `board-build`, and `board-deploy` targets, with `BOARD=<profile>`, drive these builds for the processor-in-the-loop (PIL) profiles in `cfg/boards/`, which are `qemu-zynq`, `zybo7020`, and `rpi5`.
+In a PIL lab only cFS runs on the target processor or in the QEMU guest, while time, dynamics, and device simulators stay on the host.
+The `rpi5` profile describes its hardware as unvalidated, and no profile qualifies physical component buses.
+See [Configurable Linux Board PIL](../how-to/board-pil.md), [Zynq QEMU PIL](../how-to/qemu-pil.md), [Zybo Linux PIL](../how-to/zybo-pil.md), and [Development Board](../how-to/development-board.md).
 
 ## Current mission content
 
@@ -143,8 +155,9 @@ make test-fsw
 `make fsw` builds the configured cFS target and its runtime image.
 `make test-fsw` performs a clean test build, runs CTest, collects LCOV data, and generates an HTML coverage report under the configured FSW build tree.
 
-The presence of CPU2 and ARM toolchain definitions demonstrates cross build scaffolding, but successful deployment to a board depends on the selected target, BSP, drivers, and hardware specific validation.
-See [Development Board](../how-to/development-board.md) for the currently documented board workflow.
+The `board-prepare`, `board-build`, and `board-deploy` targets build and package the ARM32 and AArch64 cFS bundles for the PIL profiles.
+Only the CPU2 target and physical component buses remain disabled or unsupported, and moving to a different board still depends on its BSP, drivers, and validation.
+See [Board and PIL targets](#board-and-pil-targets) and [Development Board](../how-to/development-board.md) for the documented board workflow.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261027

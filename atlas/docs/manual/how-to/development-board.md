@@ -32,7 +32,7 @@ See [Development Workflow](../core-concepts/development-workflow.md) for that pr
 | Build image | `tools/Dockerfile.base` does not install the ARM compiler, ARM sysroot, or target versions of required libraries. |
 | cFS abstractions | The ARM toolchain currently selects the generic cFS `pc-linux` PSP and POSIX OSAL rather than board specific support. |
 | Component CLI | Each reference CLI has a `cpu2` branch that selects Linux HWLIB sources for its bus. |
-| CLI toolchain | The current CLI Makefiles pass `TGTNAME=cpu2` but do not select the ARM CMake toolchain or provide packaging and deployment. |
+| CLI toolchain | The current CLI Makefiles default to `TGTNAME=cpu1` and take the CPU2 branch only when `TGTNAME=cpu2` is set, and they do not select the ARM CMake toolchain or provide packaging and deployment. |
 | Device configuration | The orchestrator renders one `device_cfg.h` per selected component and does not produce separate host and board settings. |
 | Startup selection | The orchestrator currently prunes the CPU1 startup script for the selected spacecraft but does not perform the same operation for CPU2. |
 | Automation | Current CI builds and tests host targets only. |
@@ -150,4 +150,4 @@ Record the exact toolchain, sysroot, SHIRE revision, generated configuration, bo
 Keep host simulation regression results with the board evidence so later hardware changes can be compared with a repeatable baseline.
 
 ***
-Last reviewed: 20261016
+Last reviewed: 20261027

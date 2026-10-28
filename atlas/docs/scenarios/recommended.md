@@ -1,118 +1,62 @@
 # Recommended Scenarios
 
-The next scenarios should deepen the learning path while turning more of the current repository into repeatable evidence.
-The recommendations below separate documentation work from new implementation so readers can see what is possible now.
+The next scenarios should deepen the learning path for someone new to space operations while turning more of the current repository into repeatable evidence.
+This page records what already exists for each candidate, what is still missing, and the order in which to finish them.
+Only [Commissioning](commissioning.md) and [Cmd/Tlm Validation](cmd-tlm-validation.md) are published in the Atlas navigation today.
 
 ## Drafted scenarios
 
-| Scenario | Value and next work |
+| Scenario | Status and next work |
 | --- | --- |
-| [Data Lifecycle](data-lifecycle.md) | Connect Demo data, DS files, FM selection, CFDP delivery, and file integrity with file selection support, completion checks, and hash evidence. |
-| [Debug and Radio Path Comparison](link-path-comparison.md) | Explain preferred and fallback routing with reviewed link setup, one named command per path, packet evidence, and restoration. |
-| [EPS Load Switching](eps-load-switching.md) | Show commanded loads and telemetry response by wrapping the existing EPS stacks with initial state, timing, and cleanup assertions. |
-| [ADCS Truth Comparison](adcs-truth-comparison.md) | Connect component observations with 42 through mode, settling, pointing tolerance, truth comparison, and timeout assertions. |
-| [Component Hardware Development](component-hardware-development.md) | Carry a molded component from CLI and cFS simulation through focused board CLI and board cFS hardware gates. |
+| [FDIR](fdir.md) | `DemoFDIR.ycs` passes repeatedly with LC action point 11 and RTS 11 in the boot tables, so it needs a registered scenario, screenshots, and a retained run. |
+| [Debug and Radio Path Comparison](link-path-comparison.md) | The `/SHIRE_GROUND` commands choose a path and [Radio Link Testing](radio-link-testing.md) already runs as a scenario, so the two pages should merge with scripted trials and screenshots. |
+| [Radio Security Testing](radio-security-testing.md) | The `radio-security-testing` scenario tampers with and replays traffic and asserts the rejections, so it needs publishing, screenshots, and the planning draft below retired. |
+| [Security Incident Response](security-incident-response.md) | Its detection half is Radio Security Testing, so it needs the operator decision, containment, and evidence steps added on top. |
+| [ADCS Truth Comparison](adcs-truth-comparison.md) | The `adcs-truth-verification` and `adcs-modes-sweep` scenarios pass, so they should combine as one pointing modes scenario that notes the truth check runs headless only. |
+| [EPS Load Switching](eps-load-switching.md) | The `eps-functional` and `eps-backdoor-testing` scenarios, three campaigns, and report tools run, so the page needs a newcomer walkthrough with a learning outcome and screenshots. |
+| [Data Lifecycle](data-lifecycle.md) | Commissioning already shows DS, FM, and CFDP and `CheckoutTest.ycs` asserts a CFDP round trip, so it needs file selection and a hash check or should fold into Commissioning. |
+| [Nominal Operations](nominal-operations.md) | Every phase can be done by hand, so it should be finished last after the scenarios it depends on. |
+| [Component Hardware Development](component-hardware-development.md) | The CLI and cFS simulation stages run and processor in the loop profiles run `cpu1` on ARM Linux, so it needs a rewrite around real hardware gates that require hardware. |
 
 The Do No Harm checks remain part of [Commissioning](commissioning.md) rather than becoming a separate scenario.
-The first four drafts mainly need procedure composition, reviewed acceptance criteria, and retained run results.
-The hardware development draft also identifies target work that is not implemented today.
 
-## Scenarios ready for procedure work
+## Priority order
 
-### Data Lifecycle
+The order favors scenarios that need little new work, that build on the ones before them, and that give a newcomer the clearest picture of how a spacecraft is operated.
 
-The [draft](data-lifecycle.md) generates identifiable Demo activity, closes the DS file set, lists `/d` through FM, transfers one returned file with CFDP, and separates completion from hash evidence.
+1. **FDIR.** It is the only evidence for the autonomy requirements, the stack exists, and it builds on the stored command and limit checking that Cmd/Tlm Validation introduced.
+2. **Debug and Radio Path Comparison.** Newcomers need to know that a green link does not prove which path carried a command, and the ground commands to prove it exist.
+3. **Radio Security Testing.** It is already automated, so publishing it is mostly screenshots and review.
+4. **ADCS Pointing Modes.** The scenarios pass, and a newcomer sees attitude control confirmed against 42 truth.
+5. **EPS Load Switching, then Eclipse and Power Budget.** The limits, the eclipse initial conditions, and the viewer are in place, so a newcomer can watch the battery respond to loads and eclipse.
+6. **Lost Contact and Pass Recovery.** Link modes, delay, and loss now exist, and the open question is how an interrupted CFDP transfer behaves.
+7. **Data Lifecycle.** It connects the most building blocks, but it overlaps Commissioning and needs hash evidence.
+8. **Detumble and Sun Acquisition.** The initial tumble and BDOT mode exist, no stack exercises them, and a Monte Carlo campaign over the tumble rate makes a strong demonstration.
+9. **Nominal Operations.** It is the capstone and depends on the scenarios above.
 
-### Debug and Radio Path Comparison
+## Lab skill scenarios
 
-The [draft](link-path-comparison.md) runs the same harmless command through each path while enabling only the intended command output.
-It restores the expected link configuration and prepares users for Security Incident Response without injecting a failure.
+These are short and each teaches one skill.
 
-### EPS Load Switching
-
-The [draft](eps-load-switching.md) begins with the simulator's all off state, runs the existing health and switch procedures, and restores all switches off.
-It deliberately avoids unreviewed power and hardware claims.
-
-### ADCS Truth Comparison
-
-The [draft](adcs-truth-comparison.md) extends `AdcsComponent.ycs` with aligned component and 42 observations.
-It identifies the frame mapping, numeric calculation, tolerance, timing, and sample count that still need review.
-
-### Component Hardware Development
-
-The [draft](component-hardware-development.md) starts with the component mold, then moves through CLI with Simulith, cFS with Simulith, board CLI with hardware, simulator reconciliation, and board cFS with hardware.
-It uses gates so hardware discoveries return to the shared protocol, simulator, tests, cFS application, and ground definitions.
-
-### Component Checkout Course
-
-Create a short learning path that runs `AdcsComponent.ycs`, `DemoComponent.ycs`, `EpsComponent.ycs`, and `RadioComponent.ycs` one at a time.
-Explain each reset, NOOP, housekeeping request, command count, and assertion.
-
-This scenario would help contributors validate one component before running an integrated mission flow.
-It should also state which procedures change persistent component state.
-
-### Simulation Time Control
-
-Demonstrate pause, resume, faster rate, and slower rate through the Simulith Server console.
-Use 42 truth and one component telemetry timestamp to show what changes while the simulation is paused.
-
-The scenario should distinguish simulation time from host wall clock time.
-It would make timing related procedure failures easier for new users to diagnose.
-
-### Spacecraft Configuration Comparison
-
-Build `flatsat`, `sat-1`, and `sat-2` one at a time and record the generated component set.
-Verify that the selected simulators and cFS startup entries match the generated configuration.
-
-The current checked in selections are:
-
-| Spacecraft | Components |
+| Scenario | What it teaches |
 | --- | --- |
-| `flatsat` | Demo, EPS, Radio |
-| `sat-1` | ADCS, Demo, EPS, Radio |
-| `sat-2` | ADCS, EPS, Radio |
+| Simulation Time Control | Pause, resume, and change speed through the Server, and read simulation time against the host clock. |
+| Spacecraft Configuration Comparison | Build `flatsat`, `sat-1`, and `sat-2` and see that the generated component set differs. |
+| Spacecraft Timekeeping | The GPS time and time file fallback stacks, and how the ADCS time source changes. |
+| Repeatability Run | Run one scenario twice from the same initial conditions and compare results. |
 
-This would teach configuration generation and prevent users from treating every component compiled by CMake as active on every spacecraft.
-
-## Scenarios that need stronger coordination
-
-### Automated Commissioning
-
-Combine the manual commissioning phases into one controlled procedure.
-Add checkpoints that allow an operator to stop after Do No Harm verification, first contact, each subsystem checkout, and file transfer.
-
-This should reuse the Do No Harm checkpoint already documented in Commissioning and the Data Lifecycle scenario.
-
-### Automated Nominal Pass
-
-Turn the current Nominal Operations flow into one procedure with prepass criteria, pass opening, payload activity, file transfer, pass closure, and final state assertions.
-Define behavior for a short pass, an incomplete transfer, and an unexpected command error.
-
-### Lost Contact and Pass Recovery
-
-Begin from a verified Duplex pass, interrupt the representative radio path through an approved control, and show the expected loss of telemetry.
-Restore the path and demonstrate recovery without relying on the direct debug path as proof.
-
-This needs reviewed link controls, transaction handling, timeouts, and a decision about whether an interrupted CFDP transfer resumes or restarts.
-
-### Repeatability Run
-
-Run one short procedure several times from the same generated configuration.
-Compare simulation timestamps, parameter limits, events, and results.
-
-This scenario needs a defined reset boundary because YAMCS data and flight files can persist while application state resets on a new lab launch.
+The `flatsat` spacecraft has Demo, EPS, and Radio, `sat-1` has ADCS, Demo, EPS, and Radio, and `sat-2` has ADCS, EPS, and Radio.
 
 ## Scenarios that need new implementation
 
 | Scenario | Missing capability |
 | --- | --- |
-| ADCS fault and recovery | Reviewed simulator controls for sensor, actuator, or pointing faults plus LC and recovery logic. |
-| EPS low power response | A controlled low power condition, mission thresholds, load shedding response, and recovery criteria. |
-| Radio outage beyond link control | A flight relevant fault model and a bounded onboard or operator recovery sequence. |
-| Security Incident Response | Safe integration level controls for defined CryptoLib failures plus sanitized evidence handling. |
+| ADCS fault and recovery | Simulator controls for sensor, actuator, or pointing faults plus LC and recovery logic. |
+| EPS low power response | An LC action point and a load shedding RTS tied to the battery watchpoint, with thresholds and recovery criteria. |
 | Safe mode transition | A spacecraft mode owner, transition commands, mode telemetry, entry criteria, and exit criteria. |
-| Hardware checkout | Validated hardware adapters, safety constraints, calibration steps, and hardware specific acceptance limits. |
-| Multi spacecraft interaction | Mission configuration, addressing, ground routing, and scenario coordination for more than one active vehicle. |
+| Camera payload | A camera component. |
+| Constellation crosslink | Runtime support for more than one active spacecraft, plus addressing and ground routing. |
+| Hardware checkout | Validated peripheral adapters, safety constraints, calibration steps, and acceptance limits for real hardware buses. |
 
 Do not represent these as runnable mission capabilities merely because the Concept of Operations describes the desired behavior.
 Each needs an implementation, unit and integration tests, an operator procedure, cleanup, and retained execution evidence.
@@ -130,10 +74,10 @@ A scenario is ready to publish as executable when it has:
 * cleanup and a defined final state
 * an evidence checklist with sanitization guidance
 * a reviewed YAMCS procedure or equivalent automation
+* scripted screenshots from a manifest, as described in [Scenario screenshots](../manual/how-to/scenario-screenshots.md)
 * a retained successful result tied to repository and submodule revisions
 * a requirement mapping when the result supports verification
-
-Start procedure implementation with Data Lifecycle because it connects the largest number of current operational building blocks.
+* an entry in the Atlas navigation and in the [Scenarios overview](overview.md)
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20261027

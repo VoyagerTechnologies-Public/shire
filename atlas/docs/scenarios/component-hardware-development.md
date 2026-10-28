@@ -2,7 +2,8 @@
 
 > **Scenario status:** Draft development workflow using the Demo component as the reference pattern.
 > Mold, CLI with Simulith, and cFS with Simulith are supported paths today.
-> Development board CLI and cFS hardware execution require target specific implementation and validation.
+> A processor in the loop path runs cFS on an ARM Linux target, either Zynq QEMU or a physical board, with simulated devices on the host.
+> Physical component buses, the board CLI, and the CPU2 target are not implemented, so board execution against real component hardware still requires target specific implementation and validation.
 
 ## Objective
 
@@ -14,6 +15,8 @@ flowchart LR
     Target[Target platform baseline] --> Mold[Component mold]
     Mold --> CliSim[CLI with Simulith]
     CliSim --> CfsSim[cFS with Simulith]
+    CfsSim -.-> Pil[Optional board PIL with simulated devices]
+    Pil -.-> CliHw
     CfsSim --> CliHw[Board CLI with hardware]
     CliHw --> SimUpdate[Update simulator]
     SimUpdate --> CliRegression[CLI with Simulith regression]
@@ -28,13 +31,14 @@ The shared device code should keep both paths consistent where their behavior tr
 
 | Stage | Repository support |
 | --- | --- |
-| Board target baseline | ARM and CPU2 scaffolding exists but remains disabled and unvalidated. |
+| Board target baseline | Processor in the loop profiles `qemu-zynq`, `zybo7020`, and `rpi5` run the `cpu1` target on ARM Linux with simulated devices, while the separate CPU2 scaffolding remains disabled and unvalidated. |
 | Component mold | Implemented through `make mold COMP=<name>`. |
 | Host CLI with Simulith | Implemented through the selected CLI build and CLI Compose lab. |
 | Host cFS with Simulith | Implemented through the DRM after component integration. |
 | Board CLI with hardware | Partial source selection exists for Linux HWLIB UART, I2C, SPI, and GPIO, but ARM CLI build and deployment are not implemented. |
 | Simulator reconciliation | Supported as source and test changes but requires developer judgment. |
-| Board cFS with hardware | CPU2 and ARM toolchain scaffolding exists but is disabled and unvalidated. |
+| Board cFS with simulated devices | Implemented through the `board-*` Make targets for `qemu-zynq`, `zybo7020`, and `rpi5`, with the Zybo results retained for command acceptance, telemetry, fidelity, and repeatability on the processor, and the `rpi5` profile kept as an unvalidated example. |
+| Board cFS with physical component hardware | Not implemented, because the PIL runtime exposes no physical buses and the CPU2 target is disabled and unvalidated. |
 
 The root `make cli` path selects `cpu1` and the Simulith UART implementation.
 It does not build or deploy a hardware CLI.
@@ -45,12 +49,15 @@ The CLI Compose file also launches 42, the Simulith Server, and the Director, so
 Complete the [Development Board target readiness gate](../manual/how-to/development-board.md#target-readiness-gate) before beginning component integration for the board.
 This program level work establishes the compiler, sysroot, boot environment, PSP, BSP, OSAL, minimal cFS target, bus access, permissions, deployment, recovery, and command and telemetry paths.
 
-The current repository does not pass this gate because CPU2 is disabled, the base image lacks the ARM toolchain and sysroot, the CLI Makefiles do not select an ARM toolchain, and CI does not build CPU2.
-Resolve these platform gaps without depending on an unreviewed mission component.
+The processor portion of this gate is covered for the supported PIL profiles.
+`make board-prepare`, `make board-build`, `make board-deploy`, `make board-inspect`, and `make board-test` build a matching ARM SDK and cFS bundle with `cfg/shire_defs/toolchain-armv7l-shire.cmake`, deploy it, and run repeated acceptance, as described in [Configurable Linux Board PIL](../manual/how-to/board-pil.md), [Zynq QEMU PIL](../manual/how-to/qemu-pil.md), and [Zybo Linux PIL](../manual/how-to/zybo-pil.md).
+The remaining gaps are that CPU2 is disabled in `cfg/shire_defs/targets.cmake`, the physical hardware buses are not supported, the component CLI Makefiles do not select an ARM toolchain, and the base build image does not install an ARM compiler because the PIL path builds its own SDK.
+Resolve these gaps without depending on an unreviewed mission component.
 
 ### Stage 0 gate
 
 The board must run a minimal cFS target repeatably, support the required hardware buses through bounded platform checks, and have distinct reviewed host and board configurations.
+The PIL profiles satisfy the first part for the processor and none of the bus requirement.
 Retain the toolchain identity, target configuration, deployment record, command and telemetry evidence, and recovery result.
 
 ## Before component work
@@ -103,7 +110,9 @@ Record every copied behavior that is still only a placeholder.
 
 Add the component to the selected development spacecraft so the orchestrator renders its configuration.
 Set `cli` in `build/active.yaml` to the new component name.
-Use the debug scenario when detailed component logging is needed.
+`make cli` already renders the active CLI component with debug logging forced on through `cfg-cli`, so the debug scenario is not needed for CLI output.
+A later `make cfg` renders without that override, so run `make cli` again before rebuilding the CLI.
+Select the `debug` scenario only when the cFS stages need debug logging for every selected component.
 
 Generate, inspect, and build:
 
@@ -161,6 +170,18 @@ Differences should be explained by cFS application behavior rather than protocol
 
 The component simulator tests, cFS tests, focused YAMCS procedure, and relevant DRM links must pass with retained results.
 The CLI and cFS application must use the same reviewed device contract and shared implementation where practical.
+
+## Optional processor in the loop check
+
+After the cFS stage passes on the host, the same component can run on an ARM Linux target with the board PIL workflow.
+Use `make board-prepare BOARD=qemu-zynq` and `make board-build BOARD=qemu-zynq`, then `make board-deploy` and `make board-test` or `make board-scenario SCENARIO=<name>`.
+Use `BOARD=zybo7020` or `BOARD=rpi5` for a physical SSH connected processor.
+See [Configurable Linux Board PIL](../manual/how-to/board-pil.md), [Zynq QEMU PIL](../manual/how-to/qemu-pil.md), [Zybo Linux PIL](../manual/how-to/zybo-pil.md), and [Development Board](../manual/how-to/development-board.md).
+
+This stage shows that the cFS application builds for the target processor and ABI, starts, and exchanges commands and telemetry on that processor.
+The device simulators still run on the host, and the runtime exposes no physical buses.
+A passing PIL run therefore does not prove that the component driver works with the real device, that bus timing is correct, or that the hardware is safe to command.
+It does not replace Stage 4 or Stage 6.
 
 ## Stage 4 Run a board CLI with hardware
 
@@ -230,8 +251,9 @@ Document every known difference that remains between the physical device and mod
 ## Stage 6 Run board cFS with hardware
 
 This is a target integration stage rather than a simple rebuild of the host lab.
-The current `cpu2` target declarations are commented out.
-The ARM toolchain selects an ARM sysroot but currently pairs it with the cFS `pc-linux` PSP and POSIX OSAL.
+The processor in the loop profiles already cross build and run the `cpu1` target on ARM Linux with the SHIRE PSP, but with simulated devices on the host.
+The `cpu2` target declarations in `cfg/shire_defs/targets.cmake` are commented out, and the older `toolchain-armv7l-linux.cmake` pairs an ARM sysroot with the cFS `pc-linux` PSP and POSIX OSAL.
+Running a component against physical hardware needs a physical bus path that the PIL runtime does not provide.
 
 Before execution, review and validate:
 
@@ -244,7 +266,7 @@ Before execution, review and validate:
 * deployment, permissions, logs, and recovery access
 * ground command and telemetry routing to the board
 
-Use the [Development Board](../manual/how-to/development-board.md) guidance to enable and package a validated target build.
+Use the [Development Board](../manual/how-to/development-board.md) guidance to enable the physical bus path and package a validated target build.
 Do not treat a successful cross compilation as proof that the application can control hardware safely.
 
 Run the same focused component procedure used with cFS and Simulith, adjusted only where target transport or timing requires reviewed limits.
@@ -276,4 +298,4 @@ The component is not hardware validated until both the focused board CLI and boa
 Host simulation remains required after that point because it provides the repeatable regression path for future changes.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261027

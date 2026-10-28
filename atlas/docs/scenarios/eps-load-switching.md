@@ -18,18 +18,21 @@ Power demand is specified in watts per operating mode, with configurable boot de
 Energy integrates using simulated elapsed time at every tick.
 Housekeeping publication does not control integration.
 `eps.base_load_w` adds always-on platform demand to the switched loads.
-It is currently configured as 2 W for illustrative platform demand, must be finite and nonnegative, and remains active when every rail is off.
+It is currently configured as 1.5 W for illustrative platform demand, must be finite and nonnegative, and remains active when every rail is off.
 It consumes battery energy without contributing to any switch current.
 Set it in the mission or spacecraft YAML, for example by setting `eps.base_load_w` to `4.0`, then regenerate configuration and rebuild the simulators.
 
+The power figures on this page come from `comp/eps/support/device_config.yaml`, so re-derive them from that file if it changes.
+They assume the default DRM wiring with DEMO powered, ADCS disabled, the radio asleep, and the load bank off unless stated.
 The default battery stores 40 Wh and maps SOC linearly onto 16 to 24 V.
 The FSW battery voltage has a resolution of `(battery_voltage_max - battery_voltage_min) / 255`, about 0.03137 V per count with these defaults.
 It uses the full eight-bit field across the configured battery range, with resolved Yamcs calibration and unchanged packet layout.
 Rail and solar voltage scaling remain 32/255 V.
-At the configured 3.5 W demand, including the 2 W base load with DEMO powered, ADCS disabled, and radio asleep, a full voltage count takes about 2.7 simulated minutes in eclipse.
+The battery voltage count follows stored energy, so one count is 40 Wh / 255, about 0.157 Wh.
+At the configured 2.7 W demand, which is the 1.5 W base load plus 0.8 W for DEMO, 0.2 W for disabled ADCS, and 0.2 W for the sleeping radio, a full voltage count takes about 3.5 simulated minutes in eclipse.
 Switch 5 defaults to a passive 20 W load bank at 12 V, labeled **Load bank**, with no attached component simulator.
 It starts off and can be enabled or disabled through normal EPS flight switch commands.
-When enabled alongside idle devices, total demand becomes 23.5 W and one voltage count takes about 24 simulated seconds in eclipse.
+When enabled alongside idle devices, total demand becomes 22.7 W and one voltage count takes about 25 simulated seconds in eclipse.
 Its current appears in FSW switch 5 housekeeping and its label appears in the EPS visualization.
 Configure the eight default passive loads through `eps.switch_load_power_w`, or override an individual switch with `load_power_w`.
 Mapped device demand is additional to these passive loads.
@@ -39,16 +42,16 @@ Mapped rails start on unless explicit switch startup states override them.
 Mission, spacecraft, and scenario YAML can override individual `default_loads` fields or provide higher-priority `eps.loads` settings.
 Setting `wire_default_loads: false` maps only explicitly listed `eps.loads` devices, while retaining their omitted settings from `default_loads`.
 Passive loads can share rails with devices and are included in the 10 A peak rail limit.
-Default solar capacity is 12 W, with output scaled by positive body-X solar incidence.
+Default solar capacity is 8 W, set by `max_solar_power_w`, with output scaled by positive body-X solar incidence.
 The model assumes a single array surface normal along body +X, matching ADCS SUNSAFE's +X Sun-pointing target.
-Generation is `12 * max(0, cos(angle))` watts outside eclipse.
-At 0, 30, 60, and 90 degrees off-pointing this gives 12, about 10.4, 6, and 0 W.
-SUNSAFE increases ADCS demand from 0.5 to 2.5 W, giving about 5.5 W total nominal consumption with the load bank off and radio asleep.
-Direct Sun-pointing then leaves 6.5 W for charging, producing a full battery voltage count about every 1.4 simulated minutes.
-At 60 degrees, 6 W generation leaves just 0.5 W for charging.
-Greater off-pointing can cause discharge outside eclipse.
+Generation is `8 * max(0, cos(angle))` watts outside eclipse.
+At 0, 30, 60, and 90 degrees off-pointing this gives 8, about 6.9, 4, and 0 W.
+SUNSAFE increases ADCS demand from 0.2 to 1.25 W, giving 3.75 W total nominal consumption with the load bank off and radio asleep.
+Direct Sun-pointing then leaves 4.25 W for charging, producing a full battery voltage count about every 2.2 simulated minutes.
+At 60 degrees, 4 W generation leaves just 0.25 W for charging.
+Off-pointing beyond about 62 degrees drops generation below the 3.75 W SUNSAFE demand and causes discharge outside eclipse.
 Solar voltage housekeeping currently indicates generation present or absent and does not measure generated watts or pointing efficiency.
-At peak illumination with idle devices, the 8.5 W charging surplus produces a full voltage count in about 1.1 simulated minutes.
+At peak illumination with idle devices, the 5.3 W charging surplus (8 W less 2.7 W) produces a full voltage count in about 1.8 simulated minutes.
 Enabling the load bank exceeds solar generation even at peak illumination.
 Energy still decreases every tick while the reported voltage remains on one count.
 Solar generation is zero in eclipse under AUTO solar mode.
@@ -68,15 +71,17 @@ It exercises all eight switches through real flight commands, combinations, repe
 These exercise EPS state controls and finite fault injections, confirm their FSW-observable effects, and restore startup settings.
 For a manual Yamcs demonstration, start a fresh simulator and run either stack independently.
 Before pressing Run, enable `debug-in` and `sim-backdoor` in Yamcs Links.
-Every EPS stack first issues `/SHIRE_GROUND/USE_DEBUG_UPLINK` to enable `debug-out` and disable `radio-out`.
+`EpsPowerFunctional.ycs`, `EpsBackdoorFunctional.ycs`, and `EpsFaultInjection.ycs` first issue `/SHIRE_GROUND/USE_DEBUG_UPLINK` to enable `debug-out` and disable `radio-out`.
 This prevents normal flight commands from following the radio path after its EPS supply is cut.
+`EpsAllOn.ycs`, `EpsAllOff.ycs`, and `EpsComponent.ycs` have no ground path step.
+Both command links are enabled at startup and YAMCS sends each command on every enabled command link, so stacks without a path step follow the current link state.
+See [Choosing a command path](../manual/core-concepts/ground-software.md#choosing-a-command-path).
 Keep the simulation playing throughout the stack.
 `EpsFaultInjection.ycs` selects the debug path, clears injections, proves flight commanding and housekeeping work with the radio rail off, and initializes the mapped FSW devices.
 Each preflight check has a five-second timeout and identifies an unavailable debug path.
 Both backdoor and fault stacks keep command traffic on debug throughout, including recovery.
 Their startup command disables `radio-out` automatically.
 The nominal stack exercises RF traffic separately.
-The one-second command advancement delay replaces the previous five-second delay in manual Yamcs runs.
 Their standard Yamcs conditions inspect FSW telemetry only.
 EPS simulator commands use the existing `sim-backdoor` interface.
 Simulator diagnostics and backdoor application records are read from the director console, outside the Yamcs MDB.
@@ -145,10 +150,16 @@ Settings without distinct FSW telemetry, such as solar AUTO selection or cleared
 ## Campaigns
 
 ```sh
-make campaign CAMPAIGN=eps-wiring-smoke MAX_PARALLEL=2
-make campaign CAMPAIGN=eps-nominal MAX_PARALLEL=2
-make campaign CAMPAIGN=eps-backdoor-faults MAX_PARALLEL=2
+python3 tools/shire-campaign.py --campaign eps-wiring-smoke --max-parallel 2 \
+  --report-dir build/eps-validation/smoke-final
+python3 tools/shire-campaign.py --campaign eps-nominal --max-parallel 2 \
+  --report-dir build/eps-validation/nominal
+python3 tools/shire-campaign.py --campaign eps-backdoor-faults --max-parallel 2 \
+  --report-dir build/eps-validation/faults
 ```
+
+`make campaign CAMPAIGN=<name> MAX_PARALLEL=2` runs the same campaigns but accepts no report directory option.
+It writes to `build/monte-carlo-runs/<campaign>-<UTC timestamp>/`, so pass that printed directory to the report commands below in place of the `build/eps-validation` paths.
 
 The wiring smoke campaign has five trials.
 The nominal campaign has 100 trials with seed `20261006`.
@@ -173,7 +184,8 @@ Campaign reports expose FSW rail readings, device transaction counters, recovery
 Older reports retain their historical console metrics and simulator audit criteria.
 Run new campaigns before generating a report under the current FSW-only criteria.
 Plots do not report simulator energy residuals or confirmed internal backdoor applications.
-The report requires Matplotlib 3.9 or later, NumPy and PyYAML in its Python environment.
+The report requires Matplotlib 3.9 or later and PyYAML in its Python environment, and Matplotlib installs NumPy as its own dependency.
+Only PyYAML is pinned in `tools/requirements.txt`, at 6.0.3, and Matplotlib and NumPy are not.
 Generate standalone PNG/PDF plots and the acceptance report with:
 
 ```sh
@@ -189,7 +201,8 @@ python3 tools/shire_eps_report.py --smoke build/eps-validation/smoke-final \
 ```
 
 If plotting dependencies are unavailable in the host Python, use the tested SHIRE base image environment.
-Install the plotting packages once, then run the same report command inside the container:
+Install the plotting packages once, then run the same report command inside the container.
+The Matplotlib 3.11.2 and NumPy 2.5.3 versions below are the tested versions and satisfy the 3.9 minimum:
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" \
@@ -229,4 +242,4 @@ Keep control on debug until actual radio traffic is confirmed.
 If reset application cannot be observed, restart the isolated simulation and retain the interrupted run evidence.
 
 ***
-Last reviewed: 8 October 2026
+Last reviewed: 20261027

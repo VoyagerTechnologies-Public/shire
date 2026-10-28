@@ -85,8 +85,9 @@ Confirm that the nine links in this table are present.
 | `visual-in` | Receives the data that drives the visualization. |
 
 
-YAMCS uses `radio-out` as the preferred command interface.
-If that interface is unavailable, YAMCS falls back to `debug-out`.
+Both command links are enabled when the lab starts, and YAMCS sends each command on every enabled command link.
+The radio path delivers a command only while the Radio is enabled in a receiving mode, so a command sent before RTS 5 completes reaches the spacecraft through `debug-out`.
+To use one path, send `/SHIRE_GROUND/USE_DEBUG_UPLINK` or `/SHIRE_GROUND/USE_RADIO_UPLINK`, as described in [Ground software](../manual/core-concepts/ground-software.md#choosing-a-command-path).
 
 ![YAMCS Links view showing the nine configured links](../assets/scenarios/commissioning/04-yamcs-startup-links.png)
 

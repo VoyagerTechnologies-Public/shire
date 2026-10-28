@@ -69,8 +69,8 @@ Confirm the Radio enters Duplex mode and `radio-in` begins receiving telemetry.
 Treat the 480 wakeup duration as a configured simulation interval.
 Host load and scheduler behavior can affect wall clock observation, so use SC and Radio state rather than a desktop timer alone.
 
-YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
-Confirm the selected interface when the transport path matters to the activity.
+YAMCS sends each command on every enabled command link.
+Confirm which links are enabled when the transport path matters to the activity, as described in [Choosing a command path](../manual/core-concepts/ground-software.md#choosing-a-command-path).
 
 ### Phase 3 Assess attitude and power
 
@@ -85,7 +85,7 @@ Do not claim a power positive result without reviewed thresholds and duration cr
 ### Phase 4 Operate the Demo payload
 
 Enable Demo if it is not already enabled.
-Send the selected configuration and confirm the value returns in fresh telemetry.
+Send `/DEMO/DEMO_CONFIG_CC` with the `DEVICE_CONFIG` argument set to the selected configuration and confirm the value returns in fresh telemetry.
 Observe the Demo channels for the duration defined by the run plan.
 
 Record when payload activity starts and stops.
@@ -95,7 +95,8 @@ That time range helps connect Demo telemetry to the DS files selected later.
 
 Send `/DS/DS_COMMANDS/DS_CLOSE_ALL` to close the current file set.
 Wait for DS to accept the command.
-Request an FM directory packet for `/d`.
+Request an FM directory packet by sending `/FM/FM_COMMANDS/FM_GET_DIR_PKT` with `DIRECTORY` set to `/d`, `DIRLISTOFFSET` set to `0`, and `GETSIZETIMEMODE` set to `1`.
+The [Commissioning](commissioning.md) walkthrough shows this command and the returned `/FM/FM_DIRLISTPKT/` parameters.
 
 Select a completed file from the returned listing.
 Record its exact path, size, and timestamp where available.
@@ -104,7 +105,8 @@ Do not reuse a filename copied from an earlier run.
 ### Phase 6 Downlink the file
 
 Confirm the Radio still reports Duplex mode before starting CFDP.
-Send `/CF/CF_COMMANDS/CF_TX_FILE` using the selected source path and reviewed destination values.
+Send `/CF/CF_COMMANDS/CF_TX_FILE` using the selected source path as `SOURCE_FILENAME` and the reviewed destination name as `DESTINATION_FILENAME`.
+Use Class 2, channel 0, destination entity 23, and `KEEP_FILE` set to `KEEP`, as described in [Commissioning](commissioning.md).
 Watch the CFDP transfer in YAMCS until it completes or reaches the run timeout.
 
 Record the transaction result and received filename.
@@ -115,8 +117,11 @@ Do not call the pass successful merely because the transfer was started.
 
 ### Phase 7 Close the pass
 
-Stop RTS 6 if it is still executing, or allow it to complete.
-Confirm the Radio returns to Receive mode.
+Allow RTS 6 to complete, or stop it if it is still executing.
+The return to Receive mode is the second step inside RTS 6, so stopping the RTS early does not return the Radio to Receive mode.
+If RTS 6 was stopped early, send `/RADIO/RADIO_CONFIG_CC` with `MODE` set to `Receive Only Mode`, `RX_SPEED` set to `1`, `RX_WAVE` set to `2`, `TX_SPEED` set to `0`, and `TX_WAVE` set to `0`.
+Those are the values the RTS 6 table uses for its Receive step.
+Confirm the Radio reports Receive mode.
 Confirm that radio telemetry stops while direct debug telemetry remains available.
 
 Review new command errors, application errors, events, and incomplete CFDP transactions.
@@ -171,4 +176,4 @@ Until those controls and retained results exist, this page demonstrates availabl
 The [Recommended Scenarios](recommended.md) page separates near term documentation work from features that need implementation.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20261027

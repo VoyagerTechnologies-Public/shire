@@ -258,7 +258,10 @@ Device housekeeping counters may reset separately.
 
 ### Wire and verify a consumer
 
-For example, add this EPS override to the selected spacecraft or scenario YAML:
+The DRM already wires DEMO by default.
+`comp/eps/support/device_config.yaml` lists DEMO under `default_loads` on switch `0`, and `cfg/drm/drm.yaml` sets `wire_default_loads: true`.
+An `eps.loads` entry in the selected spacecraft or scenario YAML overrides those defaults for one load.
+For example, this override repeats the shipped switch, mode power, and power scale for DEMO and changes its boot power from the default `0.8` W to `1.0` W and its boot delay from `0` to `2.0` s:
 
 ```yaml
 eps:
@@ -271,7 +274,8 @@ eps:
       power_scale: 1.0
 ```
 
-This inherits the DRM's 3.3 V rail `0` and existing ADCS/Radio wiring.
+The override leaves the DRM's 3.3 V rail `0` and the ADCS and Radio wiring as they are.
+A new consumer that is not in `default_loads` needs a complete `eps.loads` entry like this one, plus the topology changes described below.
 The normalizer renders `demo` as the `demo_sim` interface name.
 Run `make cfg` and rebuild the selected simulators and runtime images after changing build-time wiring.
 Edit the YAML and configuration templates rather than generated device headers.
@@ -293,4 +297,4 @@ FSW stacks establish observable device behavior and electrical readings.
 They do not prove every internal power field or every tick of actuator and traffic history.
 
 ***
-Last reviewed: 20261008
+Last reviewed: 20261027

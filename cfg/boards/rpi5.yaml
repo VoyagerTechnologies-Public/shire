@@ -1,3 +1,5 @@
+# Example for a matching AArch64 cFS build and userspace.
+# Set your actual SSH account/address (or pass --target) and supply these build artifacts first.
 schema_version: 1
 name: rpi5
 description: Raspberry Pi 5 AArch64 Linux PIL example, hardware unvalidated

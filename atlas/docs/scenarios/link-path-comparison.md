@@ -1,7 +1,8 @@
 # Debug and Radio Path Comparison
 
 > **Scenario status:** Draft manual scenario using the current YAMCS link controls and command paths.
-> YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
+> Both command links are enabled at startup, and YAMCS sends each command on every enabled command link.
+> This scenario chooses one path for each trial, as described in [Choosing a command path](../manual/core-concepts/ground-software.md#choosing-a-command-path).
 
 ## Objective
 
@@ -33,8 +34,8 @@ Read the current ES command counter and error count before each trial.
 ## Trial 1 Debug path
 
 1. Open the YAMCS **Links** page.
-2. Enable `debug-out` and `debug-in`.
-3. Disable `radio-out` for the measurement.
+2. Send `/SHIRE_GROUND/USE_DEBUG_UPLINK`, which enables `debug-out` and disables `radio-out`.
+3. Confirm that `debug-in` is enabled.
 4. Record the link state and data counts.
 5. Send `/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP`.
 6. Confirm one new command observation through the ES counter, command history, and FSW event.
@@ -42,11 +43,11 @@ Read the current ES command counter and error count before each trial.
 8. Record the command time and first confirming telemetry time.
 
 `radio-in` can remain visible, but its packets are not evidence for this command trial.
-Disabling `radio-out` forces YAMCS to select the debug fallback for this measurement.
+With `radio-out` disabled, `debug-out` is the only link that carries the command.
 
 ## Trial 2 Radio path
 
-1. Disable `debug-out`.
+1. Disable `debug-out` on the **Links** page.
 2. Enable `radio-out` and `radio-in`.
 3. Start RTS 6 through the Radio path so the Radio enters Duplex mode.
 4. Confirm `radio-in` begins receiving telemetry.
@@ -56,6 +57,7 @@ Disabling `radio-out` forces YAMCS to select the debug fallback for this measure
 8. Confirm the resulting telemetry reaches `radio-in`.
 9. Record the command time and first confirming telemetry time.
 
+`USE_RADIO_UPLINK` restores the link states after 30 seconds, which is too short for this manual trial, so use the **Links** page.
 Starting RTS 6 is itself a command and must be separated from the NOOP when interpreting counters.
 Use timestamps and command names rather than subtracting from the original startup count.
 
@@ -89,7 +91,8 @@ Reenable the link configuration expected by the next scenario.
 Allow RTS 6 to complete or stop it and return the Radio to Receive mode.
 Record the restored link state.
 
-The checked in configuration enables both command interfaces and restores the preferred radio path with debug fallback after a restart.
+The checked in configuration enables both command interfaces at startup.
+Send `/SHIRE_GROUND/USE_DEBUG_UPLINK` to return to the normal debug path.
 
 ## Evidence and automation
 

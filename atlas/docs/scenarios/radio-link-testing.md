@@ -49,4 +49,10 @@ make scenario SCENARIO=radio-link-testing
 ```
 
 `RadioLinkBackdoor.ycs` selects the debug uplink so its commands do not depend on the link being impaired, forces the link out of and into view, and checks the HK ground lock flag after each change.
-To observe delay and loss on the radio path itself, switch the Yamcs links back to `radio-out` and `radio-in` after applying a delay or drop rate.
+The stack ends with `BACKDOOR_RADIO_RESET_LINK`, which discards the delay and drop rate it applied, so its end state does not show impaired traffic.
+To observe delay and loss on the radio path itself, send `BACKDOOR_RADIO_SET_DELAY` or `BACKDOOR_RADIO_SET_DROP_RATE` by hand, with impairments enabled, and then switch to `radio-out` and `radio-in` before you watch the traffic.
+Use `/SHIRE_GROUND/USE_RADIO_UPLINK` or the Yamcs **Links** page to switch, as described in [Choosing a command path](../manual/core-concepts/ground-software.md#choosing-a-command-path).
+After the observation, send `BACKDOOR_RADIO_RESET_LINK` to restore the default ideal link.
+
+***
+Last reviewed: 20261027

@@ -50,6 +50,8 @@ make
 The bundle contains build dependencies only and contains no mission-specific images or Yamcs archive data.
 The image archive can be large, so keep it outside the repository.
 
+`make container-use-local` runs the same verification on images that are already loaded, for a host that received them another way, and `container-import` calls it.
+
 
 ## Generated compose files
 
@@ -65,6 +67,8 @@ The CLI contains 42, Server, Director, and the selected component CLI.
 The Director loads the mission's configured component simulators, including consumers wired to EPS.
 `make cli` builds these simulators together so power mappings never reference an omitted device.
 The component simulator libraries run inside the Director rather than as separate services.
+
+`make cfg-compose-only` re-renders only the two compose files and skips the build time outputs, which is what `tools/shire-scenario.py --no-build` uses for a prebuilt image.
 
 Build and start the DRM with:
 
@@ -104,6 +108,10 @@ docker compose -f build/drm/shire-compose.yaml ps
 docker compose -f build/drm/shire-compose.yaml logs --tail 200
 docker compose -f build/drm/shire-compose.yaml logs -f shire-director
 ```
+
+The Director and FSW print their Simulith logs only when `log_mode` in `build/active.yaml` is `stdout`, `file`, or `both`.
+The generated default is `none`, so set `log_mode: stdout` and run `make cfg` first (see [Change the active target](configuration.md#change-the-active-target)).
+The Server always logs to stdout.
 
 Compose service names such as `shire-director` are stable within the generated file.
 Explicit container names vary by mission or spacecraft, so prefer Compose commands when possible.
@@ -223,10 +231,11 @@ Docker service names provide discovery between containers on that network.
 
 | Interface | Current exposure | Purpose |
 | --- | --- | --- |
-| Host TCP 8090 | Published as `8090:8090` by the DRM | Browser and API access to YAMCS |
+| Host TCP 8090 | Published by the DRM as `8090:8090`, shifted by a campaign trial's port offset | Browser and API access to YAMCS |
 | Internal UDP 1234 and 1235 | Not published by Compose | Direct command and telemetry between YAMCS and FSW |
 | Internal UDP 12343 through 12346 | Not published by Compose | Radio and CryptoLib command and telemetry path |
 | Internal UDP 50042, 50044, and 50060 | Not published by Compose | Director truth and visualization telemetry plus simulator backdoor commanding |
+| Internal UDP 50043 and 50061 | Not published by Compose | Server status telemetry into YAMCS and Server backdoor commanding from YAMCS |
 | Shared `/tmp` volume | Not a network interface | ZeroMQ IPC and 42 socket exchange among participating services |
 
 The short port mapping for 8090 binds through Docker on host interfaces rather than restricting access to localhost.
@@ -236,11 +245,12 @@ The UDP links are intended for communication inside the Compose bridge and are n
 Do not rely on the bridge network alone as a security boundary because any connected container can attempt to reach those listeners.
 
 For a workstation that can receive untrusted network traffic, consider changing the generated template mappings to `127.0.0.1:8090:8090`.
-Make that change in `cfg/shire-compose.j2` and `cfg/cli-compose.j2`, then run `make cfg` rather than editing generated Compose files.
+Make that change to the `ports` entry of the `shire-gsw` service in `cfg/shire-compose.j2`, then run `make cfg` rather than editing generated Compose files.
+`cfg/cli-compose.j2` has no 8090 mapping, so editing it changes nothing for this port.
 
 The runtime is a development environment and not production grade.
 It publishes browser interfaces, uses internal UDP services, shares a Docker network and IPC volume, and includes YAMCS defaults intended for development.
 Do not expose it to an untrusted network without reviewing credentials, secrets, ports, privileges, volumes, and application level authentication.
 
 ***
-Last reviewed: 20261002
+Last reviewed: 20261027

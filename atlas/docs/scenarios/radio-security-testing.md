@@ -33,9 +33,10 @@ It uses the Radio simulator backdoor to attack the link while the simulation run
 | A genuine command afterwards | Accepted, so the link recovers from the lost sequence number |
 | `REPLAY_PACKET` uplink | Rejected as a replay |
 | A genuine command afterwards | Accepted |
-| `CORRUPT_PACKETS` downlink, then `REPLAY_PACKET` downlink | Rejected by the ground CryptoLib |
+| `REPLAY_PACKET` downlink, then `CORRUPT_PACKETS` downlink with `COUNT` 1 and `OFFSET` 30 | Both rejected by the ground CryptoLib |
 
 Rejections of downlink frames happen in the ground container and are not visible to Yamcs, so the scenario also asserts on the CryptoLib container log through the scenario `log_assertions` option.
+The stack's own final check on the downlink step only confirms that the flight side counted no new errors, and it cannot show that the ground rejected the frames.
 Each assertion names a container, a regular expression, and optional `min` and `max` counts of matching lines.
 
 ## Running
@@ -44,5 +45,14 @@ Each assertion names a container, a regular expression, and optional `min` and `
 make scenario SCENARIO=radio-security-testing
 ```
 
+To run `RadioSecurity.ycs` by hand in the Yamcs web UI, first enable `debug-in` and `sim-backdoor` on the Links page and keep the simulation playing.
+The stack selects its own command path with `USE_DEBUG_UPLINK`, `USE_RADIO_UPLINK`, and `RESTORE_UPLINK`.
+Run by hand, the stack checks the uplink rejections through `RADIO_HK_DeviceErrorCount` and `RADIO_HK_CommandCount`.
+It cannot verify the downlink rejections, because those appear only in the ground CryptoLib container log and the scenario's `log_assertions` check them.
+After a manual run, inspect the `cryptolib` container log for the authentication failure (status -21) and replay rejection (status -23) lines, or use `make scenario` for the pass or fail result.
+
 To compare with an unprotected link, set `uplink_encryption` or `downlink_encryption` to `false` for that direction in a scenario copy, run `make cfg`, and rebuild.
 The clear-mode frames carry the command bytes in the open, which the CryptoLib unit tests in `comp/cryptolib/test/unit/ut_shire_security.c` also check directly.
+
+***
+Last reviewed: 20261027

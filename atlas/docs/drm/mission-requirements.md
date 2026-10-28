@@ -25,7 +25,8 @@ The [Verification and Validation](verification-and-validation.md) page identifie
 
 The requirement boundary includes the generated DRM configuration, 42 dynamics, selected component simulators, cFS mission software, the representative Radio and CryptoLib path, YAMCS, and the Atlas operational material.
 
-The requirement boundary excludes physical launch and deployment environments, spacecraft lifetime, flight qualified hardware, RF propagation, ground station availability, operational key infrastructure, and security accreditation.
+The requirement boundary excludes physical launch and deployment environments, spacecraft lifetime, flight qualified hardware, RF propagation fidelity, operational ground station availability and contact scheduling, operational key infrastructure, and security accreditation.
+The Radio simulator link model for visibility, delay, and packet loss is a simulation control with no requirement in this baseline.
 Those subjects need stakeholder sources, mission hardware, and acceptance criteria before they can become DRM requirements.
 
 ## Reference material
@@ -157,7 +158,7 @@ They are source statements rather than technical `shall` requirements.
 
 | ID | Requirement | Rationale |
 | --- | --- | --- |
-| DOC-001 | Each published DRM scenario shall identify its prerequisites, procedure, expected evidence, and current limitations. | Repeatable scenario use |
+| DOC-001 | Each DRM scenario listed in the Scenarios section of the Atlas navigation shall identify its prerequisites, procedure, expected evidence, and current limitations. | Repeatable scenario use |
 | DOC-002 | The Atlas shall identify described behavior as implemented, conceptual, or unverified. | Accurate interpretation of maturity |
 
 ## Requirement attributes
@@ -228,19 +229,19 @@ They remain candidate needs until a stakeholder source and measurable acceptance
 | --- | --- |
 | Ninety day mission life | No defined flight hardware or lifetime analysis basis |
 | Launch and deployment survival | No launch environment or spacecraft qualification configuration |
-| One ground contact per day | No selected orbit operations concept or ground network commitment |
-| Five to fifteen minute pass duration | No geometry based Radio availability model or pass analysis |
+| One ground contact per day | No selected orbit operations concept, pass analysis, or ground network commitment |
+| Five to fifteen minute pass duration | No pass analysis or ground network commitment, and the optional Radio visibility model is not tied to an approved pass duration |
 | One gigabyte onboard storage | No flight storage hardware allocation |
-| One hundred kilobit per second file transfer | No RF link budget or representative network benchmark |
+| One hundred kilobit per second file transfer | No RF link budget, data rate model, or representative network benchmark |
 | Quantified ADCS pointing accuracy | No approved pointing budget or sensor and actuator fidelity basis |
 | Autonomous spacecraft Safe mode | No spacecraft mode manager or approved Safe configuration |
-| EPS load shedding and battery protection | No approved power limits or implemented protection response |
+| EPS load shedding and battery protection | Yellow and red battery limits exist as ground alarms, but no onboard protection response exists and the uplink only LC watchpoint 12 has no action point |
 | Payload science file generation | Demo currently publishes telemetry rather than payload files |
-| Radio signal strength and configurable data rate performance | Radio currently exchanges packets without an RF model |
+| Radio signal strength and configurable data rate performance | No signal strength or data rate model exists because the Radio link model covers only visibility, delay, and packet loss |
 | Operational key management and security accreditation | CryptoLib uses a development configuration |
 
 Do not convert a candidate into a `shall` statement by copying the previous value.
 First identify its source, owner, rationale, acceptance criterion, verification level, and one planned verification method.
 
 ***
-Last reviewed: 20260819
+Last reviewed: 20261027

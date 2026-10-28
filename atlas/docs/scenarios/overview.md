@@ -3,7 +3,7 @@
 Scenarios turn the SHIRE services into guided mission exercises.
 They explain the operator goal, the available implementation, the expected observations, and the evidence worth retaining.
 
-## Available scenario
+## Published scenarios
 
 | Scenario | What a new user learns | Current status |
 | --- | --- | --- |
@@ -11,7 +11,9 @@ They explain the operator goal, the available implementation, the expected obser
 | [Cmd/Tlm Validation](cmd-tlm-validation.md) | How commands, telemetry limits, alarms, stored command uploads, and flight software patches behave | Manual exercise using YAMCS stacks, with an automated run of the stacks |
 
 Commissioning and Cmd/Tlm Validation are the scenarios currently included in the published Atlas navigation.
-Additional scenario drafts remain planned work until their procedures, assertions, and review evidence are ready.
+The DRM also registers other scenarios that run headless with `make scenario`, and several have draft pages that are not yet published.
+[Recommended Scenarios](recommended.md) lists each draft, what already exists for it, and the order in which to finish them.
+See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for every registered scenario and how to run one.
 
 ## Before every run
 
@@ -30,7 +32,8 @@ Use command history, packet time, counters, events, and service logs together.
 ## Current scenario status
 
 Commissioning is a **manual** scenario that composes working commands and procedures into an operator walkthrough.
-The steps can be performed now, but the repository does not yet provide one procedure that asserts the entire result.
+The steps can be performed now, and `make scenario SCENARIO=checkout` automates the component checks with `CheckoutTest.ycs`, but no single procedure asserts the entire Commissioning result.
+Cmd/Tlm Validation is also a manual walkthrough, and its automated run proves only that the stacks' commands and checks pass, not the alarm state in YAMCS.
 
 ## Evidence packet
 
@@ -77,4 +80,4 @@ Questions and improvement ideas are welcome in [GitHub Discussions](https://gith
 Report reproducible defects through [GitHub Issues](https://github.com/VoyagerTechnologies-Public/shire/issues).
 
 ***
-Last reviewed: 20261026
+Last reviewed: 20261027

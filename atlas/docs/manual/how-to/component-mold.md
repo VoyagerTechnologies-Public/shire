@@ -82,8 +82,11 @@ make test-fsw
 make
 ```
 
+`make cli` builds the CLI for the component named by `cli:` in `build/active.yaml`, so set `cli: <name>` there before running `make cfg` and `make cli`.
+See [Components](components.md) for the CLI workflow.
+
 Inspect `build/build.yaml`, the rendered `device_cfg.h`, the generated CPU1 startup script, and the YAMCS mission database before treating the component as integrated.
 Continue with the [Development Workflow](../core-concepts/development-workflow.md) to move through CLI simulation, cFS simulation, focused hardware checkout, simulator reconciliation, and board cFS integration.
 
 ***
-Last reviewed: 20261002
+Last reviewed: 20261027

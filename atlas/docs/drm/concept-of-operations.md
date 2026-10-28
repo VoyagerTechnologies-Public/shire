@@ -17,11 +17,11 @@ The current implementation provides the following operational building blocks.
 | --- | --- | --- |
 | ADCS | cFS enable, disable, mode, target, and sensor requests with six simulator control modes against 42 | No current LC action or mode manager selects an ADCS recovery mode automatically. |
 | Demo | cFS control of a representative device whose three channels normally encode the 42 body Sun vector | Demo publishes telemetry and does not create standalone science data files. |
-| EPS | Simulated solar input, battery energy, and eight switched loads with cFS switch control and device telemetry | The DRM wires the Demo, ADCS, and Radio loads to switches 0, 4, and 6 and the EPS power cycles them as their switches change, but the model has no named power modes, automatic load shedding, state of charge telemetry, or battery protection response. |
-| Radio | Command and telemetry packet exchange using `SLEEP`, `TX`, `RX`, and `DUPLEX` configurations | The model has no RF propagation, ground visibility, signal strength, or geometry driven link availability. |
-| CryptoLib | Flight Radio security processing with reciprocal processing by the standalone ground service | The checked in configuration is a development example rather than an operational key management or security deployment. |
+| EPS | Simulated solar input, battery energy, and eight switched loads with cFS switch control, device telemetry, and yellow and red battery voltage and temperature limits that raise YAMCS alarms | The DRM wires the Demo, ADCS, and Radio loads to switches 0, 4, and 6 and the EPS power cycles them as their switches change, but the limits are ground alarms and the model has no named power modes, automatic load shedding, state of charge telemetry, or onboard battery protection response. |
+| Radio | Command and telemetry packet exchange using `SLEEP`, `TX`, `RX`, and `DUPLEX` configurations plus a simulated link with ground station visibility, one way delay, and packet loss | The default link is ideal with `always` visibility, the `auto` link mode computes visibility from the ground station catalog and an elevation mask, and the model has no RF propagation, signal strength, data rate, or bit error model. |
+| CryptoLib | Flight Radio security processing with reciprocal processing by the standalone ground service, using AES-256-GCM encryption and authentication by default with the built in test keys | The [Radio Security Testing](../scenarios/radio-security-testing.md) scenario exercises tamper and replay rejection, but the built in test keys are a development example rather than operational key management or a security deployment. |
 | Flight data | Selected DS packet storage under `/d`, FM file operations, and CF with YAMCS CFDP services | DS does not record every telemetry packet and no payload processing pipeline is implemented. |
-| Ground operations | YAMCS commanding, telemetry, archives, procedures, displays, timelines, and CFDP services | The default timeline contains parameter bands but no scheduled activities. |
+| Ground operations | YAMCS commanding, telemetry, archives, procedures, displays, timelines, CFDP downlink, and CFDP upload of tables and files to `/d` | The default timeline contains parameter bands but no scheduled activities, and uploaded tables and patches follow a reviewed operator procedure. |
 
 ## Operational configurations
 
@@ -65,7 +65,7 @@ The default `sat-1` power on path is assembled as follows.
 | --- | --- |
 | Application load | The CPU1 startup script loads CryptoLib, IO Lib, CF, DS, FM, LC, SC, SCH, ADCS, Demo, EPS, Radio, CI_LAB, and TO_LAB. |
 | Initial component state | The ADCS, Demo, and Radio cFS apps initialize their device state as disabled, the ADCS simulator starts in `PASSIVE`, and the EPS simulator starts the Demo, ADCS, and Radio switches (0, 4, and 6) on and the other five switches off. |
-| Initial dynamics | The checked in 42 spacecraft starts with body rates of 5, negative 5, and 10 degrees per second while ADCS control is inactive. |
+| Initial dynamics | The Initial Condition bin `cfg/drm/initial_conditions/nominal-baseline.yaml`, rendered through the `SC_SHIRE.j2` template, starts the 42 spacecraft with body rates of 5, negative 5, and 10 degrees per second while ADCS control is inactive. |
 | Automatic sequence | SC is configured to start RTS 1 after a power on reset and not after a processor reset. |
 | Core services | RTS 1 enables DS, enables TO_LAB output to `shire-gsw`, sets LC active, enables RTS numbers 1 through 15, and starts RTS 3. |
 | Initialization check | RTS 3 sends one cFE Executive Services NOOP. |
@@ -107,7 +107,8 @@ A reviewed Safe configuration would normally include:
 
 `AdcsComponent.ycs` and `CheckoutTest.ycs` currently demonstrate enabling ADCS and selecting `SUNSAFE`.
 They do not establish a spacecraft wide Safe state.
-The current LC tables do not contain active bus voltage, battery, pointing, or payload watchpoints that transition the spacecraft to Safe.
+The boot LC tables do not contain active bus voltage, battery, pointing, or payload watchpoints that transition the spacecraft to Safe.
+The only battery watchpoint is the uplink only watchpoint 12 in `up_lc_wdt.tbl`, which has no action point.
 
 ### Payload operations configuration
 
@@ -146,10 +147,13 @@ Enabling the range does not mean that all 15 contain DRM operational behavior.
 | 6 | Pass sequence that selects `DUPLEX`, waits 480 SC wakeups, and returns the Radio to `RX`. |
 | 7 through 10 | Empty mission table stubs. |
 | 11 | Demo response that disables Demo, waits 10 SC wakeups, and enables it again. |
-| 12 through 15 | Empty mission table stubs. |
+| 12 | Empty mission table stub at boot, replaceable by the uploadable `up_sc_rts012` table that sends one NOOP each to ES, TBL, and SB. |
+| 13 | Empty mission table stub at boot, with the deliberately corrupt `up_sc_rts13bad` table available to show that validation rejects it. |
+| 14 and 15 | Empty mission table stubs. |
 
 RTS 6 describes its wait as eight minutes at the expected one hertz SC wakeup rate.
-It does not consult 42 ground station visibility or the YAMCS timeline.
+It does not consult the ground station catalog, the Radio link model, or the YAMCS timeline.
+The window stays a fixed 480 wakeups even when the Radio link model reports the spacecraft out of view.
 
 The current LC tables contain two active action points.
 
@@ -159,7 +163,24 @@ The current LC tables contain two active action points.
 | 11 | Demo is enabled and Demo channel 1 is below 256 | Start RTS 11 after one failure. |
 
 LC does not currently implement voltage, battery state of charge, attitude, thermal, or general Safe responses.
+The uplink only watchpoint 12 observes the EPS battery voltage against the 20 V yellow limit once the ground loads it, and it is not wired to any action point.
 The Mission Requirements page records these behaviors as candidate needs until an approved source, acceptance criterion, and verification approach exist.
+
+## Ground to flight tables and patches
+
+The DRM builds some flight files for the ground to uplink instead of for boot.
+Their names start with `up_` and the spacecraft ignores them at startup.
+YAMCS uploads one to `/d` through CFDP, and the operator loads, validates, and activates a table with cFE TBL commands or reloads an application with `CFE_ES_RELOAD_APP`.
+
+| Uplink file | Purpose |
+| --- | --- |
+| `up_sc_rts012.tbl` | Replaces the empty RTS 12 with three NOOPs. |
+| `up_sc_rts13bad.tbl` | Provides a deliberately corrupt RTS 13 that fails validation. |
+| `up_lc_wdt.tbl` | Adds the EPS battery voltage watchpoint 12 to the boot LC watchpoint table. |
+| `up_eps.so` | Replaces the EPS application with a build that refuses to switch on switch 5, reloaded from `/d/up_eps.so`. |
+
+The `CmdTlmStoredCommands.ycs` and `CmdTlmPatches.ycs` stacks exercise these files and restore the boot configuration.
+See [Uploading Tables and Patches](../manual/how-to/uplink-patches.md) for the procedure.
 
 ## Command and telemetry operations
 
@@ -174,7 +195,8 @@ The debug path is a development convenience and is not evidence that the represe
 In `RX`, the Radio path can deliver commands but does not return radio telemetry.
 In `DUPLEX`, commands and telemetry can flow in both directions.
 
-YAMCS uses `radio-out` as the preferred command interface and falls back to `debug-out` when the preferred interface is unavailable.
+Both command interfaces are enabled at startup, and YAMCS sends each command on every enabled command link.
+The ground commands `USE_DEBUG_UPLINK` and `USE_RADIO_UPLINK` select one path.
 Record the interface used when the transport path matters to the result.
 
 YAMCS also sends simulation backdoor packets to the Director and receives 42 truth telemetry from the Director.
@@ -189,13 +211,14 @@ The mission phases remain useful organizing concepts, but their implementation d
 | Launch and deployment | Conservative configuration after separation | 42 begins directly in the configured LEO state and the flight stack performs the distributed Do No Harm startup, but launch and separation are not simulated events. |
 | Commissioning | Radio path establishment with core and component checkout | The manual Commissioning scenario composes RTS 6, cFE checks, component procedures, FM, DS, and CFDP, but no single end to end commissioning procedure exists. |
 | Nominal operations | Attitude, payload, storage, and downlink activities | The manual Nominal Operations scenario uses current building blocks, but no scheduled timeline items or complete nominal procedure exist. |
-| Contingency response | Detection, isolation, recovery, and evidence retention | cFE events, LC action points 5 and 11, component tests, backdoors, and focused procedures are available, but there is no general safing manager or complete anomaly response procedure. |
+| Contingency response | Detection, isolation, recovery, and evidence retention | cFE events, LC action points 5 and 11, component procedures such as `DemoFDIR.ycs` and `EpsFaultInjection.ycs`, simulator and Radio link backdoors, and the table patch and bad patch stacks are available, but there is no general safing manager or complete anomaly response procedure. |
 | Decommissioning | Final data retrieval and a reviewed passive configuration | The concept and proposed requirements describe this phase, but no decommissioning sequence or procedure is implemented. |
 
 ## Representative operator cycle
 
 The repository does not schedule one or more ground contacts per day.
-The default YAMCS timeline has no scheduled items and the Radio does not derive availability from 42 ground station geometry.
+The default YAMCS timeline has no scheduled items.
+The default Radio link is always in view, and the optional `auto` link mode derives visibility from the ground station catalog instead of a scheduled contact.
 
 A current manual operator cycle is:
 
@@ -215,16 +238,17 @@ Those actions require a reviewed operator plan or future automation.
 
 The DRM is a software development and integration environment with these limits:
 
-* 42 calculates orbital and vehicle dynamics from the checked in configuration, including the initial body rates, but many environmental torque sources are disabled.
+* 42 calculates orbital and vehicle dynamics from the selected Initial Condition bin, including the initial body rates, but many environmental torque sources are disabled.
 * The current ADCS simulator uses 42 truth and sends modeled wheel and magnetic torquer commands, but this does not establish physical sensor or actuator performance.
 * The EPS simulator uses a simple solar, battery energy, and fixed load model.
   Its switches power the Demo, ADCS, and Radio simulators on and off, and each load draws a configured power for its mode.
-* The Radio and CryptoLib path exchanges packets but does not model RF propagation, antenna geometry, contact visibility, bit errors, or measured throughput.
-* RTS 6 creates a fixed pass interval instead of using the two ground stations listed in the 42 configuration.
+* The Radio and CryptoLib path exchanges packets and can apply catalog based visibility, delay, and packet loss, but it does not model RF propagation, antenna patterns, signal strength, data rate, bit errors, or measured throughput.
+* RTS 6 creates a fixed 480 wakeup pass interval and does not use the ground station catalog or the Radio link model.
 * DS records only the packets named in its filter table.
 * Docker resource limits, host load, and scheduler behavior can affect wall clock timing and CFDP performance.
 * The included YAMCS configuration and CryptoLib setup are development defaults rather than hardened operational deployments.
-* The current DRM runs on the host CPU1 target and does not establish behavior on a flight processor or physical hardware.
+* The default DRM runs the CPU1 target on the host, and processor in the loop runs described in [Configurable Linux Board PIL](../manual/how-to/board-pil.md) execute the cFS target on an emulated or physical Linux processor.
+* Processor in the loop runs do not qualify peripherals, flight processors, or flight hardware.
 
 Use these practices when operating or testing the DRM:
 
@@ -252,4 +276,4 @@ The [Verification and Validation](verification-and-validation.md) page describes
 Begin hands on review with the [Commissioning](../scenarios/commissioning.md) scenario.
 
 ***
-Last reviewed: 20261026
+Last reviewed: 20261027

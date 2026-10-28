@@ -41,7 +41,7 @@ Use timestamps and the final listing to identify the file created during this ru
 
 ## Phase 2 Generate identifiable activity
 
-Send `/DEMO/DEMO_CONFIG_CC` with a reviewed value chosen for this run.
+Send `/DEMO/DEMO_CONFIG_CC` with its `DEVICE_CONFIG` argument set to a reviewed value chosen for this run.
 Confirm that fresh Demo telemetry reports the new configuration.
 Allow several new Demo housekeeping and device packets to be published while DS is active.
 
@@ -59,8 +59,9 @@ Do not choose the file that DS is currently writing if a new file opens afterwar
 
 ## Phase 4 Select the actual file
 
-Send `/FM/FM_COMMANDS/FM_GET_DIR_PKT` with `DIRECTORY` set to `/d`.
-Wait for `/FM/FM_DIRLISTPKT` and compare it with the before state.
+Send `/FM/FM_COMMANDS/FM_GET_DIR_PKT` with `DIRECTORY` set to `/d`, `DIRLISTOFFSET` set to `0`, and `GETSIZETIMEMODE` set to `1`.
+Wait for fresh `/FM/FM_DIRLISTPKT` telemetry and compare it with the before state.
+`/FM/FM_DIRLISTPKT` is a container, so the packet parameters such as `FILENAME1` and `FILESIZE1` are listed under `/FM/FM_DIRLISTPKT/` in the parameter browser.
 
 Choose the completed `.ds` file whose time and size match the activity window.
 Record the exact source path, returned size, and any available timestamp.
@@ -69,11 +70,15 @@ If no suitable file appears, allow more telemetry to accumulate, close the file 
 ## Phase 5 Transfer through the radio path
 
 Confirm the Radio reports Duplex mode and `radio-in` is receiving telemetry.
-If RTS 6 is close to completion, stop it and configure the Radio for Duplex mode before starting CFDP.
+If RTS 6 is close to completion, stop it with `/SC/SC_COMMANDS/SC_STOP_RTS` so it cannot return the Radio to Receive mode during the transfer.
+Then send `/RADIO/RADIO_CONFIG_CC` with the Duplex settings described in [Commissioning](commissioning.md) to confirm Duplex mode before starting CFDP.
 
-Send `/CF/CF_COMMANDS/CF_TX_FILE` with `SRCFILENAME` set to the selected `/d/<returned-file>` path.
-Set `DSTFILENAME` to the reviewed destination name.
-Review the Class 2, channel, destination, and preservation values shown by YAMCS.
+Send `/CF/CF_COMMANDS/CF_TX_FILE` with `SOURCE_FILENAME` set to the selected `/d/<returned-file>` path.
+Set `DESTINATION_FILENAME` to the reviewed destination name.
+Set `CFDP_CLASS` to `CLASS 2 - WITH FEEDBACK`, `CHANNEL` to `CHANNEL 0`, and `PRIORITY` to `0`, and confirm `DESTINATION_ENTITY_ID` is `23`, the YAMCS ground entity.
+Leave `KEEP_FILE` at its default of `KEEP`.
+`DELETE` removes the source file after a successful transfer, which would make a later source hash comparison impossible.
+See [Commissioning](commissioning.md) for a worked example of these arguments.
 
 Watch **File transfer** until the transaction reaches its defined terminal state.
 Record the transaction identifier, start time, completion time, source path, destination name, and byte count where available.
@@ -105,7 +110,7 @@ Do not substitute another file without recording a new selection checkpoint.
 
 ## Cleanup and evidence
 
-Allow RTS 6 to finish or return the Radio to Receive mode.
+Allow RTS 6 to finish or, if it was stopped early, send `/RADIO/RADIO_CONFIG_CC` with `MODE` set to `Receive Only Mode`, `RX_SPEED` set to `1`, `RX_WAVE` set to `2`, `TX_SPEED` set to `0`, and `TX_WAVE` set to `0`.
 Record the final Demo configuration and whether Demo remains enabled.
 
 Retain both FM listings, Demo activity times, DS command result, selected file metadata, CFDP transaction, received file record, hashes, active configuration, and relevant logs.
@@ -117,4 +122,4 @@ A reviewed procedure needs a reliable way to select a filename returned by FM, p
 The procedure must also define timeouts, an interrupted pass result, and cleanup for partial transactions.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20261027

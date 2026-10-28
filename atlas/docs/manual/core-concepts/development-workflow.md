@@ -103,6 +103,7 @@ Update the shared device code when the hardware reveals behavior that both the C
 
 The current root `make cli` target builds the host simulation environment.
 A board CLI still requires a reviewed target compiler, sysroot, HWLIB transport, device configuration, deployment method, and runtime permissions.
+The board PIL targets described under [Board and PIL targets](#board-and-pil-targets) run cFS but not a component CLI.
 
 ### 6 - Reconcile the simulator and run cFS on the board
 
@@ -114,8 +115,16 @@ Rerun the CLI and cFS simulation tests after every hardware driven correction.
 This preserves SHIRE as the repeatable system development environment even when access to the physical hardware is limited.
 
 After the focused board CLI passes, integrate the component with cFS on the development board and repeat the same component procedure through the intended flight stack.
-The repository contains ARM and CPU2 scaffolding, but board CLI and board cFS execution still require target specific implementation and validation.
+The repository supports cFS processor PIL on ARM32 and AArch64 targets with simulated devices, but physical component buses, the CPU2 target, and a board CLI still require target specific implementation and validation.
 Use the gates and evidence guidance in this workflow when moving from simulation to physical hardware.
+
+## Board and PIL targets
+
+SHIRE can run the CPU1 cFS bundle on a Linux processor while time, dynamics, and device simulators stay on the host.
+`cfg/shire_defs/targets.cmake` selects `armv7l-shire` or `aarch64-shire` from `SHIRE_FSW_SYSTEM`, and the `make board-prepare`, `board-build`, `board-deploy`, `board-start`, `board-test`, and `board-stop` targets drive a profile chosen with `BOARD=<profile>`.
+The profiles in `cfg/boards/` are `qemu-zynq` for an emulated ARM32 guest, `zybo7020` for a Zybo 7020, and `rpi5` for an AArch64 example whose hardware the profile marks as unvalidated.
+This gives integration and test work a processor target before component hardware exists, and it does not exercise physical component buses.
+See [Configurable Linux Board PIL](../how-to/board-pil.md), [Zynq QEMU PIL](../how-to/qemu-pil.md), [Zybo Linux PIL](../how-to/zybo-pil.md), and [Development Board](../how-to/development-board.md).
 
 ## Supported build targets
 
@@ -180,8 +189,8 @@ The FSW tests still run sequentially, preserving their existing filesystem and I
 7. Repeat component and system procedures with recorded target evidence.
 8. Keep simulator regression tests for behaviors shared by simulation and hardware.
 
-The [Development Board](../how-to/development-board.md) page describes the ARM scaffolding currently present in the repository.
-It is integration guidance rather than evidence of a validated board deployment.
+The [Development Board](../how-to/development-board.md) page describes the physical interface plan, including the CPU2 scaffolding that remains disabled.
+It is integration guidance rather than evidence of validated component buses, and the PIL pages above state what each board profile has validated.
 The progression on this page organizes mold, simulation, CLI, cFS, and hardware work into review gates.
 
 ## Component lifecycle
@@ -260,4 +269,4 @@ scenario, or the workstation performance matrix.
 When a CI result is used as evidence, retain the workflow run, logs, coverage, resolved configuration, container image, and revision identifiers rather than treating the presence of the workflow file as a passing result.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261027

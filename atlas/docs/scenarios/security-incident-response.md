@@ -1,8 +1,8 @@
 # Security Incident Response
 
-> **Scenario status:** No executable procedure covers this complete flow in the current repository.
-> This page is a planning guide grounded in the implemented radio pipeline and Radio unit tests.
-> It must not be reported as an operational security validation.
+> **Scenario status:** The detection half of this flow is executable today as [Radio Security Testing](radio-security-testing.md), which tampers with and replays link traffic and asserts that CryptoLib and flight software reject it.
+> The incident response half, which covers operator decisions, containment, restoration, and sanitized evidence, is still a planning guide.
+> This page must not be reported as an operational security validation.
 
 ## What you will learn
 
@@ -44,8 +44,9 @@ Before creating a runnable procedure:
 6. Define the restoration action and successful baseline command.
 7. Review every retained field for sensitive material.
 
-The current repository does not expose a reviewed YAMCS control for every condition represented by the Radio unit test hooks.
-That missing control must be implemented safely before those conditions become operator scenarios.
+The Radio backdoor commands now inject corrupted packets and replayed packets, and [Radio Security Testing](radio-security-testing.md) uses them.
+The Radio unit test hooks represent more conditions than those two, and the remaining conditions have no reviewed YAMCS control.
+Each one must be implemented safely before it becomes an operator scenario.
 
 ## Establish the baseline
 
@@ -61,8 +62,8 @@ Record:
 * representative telemetry received through the radio path
 * CryptoLib service health and sanitized log context
 
-Confirm that YAMCS selected the preferred `radio-out` interface when the test design requires proof that the radio path carried the command.
-Disable the fallback interface only when the reviewed test procedure requires that additional control.
+Disable `debug-out` when the test design requires proof that the radio path carried the command, because YAMCS sends each command on every enabled command link.
+See [Choosing a command path](../manual/core-concepts/ground-software.md#choosing-a-command-path).
 
 ## Proposed exercise flow
 
@@ -115,8 +116,9 @@ Run `make test-fsw` to execute the current component flight software unit tests,
 Those tests provide automated evidence for application behavior under stubbed CryptoLib outcomes.
 They do not validate the complete container path, operator response, real key management, network controls, timing, or flight radio hardware.
 
-Before promoting this page to an executable scenario, add a reviewed injection control, a YAMCS procedure, explicit assertions, timeouts, cleanup, and a requirement mapping.
+Radio Security Testing already supplies a reviewed injection control, a YAMCS procedure, explicit log assertions, timeouts, and cleanup for tamper and replay.
+Before promoting this page to an executable scenario, add the incident response steps on top of it, which are an operator decision point, a bounded containment action, evidence packaging with sanitization, and a requirement mapping.
 The [Recommended Scenarios](recommended.md) lists a radio path comparison as a safer precursor to failure injection.
 
 ***
-Last reviewed: 14 August 2026
+Last reviewed: 20261027

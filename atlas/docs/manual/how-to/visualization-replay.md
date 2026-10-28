@@ -19,7 +19,7 @@ SHIRE and Yamcs continue running and recording.
 **Play** then replays from the paused timestamp at the selected playback speed.
 When playback catches the archive head on a live run, the viewer automatically rejoins incoming telemetry at SHIRE's current simulation pace.
 Select a playback speed above the simulation pace to catch up, or choose **Live** to jump immediately.
-Drag the timeline, enter a positive playback-speed multiplier and rendering FPS, and choose attitude inspection (the default), spacecraft follow, or Earth overview.
+Drag the timeline, enter a positive playback-speed multiplier (clamped to 0.01 through 1000) and rendering FPS, and choose attitude inspection (the default), spacecraft follow, or Earth overview.
 Camera orbit and zoom stay relative to the spacecraft when telemetry advances or the viewer switches between Live and Replay.
 The top-right ground-track map shows the recorded path in cyan, a one-orbit two-body expected path in dashed orange, eclipse portions in outlined violet, and the current position in yellow.
 After a timeline scrub, recorded history loads backward from the displayed time, bounded to 30 minutes or 12,000 raw packets, whichever is shorter.
@@ -58,14 +58,15 @@ The button for creating new bookmarks is hidden.
 `SHIRE_VISUAL_HZ=20 make start` selects the visualization truth rate in samples per simulated second.
 It must divide the 100 Hz simulation tick rate and can range from 1 to 100.
 The legacy truth stream remains at 1 Hz.
-The viewer's **Render FPS** control starts at 30 and changes only the rate at which the browser draws frames.
+The viewer's **Render FPS** control starts at 30, is clamped to 1 through 60, and changes only the rate at which the browser draws frames.
 
 The selected spacecraft's `visualization` settings in `cfg/<mission>/spacecraft/<spacecraft>.yaml` choose `earth_imagery` and `model` source paths.
 Paths are relative to the SHIRE checkout or absolute.
 The default DRM `sat-1` settings point to `42/World/BlueMarbleNG4096.ppm` and `42/Model/stf1_red.obj`.
 The model manifest sets Cesium's up and forward axes and a row-major `model_to_body` 4×4 matrix.
 For the 42 STF1 OBJ, the converter preserves body axes after Cesium's Y-up correction, so its forward axis is X rather than Cesium's default Z.
-The configured matrix also places the mesh origin relative to 42's center of mass at `[0.12, -0.25, 0.2]` meters.
+The configured matrix translates the mesh into the center of mass frame that truth uses, which places the mesh origin at `[-0.12, 0.25, -0.2]` meters in body axes relative to 42's center of mass.
+Equivalently, the center of mass sits at `[0.12, -0.25, 0.2]` meters in the mesh's own coordinates.
 Custom glTF models can set `model_up_axis`, `model_forward_axis`, and `model_to_body` in the spacecraft visualization settings.
 Build-time staging converts the 4096×2048 PPM texture to an 8-bit PNG without copying the 42 source into Git.
 After selecting the mission and spacecraft with `make cfg`, `make gsw` reads their source configuration, stages the assets under ignored `build/visualization-assets/`, and embeds them into the GSW image at build time.
@@ -155,3 +156,6 @@ Telemetry gaps are shown rather than filled with invented state.
 Legacy Yamcs volumes are not assigned a run ID.
 Their historical run boundaries may be ambiguous, especially if repeated epochs were written into one database.
 Preserve them and inspect their packet archive before making replay claims.
+
+***
+Last reviewed: 20261027

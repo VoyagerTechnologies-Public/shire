@@ -30,22 +30,31 @@ Run `make cfg` after changing `build/active.yaml`.
 | `make replay-list` | List retained native Yamcs run databases. |
 | `make replay RUN=<run-id> PORT=<port>` | Open one retained database without starting the simulation. |
 | `make replay-delete RUN=<run-id>` | Explicitly delete one retained Yamcs archive. |
+| `make cfg-cli` | Enable debugging for the selected CLI component and render its configuration without building. |
 | `make cli` | Enable debugging for the selected CLI component and build 42, Simulith, mission simulators, Director, Server, and the selected CLI image. |
 | `make cli-start` | Regenerate normal configuration and start the focused CLI Compose environment attached to the terminal. |
 | `make mold COMP=<name>` | Create a component scaffold from the Demo component. |
 | `make test-sim` | Clean and run simulator tests selected by the existing `build/build.yaml` snapshot. |
 | `make test-simulith` | Clean and run the standalone Simulith core tests. |
 | `make test-fsw` | Clean, regenerate configuration, and run the cFS and application tests. |
+| `make complexity` | Write the informational cyclomatic complexity report to `build/coverage-complexity.txt` inside the build image. |
 | `make perf-smoke` | Build and run one short synchronized diagnostic trial. |
 | `make perf` | Build and run the full-output reference, 1x/25x/50x trials, and three >50x unbounded trials. |
 | `make perf-compare BASELINE=<report.json>` | Repeat the performance matrix and compare it with an accepted performance report. |
 | `make campaign CAMPAIGN=<name> MAX_PARALLEL=<n>` | Run a Monte Carlo campaign's trials and aggregate the results. |
+| `make scenario SCENARIO=<name>` | Run a named scenario headlessly, execute its stacks and log assertions, and write the result under `build/scenario-runs/`. |
+| `make scenario-smoke` | Build and run the active scenario twice and confirm that the terminal dynamics state, command deliveries, and protocol counts repeat exactly. |
 | `make docs-check` | Validate the Atlas content and run a strict production build. |
 | `make docs-serve` | Start the local Atlas preview server. |
 | `make screenshots-setup` | Install Playwright and headless Chromium for scenario screenshots under `build/`. |
-| `make screenshots SCENARIO=<name>` | Start the DRM, replay the scenario's screenshot manifest in a headless browser, and write its images. |
+| `make screenshots SCENARIO=<name>` | Start the DRM, replay the scenario's screenshot manifest in a headless browser, and write its images, with optional `ONLY="<shot> <shot>"` to write only named shots and `ATTACH=1` to use a lab that is already running. |
 | `make screenshots-check SCENARIO=<name>` | Confirm a scenario's screenshot manifest, page references, and images agree. |
 | `make debug` | Open an interactive shell in the SHIRE build image with the repository mounted. |
+| `make container` | Build or verify the dependency images that other targets use. |
+| `make container-export FILE=<bundle.tar>` | Save the dependency images to one archive for a disconnected host. |
+| `make container-import FILE=<bundle.tar>` | Load a dependency image archive and verify it against the checkout. |
+| `make container-use-local` | Verify locally present dependency images against the checkout without rebuilding them. |
+| `make clean-42`, `make clean-cli`, `make clean-fsw`, `make clean-gsw`, and `make clean-sim` | Clean one build area, which is the 42 image, the CLI components, the FSW tree, the GSW tree, or the simulation components. |
 | `make clean` | Stop the environments and remove the active mission build tree, selected runtime artifacts, and matching SHIRE volumes when the build image exists locally. |
 | `make clean-cache` | Delete all labeled SHIRE replay archives and pinned run images, prune Docker builder cache, and retain unlabeled legacy GSW volumes. |
 | `make uninstall` | Remove SHIRE build artifacts, containers, images, networks, and labeled replay archives through `clean-cache`. |
@@ -112,16 +121,30 @@ Optional EPS simulator diagnostics are console output, with no dedicated Yamcs t
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The DRM scenarios include `nominal`, `debug`, `checkout`, `eclipse-entry-adcs`,
-`eclipse-exit-adcs`, `adcs-gps-time-sync`, `adcs-boot-config`,
-`adcs-sunpoint-rotisserie`, `adcs-truth-verification`, `adcs-target-track`,
-`adcs-modes-sweep`, `adcs-time-file-fallback`, `eps-functional`, `eps-backdoor-testing`, `radio-link-testing`, `radio-security-testing`, and `cmd-tlm-validation`.
-`nominal` and `debug` apply `debug: false` or `debug: true` to every selected component before its device header is rendered.
-`eclipse-entry-adcs` and `eclipse-exit-adcs` additionally select the `eclipse-entry` or `eclipse-exit`
-Initial Condition bin, starting the spacecraft at that eclipse transition instead of the default launch state.
-`checkout` runs YAMCS's CheckoutTest.ycs stack headlessly via `verify_stacks` instead of a human clicking through it.
-`cmd-tlm-validation` runs three stacks that check commanding, telemetry limits, RTS upload and activation, and flight software table and application patches.
-See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the IC bin and verify_stacks mechanisms.
+The DRM provides the 17 scenarios in the following table.
+Run one headlessly with `make scenario SCENARIO=<name>`.
+
+| Scenario | What it does |
+| --- | --- |
+| `nominal` | Applies `debug: false` to every selected component before its device header is rendered and runs no stack. |
+| `debug` | Applies `debug: true` to every selected component before its device header is rendered and runs no stack. |
+| `checkout` | Runs `CheckoutTest.ycs` headlessly through `verify_stacks` instead of a person stepping through it. |
+| `eclipse-entry-adcs` | Starts the spacecraft at the `eclipse-entry` Initial Condition bin instead of the default launch state. |
+| `eclipse-exit-adcs` | Starts the spacecraft at the `eclipse-exit` Initial Condition bin instead of the default launch state. |
+| `adcs-gps-time-sync` | Confirms that cFE TIME becomes valid once ADCS pushes a GPS time sample. |
+| `adcs-boot-config` | Confirms that the boot loaded ADCS gains table reaches the device and can be pushed again. |
+| `adcs-sunpoint-rotisserie` | Confirms that `SUNSAFE` pointing stays converged while the boot configured rotisserie roll rate holds. |
+| `adcs-truth-verification` | Asserts that the settled ADCS Sun vector agrees with the live 42 truth within a tolerance. |
+| `adcs-target-track` | Confirms that `TARGET` mode drives the body rates to near zero. |
+| `adcs-modes-sweep` | Sweeps `SUNSAFE`, `NADIR`, and `TARGET` and verifies the pointing goal of each. |
+| `adcs-time-file-fallback` | Confirms the boot time fallback file, its replacement by GPS time, and its refresh. |
+| `eps-functional` | Runs `EpsPowerFunctional.ycs` for switching and device power cycle acceptance. |
+| `eps-backdoor-testing` | Runs `EpsBackdoorFunctional.ycs` and `EpsFaultInjection.ycs` for backdoor application and fault recovery. |
+| `radio-link-testing` | Runs `RadioLinkBackdoor.ycs` to exercise Radio link visibility, one way delay, and packet loss through backdoors. |
+| `radio-security-testing` | Runs `RadioSecurity.ycs` plus CryptoLib log assertions for AES-256-GCM, tamper rejection, and replay rejection. |
+| `cmd-tlm-validation` | Runs three stacks that check commanding, telemetry limits, RTS upload and activation, and flight software table and application patches. |
+
+See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the Initial Condition bin and `verify_stacks` mechanisms.
 The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nominal`, and CLI component `demo`.
 
 ## cFS targets
@@ -129,7 +152,7 @@ The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nom
 | Target | Current state |
 | --- | --- |
 | CPU1 | Enabled target using `amd64-shire` by default, `armv7l-shire` for ARM32 PIL or `aarch64-shire` for a configured AArch64 SDK target, and `amd64-linux` for unit test builds. |
-| CPU2 | Disabled `armv7l-linux` Zybo 7020 scaffold that is not built or validated by the current workflow. |
+| CPU2 | Disabled `armv7l-linux` Zybo 7020 scaffold that is not built or validated by the current workflow, while the Zybo 7020 PIL runs as CPU1 with `armv7l-shire`. |
 
 ## Generated paths
 
@@ -145,6 +168,7 @@ The default active selection is mission `drm`, spacecraft `sat-1`, scenario `nom
 | `build/<mission>/<spacecraft>/fsw/` | cFS build and installation output. |
 | `build/<mission>/<spacecraft>/comp/<component>/` | Centralized simulator and CLI build output for selected components. |
 | `comp/<component>/shared/device_cfg.h` | Ignored device configuration rendered in the source tree for each selected component with a template. |
+| `build/<mission>/scenario/mdb` | Copies of mission database parameter types that carry the resolved yellow and red limits. |
 | `build/<mission>/scenario/<scenario>.snapshot.yaml` | Scenario name, resolved Initial Condition bin, and git SHA, written on every `make cfg`. |
 | `build/<mission>/<instance>/shire-compose.yaml` | A Monte Carlo campaign trial's own DRM Compose file, one numbered subdirectory per trial. |
 | `build/scenario-runs/<scenario>-<UTC timestamp>/` | `make scenario`'s `result.json`, container logs, and IC snapshot copy. |
@@ -192,6 +216,9 @@ Use a reviewed report as `BASELINE` rather than copying only its median speed.
 | What was resolved most recently? | `build/build.yaml` |
 | Which components are on a spacecraft? | `cfg/<mission>/spacecraft/<spacecraft>.yaml` |
 | Which values does a scenario override? | `cfg/<mission>/scenarios/<scenario>.yaml` |
+| Which telemetry limits apply? | The `limits:` section of `cfg/drm/drm.yaml`, with spacecraft and scenario overrides resolved into `build/<mission>/scenario/mdb` |
+| Which ground stations does the Radio link model use? | `cfg/drm/ground_stations.yaml` and the Radio `ground_stations` setting in `comp/radio/support/device_config.yaml` |
+| Which tables and patches are built for uplink? | `cfg/shire_defs/tables/up_*.c` registered in `cfg/shire_defs/cpu1/install_custom.cmake`, plus `up_eps` in `comp/eps/CMakeLists.txt` |
 | Which services will start? | The generated `build/<mission>/shire-compose.yaml` or `build/<mission>/cli-compose.yaml` |
 | How are Compose files generated? | `tools/shire-orchestrator.py` renders `cfg/shire-compose.j2` and `cfg/cli-compose.j2` |
 | Which applications compile and start? | `cfg/shire_defs/targets.cmake` and the generated CPU startup script |
@@ -208,4 +235,4 @@ Treat this page as a convenience index.
 When it disagrees with a generated file or source listed above, inspect the current checkout and report the documentation mismatch.
 
 ***
-Last reviewed: 20261002
+Last reviewed: 20261027

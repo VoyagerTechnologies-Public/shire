@@ -19,31 +19,52 @@ Supporting tools and runtime defaults are under `yamcs/`:
 * `yamcs_commander.py` and `yamcs_timeline.py` provide command line access to the YAMCS API.
 
 Files owned by each component remain under `comp/<name>/gsw/`.
-DRM-level files that are not owned by any single component, `mdb/ccsds.xtce`, `mdb/sim_42_truth.xtce`, `mdb/shire_server.xtce`, `displays/SpaceVehicle.par`, and `procedures/CheckoutTest.ycs`, are authored in the outer repo's `cfg/<mission>/gsw/` instead, following the same convention.
+DRM-level files that are not owned by any single component are authored in the outer repo's `cfg/<mission>/gsw/` instead, following the same convention.
+They are the XTCE definitions `ccsds.xtce`, `shire_ground.xtce`, `shire_server.xtce`, `shire_visual.xtce`, and `sim_42_truth.xtce`, the display `SpaceVehicle.par`, and the stacks `CheckoutTest.ycs`, `CmdTlmLimits.ycs`, `CmdTlmStoredCommands.ycs`, and `CmdTlmPatches.ycs`.
 During `make gsw`, the YAMCS Makefile's `copy-gsw-files` target copies both the component and DRM-level XTCE, displays, and procedures into the YAMCS build context before creating the runtime image.
-None of those five DRM-level files are committed inside the `yamcs/` submodule itself (see its `.gitignore`).
+None of those DRM-level files are committed inside the `yamcs/` submodule itself (see its `.gitignore`).
 
 ## Links
 
-The instance defines three operator facing paths:
+The instance defines these operator facing paths:
 
 * **Debug:** commands go directly to CI_LAB on UDP 1234, and TO_LAB telemetry returns on UDP 1235.
 * **Radio:** commands pass through CryptoLib and the Radio simulator, and telemetry returns through the reciprocal pipeline.
   Both directions are encrypted and authenticated by default.
 * **Simulation:** YAMCS can send component backdoor commands to the Director and receive periodic 42 truth telemetry.
+* **Server and visualization:** YAMCS can send pause, play, and speed commands to the Simulith Server, receive its status, and receive the data that drives the visualization.
 
 See [System Architecture](architecture.md#ground-links) for the complete endpoint table.
+
+### Choosing a command path
+
+Both command links, `debug-out` and `radio-out`, are enabled when the lab starts.
+YAMCS sends each command on every enabled command link, and it has no preferred path and no automatic fallback.
+The radio path delivers a command only while the Radio is enabled in a receiving mode.
+
+Three ground only commands in the `/SHIRE_GROUND` space system choose the path.
+They change YAMCS link state and send no spacecraft packet.
+
+| Command | Effect |
+| --- | --- |
+| `USE_DEBUG_UPLINK` | Disables `radio-out` and enables `debug-out`, which stays in place until you change it. |
+| `USE_RADIO_UPLINK` | Disables `debug-out` and enables `radio-out`, then restores the saved link states after 30 seconds. |
+| `RESTORE_UPLINK` | Restores the link states saved by `USE_RADIO_UPLINK`, and is rejected if the selection has expired. |
+
+Check the YAMCS **Links** page before a command when the path matters to the result, and record which links were enabled.
+Command history shows that YAMCS sent a command, while the link counters and service logs show which path carried it.
 
 ## Displays and procedure stacks
 
 The reference components currently provide these YAMCS procedures:
 
-* `AdcsComponent.ycs`
-* `DemoComponent.ycs` and `DemoFDIR.ycs`
-* `EpsComponent.ycs`, `EpsAllOn.ycs`, and `EpaAllOff.ycs`
-* `RadioComponent.ycs`
+* ADCS: `AdcsComponent.ycs`, `AdcsModesSweep.ycs`, `AdcsSunpointRotisserie.ycs`, `AdcsTargetTrack.ycs`, `AdcsTruthComparison.ycs`, `AdcsGpsTimeSync.ycs`, and `AdcsTimeFileFallback.ycs`
+* Demo: `DemoComponent.ycs` and `DemoFDIR.ycs`
+* EPS: `EpsComponent.ycs`, `EpsAllOn.ycs`, `EpsAllOff.ycs`, `EpsPowerFunctional.ycs`, `EpsBackdoorFunctional.ycs`, and `EpsFaultInjection.ycs`
+* Radio: `RadioComponent.ycs`, `RadioLinkBackdoor.ycs`, and `RadioSecurity.ycs`
 
 A `CheckoutTest.ycs` stack is also provided to allow for confirmation that the DRM is operating nominally as changes are made.
+The `CmdTlm` stacks belong to the [Cmd/Tlm Validation](../../scenarios/cmd-tlm-validation.md) scenario.
 On first run with empty buckets, the YAMCS image entrypoint populates the stacks bucket with packaged procedures and the displays bucket with packaged displays.
 Existing persistent buckets are not overwritten automatically.
 Rebuilding the image does not replace a stack or display in a populated bucket.
@@ -68,7 +89,7 @@ The stack also exercises three capabilities that sit outside the per-application
   Checking the baseline first is still what proves the backdoor changed the value, rather than the value having already been at the target by coincidence.
 * **CFDP file download.**
   It re-uploads `/d/checkout_adcs.ycs` with `/CCSDS/CFDP_UPLOAD_CHECKOUT` (the same file the stack uploads earlier, since that copy was deleted on its first downlink) and then downlinks it with `/CF/CF_COMMANDS/CF_TX_FILE`, confirming both the CF command counters and the resulting `CF_EOTPACKET` end-of-transaction telemetry.
-  `/CCSDS/CFDP_UPLOAD_CHECKOUT` is not a spacecraft telecommand: it routes over a dedicated `checkout_control` stream to a YAMCS-side service (`CheckoutCfdpUploadService`) that publishes its own `Acknowledge_Sent` only once the CFDP transfer completes.
+  `/CCSDS/CFDP_UPLOAD_CHECKOUT` is not a spacecraft telecommand: it routes over a dedicated `checkout_control` stream to a YAMCS-side service (`CfdpUploadService`, configured as `checkout-cfdp-upload`) that publishes its own `Acknowledge_Sent` only once the CFDP transfer completes.
   Checked against the real upstream YAMCS 5.13.0 source (not vendored in this repository, since `yamcs/` only pulls prebuilt `yamcs-core`/`yamcs-web` Maven artifacts): the native web UI's acknowledgment wait itself has no ceiling at all, so it blocks for however long the real transfer takes, and only after the acknowledgment already arrives does it apply `advancement.wait` there as an unconditional extra pause, not a timeout on the acknowledgment.
   The step's `advancement.wait` is kept small (1000ms, matching every other command step's convention in this stack) so a human running it manually in the web UI is not stuck waiting through that unrelated dead time on top of the real transfer.
   `yamcs_commander.py --stack` reads that same field differently: there, `wait` is a genuine ceiling on how long it polls for the acknowledgment to appear, and it separately enforces its own 30 second floor (`MIN_ACK_POLL_MS`) underneath whatever the `.ycs` sets, so a value tuned for the web UI's dead time can never shrink the automated path's real safety margin around the transfer's own duration.
@@ -79,7 +100,7 @@ It does not check every loaded application, exercise every component behavior, o
 
 Open **Procedures / Stacks / CheckoutTest.ycs** in YAMCS and review the steps before running it.
 Every counter check resets the counter it checks immediately beforehand, and every other state check establishes its own known baseline first, so the stack is safe to run repeatedly against an already-running DRM, not only a freshly started one, confirmed live across three consecutive runs.
-YAMCS uses `radio-out` as the preferred command interface and falls back to `debug-out` when the preferred interface is unavailable.
+The stack does not select a command path, so its commands follow the link state described in [Choosing a command path](#choosing-a-command-path).
 The stack advances after YAMCS reports `Acknowledge_Sent` and then relies on its telemetry verification steps to establish the result.
 Confirmed directly from the checked in file's top-level `advancement` block, not assumed: run `yamcs/yamcs_commander.py --stack <path>` to execute this same acknowledgment/verify sequence headlessly, as a `verify_stacks` entry in a scenario or standalone (see [Scenarios and initial conditions](../how-to/scenarios.md)).
 
@@ -122,8 +143,8 @@ Use `python3 yamcs/yamcs_timeline.py --help` for the complete interface and the 
 
 `yamcs/yamcs_commander.py` is a developer utility for exploring the active mission database and issuing commands through the YAMCS realtime processor.
 It does not start YAMCS or select an outbound link.
-YAMCS routes its commands through the preferred available interface, beginning with `radio-out` and falling back to `debug-out`.
-Inspect the YAMCS link state before using it so you know which interface will carry the command.
+YAMCS sends each command on every enabled command link.
+Inspect the YAMCS link state before using it so you know which interface will carry the command, as described in [Choosing a command path](#choosing-a-command-path).
 
 Install its host dependencies when they are not already available:
 
