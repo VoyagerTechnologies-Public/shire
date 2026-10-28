@@ -13,7 +13,7 @@ make screenshots-setup
 This creates a Python environment under `build/screenshots-venv` and installs Playwright with headless Chromium.
 The Python packages stay in that environment, and Playwright downloads Chromium into your user cache under `~/.cache/ms-playwright`, outside the checkout.
 Nothing is installed system wide and no root access is needed for the setup itself.
-`make screenshots-setup` and `make screenshots-check` run under the system `python3`, which needs PyYAML and `requests`.
+`make screenshots-setup` and `make screenshots-check` run under the system `python3`, which needs the packages in `tools/requirements-host.txt`.
 `make screenshots` runs from the environment that the setup created.
 If the host lacks shared libraries that Chromium needs, the setup unpacks them under `build/screenshots-libs` without requiring root.
 When that is not possible, it prints the `playwright install-deps` command to run with `sudo`.

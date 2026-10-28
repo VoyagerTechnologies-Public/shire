@@ -173,7 +173,7 @@ A complete YAMCS procedure should add explicit assertions for link state, comman
 It should also define timeouts, stop conditions, cleanup behavior, and the final expected component state.
 
 Until those controls and retained results exist, this page demonstrates available mechanisms rather than verified nominal mission performance.
-The [Recommended Scenarios](recommended.md) page separates near term documentation work from features that need implementation.
+[Writing a Scenario Lesson](../manual/how-to/writing-lessons.md#lessons-that-need-new-implementation) separates near term documentation work from features that need implementation.
 
 ***
 Last reviewed: 20261027

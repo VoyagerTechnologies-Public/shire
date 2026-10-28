@@ -15,6 +15,10 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 ## [Unreleased]
 
 ### Added
+- `ServerPauseResume.ycs` in the `checkout` scenario, which holds a 12 second pause and proves the clock stood still and then resumed, with `unchanged` and `advances` conditions in `yamcs_commander.py`
+- Atlas lesson plan: the Scenarios overview arranges the scenarios in five units with a shared mission story, a lesson page template enforced by `check_docs.py`, and a guide to writing a lesson
+- Host Python requirements in `tools/requirements-host.txt` for `make scenario`, `make campaign`, and the screenshot check
+- Mission brief, limitations, and review sections with a checkpoint and a link to the next lesson on the Commissioning and Cmd/Tlm Validation pages
 - Submodule workflow documentation in the Atlas Getting Started and Installation guides
 - Dependabot configuration for GitHub Actions, Docker, pip, and Maven dependency updates
 - Issue and pull request templates under `.github/`
@@ -44,6 +48,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 - Pinned Python dependencies live in `tools/requirements.txt`
 
 ### Fixed
+- Pausing the simulation for more than about 5 seconds stopped 42 and the Director, because 42 gave up waiting for the next command batch, and 42 now keeps waiting while the Director holds its lock file and still stops if the Director exits
 - LC watchpoint table corrections that accompany the Cmd/Tlm Validation scenario
 - PSP retires the deliveries of exiting tasks, releases the tick mutex when a task is cancelled, and reports stalls by elapsed time so that application reload works in the synchronized simulation
 - Target tracking quaternion scalar order in the ADCS simulator

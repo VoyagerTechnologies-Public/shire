@@ -118,7 +118,7 @@ They do not validate the complete container path, operator response, real key ma
 
 Radio Security Testing already supplies a reviewed injection control, a YAMCS procedure, explicit log assertions, timeouts, and cleanup for tamper and replay.
 Before promoting this page to an executable scenario, add the incident response steps on top of it, which are an operator decision point, a bounded containment action, evidence packaging with sanitization, and a requirement mapping.
-The [Recommended Scenarios](recommended.md) lists a radio path comparison as a safer precursor to failure injection.
+The [lesson plan](overview.md#the-lesson-plan) places Radio Link and Command Paths, which compares the radio path with the debug path, before Link Security.
 
 ***
 Last reviewed: 20261027

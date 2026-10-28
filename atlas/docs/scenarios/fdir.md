@@ -131,7 +131,7 @@ It proves neither broad fault coverage nor root cause isolation.
 It also does not demonstrate spacecraft Safe mode entry or recovery for ADCS, EPS, Radio, CryptoLib, 42, containers, networks, or physical hardware.
 
 Add one controlled condition, one explicit detection rule, one bounded response, and one cleanup path for each additional failure mode.
-The [Recommended Scenarios](recommended.md) page identifies useful next fault exercises.
+[Writing a Scenario Lesson](../manual/how-to/writing-lessons.md#lessons-that-need-new-implementation) lists the fault exercises that still need implementation.
 
 ***
 Last reviewed: 20261027

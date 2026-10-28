@@ -20,7 +20,7 @@ Supporting tools and runtime defaults are under `yamcs/`:
 
 Files owned by each component remain under `comp/<name>/gsw/`.
 DRM-level files that are not owned by any single component are authored in the outer repo's `cfg/<mission>/gsw/` instead, following the same convention.
-They are the XTCE definitions `ccsds.xtce`, `shire_ground.xtce`, `shire_server.xtce`, `shire_visual.xtce`, and `sim_42_truth.xtce`, the display `SpaceVehicle.par`, and the stacks `CheckoutTest.ycs`, `CmdTlmLimits.ycs`, `CmdTlmStoredCommands.ycs`, and `CmdTlmPatches.ycs`.
+They are the XTCE definitions `ccsds.xtce`, `shire_ground.xtce`, `shire_server.xtce`, `shire_visual.xtce`, and `sim_42_truth.xtce`, the display `SpaceVehicle.par`, and the stacks `CheckoutTest.ycs`, `ServerPauseResume.ycs`, `CmdTlmLimits.ycs`, `CmdTlmStoredCommands.ycs`, and `CmdTlmPatches.ycs`.
 During `make gsw`, the YAMCS Makefile's `copy-gsw-files` target copies both the component and DRM-level XTCE, displays, and procedures into the YAMCS build context before creating the runtime image.
 None of those DRM-level files are committed inside the `yamcs/` submodule itself (see its `.gitignore`).
 
@@ -64,6 +64,7 @@ The reference components currently provide these YAMCS procedures:
 * Radio: `RadioComponent.ycs`, `RadioLinkBackdoor.ycs`, and `RadioSecurity.ycs`
 
 A `CheckoutTest.ycs` stack is also provided to allow for confirmation that the DRM is operating nominally as changes are made.
+The `ServerPauseResume.ycs` stack follows it in the `checkout` scenario and holds a long pause, as described under [Checkout stack](#checkout-stack).
 The `CmdTlm` stacks belong to the [Cmd/Tlm Validation](../../scenarios/cmd-tlm-validation.md) scenario.
 On first run with empty buckets, the YAMCS image entrypoint populates the stacks bucket with packaged procedures and the displays bucket with packaged displays.
 Existing persistent buckets are not overwritten automatically.
@@ -83,6 +84,7 @@ The stack also exercises three capabilities that sit outside the per-application
   It pauses the simulation with `/SHIRE_SERVER/BACKDOOR_SERVER_PAUSE`, confirms `/SHIRE_SERVER/PAUSED`, resumes with `/SHIRE_SERVER/BACKDOOR_SERVER_PLAY`, confirms telemetry is `RUNNING` again, then sets `/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED` to `2.0`, and confirms `/SHIRE_SERVER/SPEED` settles within a small tolerance of that value.
   An exact float `eq` check is avoidable rounding noise, so the stack uses a range instead, as described in [Fault injection](simulations.md#fault-injection).
   These commands route over the `tc_server_backdoor` stream to the Simulith Server itself, not to a component, so they keep working even before any spacecraft application has been enabled.
+  This pause lasts only as long as the verify step takes, so the separate `ServerPauseResume.ycs` stack covers a long pause.
 * **Demo backdoor configuration.**
   It enables the Demo component, uses `/DEMO/BACKDOOR_DEMO_SET_CONFIG` to reset `/DEMO/DEVICE_CONFIG` to a known baseline of `0` and confirms it, then uses the same backdoor to set `CONFIG_VALUE` to its real target and confirms that value is reflected in telemetry.
   Establishing the baseline explicitly, rather than assuming a fresh power-on default of `0`, is what makes this stack re-runnable against an already-running DRM instead of only against one just started: confirmed live, running `CheckoutTest.ycs` three times in a row against the same instance all pass.
@@ -93,6 +95,12 @@ The stack also exercises three capabilities that sit outside the per-application
   Checked against the real upstream YAMCS 5.13.0 source (not vendored in this repository, since `yamcs/` only pulls prebuilt `yamcs-core`/`yamcs-web` Maven artifacts): the native web UI's acknowledgment wait itself has no ceiling at all, so it blocks for however long the real transfer takes, and only after the acknowledgment already arrives does it apply `advancement.wait` there as an unconditional extra pause, not a timeout on the acknowledgment.
   The step's `advancement.wait` is kept small (1000ms, matching every other command step's convention in this stack) so a human running it manually in the web UI is not stuck waiting through that unrelated dead time on top of the real transfer.
   `yamcs_commander.py --stack` reads that same field differently: there, `wait` is a genuine ceiling on how long it polls for the acknowledgment to appear, and it separately enforces its own 30 second floor (`MIN_ACK_POLL_MS`) underneath whatever the `.ycs` sets, so a value tuned for the web UI's dead time can never shrink the automated path's real safety margin around the transfer's own duration.
+
+`ServerPauseResume.ycs` runs after `CheckoutTest.ycs` in the `checkout` scenario.
+It sets 2x speed and confirms the simulation clock is running, then pauses and holds the pause for 12 seconds, which is longer than the 5 second watchdog that 42 and the Director use between ticks.
+It confirms that `/SHIRE_VISUAL/SIM_TIME` did not change during the hold, resumes, confirms the clock advances again, and confirms the speed is still 2x.
+The hold and the advance checks use the `unchanged` and `advances` conditions, which only `yamcs_commander.py` evaluates, so run this stack with `make scenario SCENARIO=checkout` and not in the YAMCS web UI.
+Without the pause handling in 42 and the Director, this stack fails because the Director exits and the clock never advances after the resume.
 
 The checkout stack changes spacecraft state.
 It resets command counters, enables ADCS, leaves ADCS in `SUNSAFE`, enables Demo, and leaves the Simulith Server running at 2x speed when it completes.

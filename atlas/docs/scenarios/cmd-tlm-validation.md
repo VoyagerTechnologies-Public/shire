@@ -1,5 +1,11 @@
 # Cmd/Tlm Validation
 
+## Mission brief
+
+Before the team trusts the spacecraft with routine work, it has to prove that commands, limits, and uploads behave as expected.
+In this lesson you also send the first software changes from the ground.
+This lesson is in the Ground control unit of the [lesson plan](overview.md#the-lesson-plan).
+
 ## Objective
 
 In this scenario, you will validate the command and telemetry path of a Design Reference Mission spacecraft.
@@ -7,10 +13,12 @@ As the flight controller, your job is to confirm that commands are accepted and 
 
 ## Prerequisites
 
+The lesson plan places this lesson after Power and Eclipse, Attitude Control, and Radio Link and Command Paths.
+Those lessons are planned, so [Commissioning](commissioning.md) is the only earlier lesson you need for now.
 Before you begin, ensure you have:
 
 * Completed [Getting Started](../manual/handbook/getting-started.md)
-* Completed the [Commissioning](commissioning.md) scenario or know how to read YAMCS parameters, commands, and stacks
+* Completed [Commissioning](commissioning.md), where you learned to send commands and read housekeeping, counters, and events in YAMCS, or know how to do those things
 * Read [Telemetry limits](../manual/how-to/telemetry-limits.md)
 * Read [Uploading tables and patches](../manual/how-to/uplink-patches.md)
 * Have the default DRM `sat-1` configuration
@@ -255,6 +263,22 @@ The run takes a few minutes.
 It passes when every command is accepted and every numeric check holds.
 It does not assert on alarms, because the alarm display is part of the manual exercise above.
 
+## Limitations
+
+This scenario shows how commands, limits, uploads, and patches work in the DRM, and it does not qualify a flight design.
+Keep these limits in mind when you read its results:
+
+* The alarm exercise is manual, and the automated run proves only that commands are accepted and numeric checks hold.
+* The DRM defines limits for the battery voltage and temperature only, and they are ground alarms that cause no action on board.
+* The onboard counterpart is LC watchpoint 12, which exists only in the uploaded table and has no action point, so the spacecraft takes no autonomous action on a low battery.
+* The stored command exercise uploads Relative Time Sequence tables, and the DRM has no Absolute Time Sequence table.
+* The patched EPS application proves the upload and reload path, and it is a simulation build with no signing or authentication beyond what the file transfer reports.
+* Reloading the Radio application restarts it disabled and drops the Radio uplink, so the scenario patches the EPS application and leaves the Radio alone.
+* The stacks need the simulation to keep playing, because their waits follow simulation time.
+* The screenshots show one run, so counters, times, and file names will differ in yours.
+
+Use the [evidence packet](overview.md#evidence-packet) when you need to retain the result of a run.
+
 ## Review
 
 Cmd/Tlm validation of the available DRM systems is complete.
@@ -273,5 +297,14 @@ Every patch is undone, and the only things left behind are the alarm history and
 
 For a clean repeat, save the evidence, run `make stop`, then start a new DRM.
 
+Check that you can answer these before you move on:
+
+* Why did the alarm need both an acknowledgement and a return to nominal values before it cleared?
+* Why must you send `SC_ENABLE_RTS` after activating a stored command table, and what does that show about activation?
+* How did you prove the EPS patch was running, beyond the reload command succeeding?
+
+The [lesson plan](overview.md#the-lesson-plan) continues with Link Security.
+There you tamper with and replay link traffic and watch the spacecraft reject it.
+
 ***
-Last reviewed: 20261026
+Last reviewed: 20261028

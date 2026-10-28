@@ -9,7 +9,7 @@ The host needs only the orchestration tools because compilers and most project d
 * Docker Engine with BuildKit and the Docker Compose v2 plugin, version 2.20 or later
 * GNU Make
 * Git with submodule support
-* Python 3 with the PyYAML package used by `tools/shire-build.py`
+* Python 3 with the PyYAML and requests packages, which `tools/requirements-host.txt` lists
 * Enough memory and disk space for multiple runtime/build images and the generated mission tree
 
 Linux is the primary execution environment.
@@ -33,7 +33,8 @@ The Atlas contains no validation record for macOS hosts, so treat them as unveri
 No minimum Python 3 version is enforced for the host tools, and the repository declares no `python_requires` or equivalent.
 The host tools use modern type annotation syntax, so use a currently supported Python 3 release rather than an old distribution default.
 The board and QEMU workflow documents Python 3.12 or later.
-`make scenario` and `make campaign` also import `requests` on the host, which `tools/requirements.txt` does not provide.
+Install the host packages with `python3 -m pip install --requirement tools/requirements-host.txt`.
+`make scenario`, `make campaign`, `make screenshots-check`, and `yamcs/yamcs_commander.py` need them, and `tools/requirements.txt` is a separate list that only builds the container image.
 Configuration generation runs inside the build image, so Jinja2 is not needed on the host.
 
 ### Resources
@@ -86,7 +87,7 @@ The first build needs access to these services:
 * GitHub, for the Git submodules
 * Docker Hub, for the base images such as Debian, Node, Maven, and Eclipse Temurin
 * The Debian package mirrors, Maven Central, and the npm registry, for packages installed while building images
-* The Python package index, for the packages listed in `tools/requirements.txt`
+* The Python package index, for the packages listed in `tools/requirements.txt` and `tools/requirements-host.txt`
 
 `make container` builds the five `ghcr.io/voyagertechnologies-public/...:0.0.0` dependency images from this checkout, and later builds use them with `--pull=false`.
 Neither `make` nor `make container` pulls those images from GitHub Container Registry.

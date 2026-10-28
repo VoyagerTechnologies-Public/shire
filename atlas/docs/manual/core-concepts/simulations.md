@@ -52,6 +52,13 @@ The Server reports its state on a separate telemetry link (port 50043) as
 `CheckoutTest.ycs` exercises all three commands.
 See [Checkout stack](ground-software.md#checkout-stack).
 
+A pause can last as long as you like.
+While the clock is paused, the Director is idle and 42 waits for the next command batch.
+42 normally stops if that batch is more than 5 seconds late, because a late batch usually means the Director has exited.
+The Director therefore holds a lock on `/tmp/42_ipc_director.v1.lock` for as long as it runs, and 42 keeps waiting while the lock is held and stops only when the lock is gone.
+If the Director really exits, the kernel drops its lock and 42 still stops about 5 seconds later.
+`ServerPauseResume.ycs` holds a 12 second pause in the `checkout` scenario to keep this behavior covered.
+
 ## Simulith Director
 
 The Director scans its `components` directory for shared objects.
@@ -327,7 +334,7 @@ While a pipe identifier is on the list, the PSP does not register child completi
 
 Stop, reload, or restart an application from YAMCS with the Executive Services commands `CFE_ES_STOP_APP`, `CFE_ES_RELOAD_APP`, and `CFE_ES_RESTART_APP`.
 Each takes the application name, and `CFE_ES_RELOAD_APP` also takes the path of the module to load.
-The cFS ES command definitions in `yamcs/src/main/yamcs/mdb/cfs/cfe_es.xtce` contain no `DELETE_APP` command, so use `CFE_ES_STOP_APP` to remove an application.
+`CFE_ES_STOP_APP` stops an application and removes it, and `CFE_ES_START_APP` starts it again from a module file.
 See [Uploading tables and patches](../how-to/uplink-patches.md) for uploading a replacement module and reloading it.
 
 An application that is killed without calling `CFE_ES_ExitApp()`, such as after an exception, is not covered by the first safeguard and can still hold a tick open.

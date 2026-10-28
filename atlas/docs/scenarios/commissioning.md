@@ -1,5 +1,11 @@
 # Commissioning
 
+## Mission brief
+
+Launch day.
+The spacecraft has separated from its launch vehicle and booted into the Do No Harm configuration, and it is waiting to hear from the ground.
+This is the first lesson in the [lesson plan](overview.md#the-lesson-plan), in the Foundations unit.
+
 ## Objective
 
 In this scenario, you will perform the initial on orbit checkout of a Design Reference Mission spacecraft.
@@ -7,9 +13,10 @@ As the flight controller, your job is to make first contact, verify the health a
 
 ## Prerequisites
 
+This is the first lesson, so it needs no earlier lesson.
 Before you begin, ensure you have:
 
-* Completed [Getting Started](../manual/handbook/getting-started.md)
+* Completed [Getting Started](../manual/handbook/getting-started.md), where you built and started the lab
 * Confirmed that SHIRE is installed and able to run
 * Read the [DRM Concept of Operations](../drm/concept-of-operations.md)
 * Reviewed [System Architecture](../manual/core-concepts/architecture.md)
@@ -267,6 +274,28 @@ Confirm that the received filename matches the file selected from the FM listing
 
 ![YAMCS File Transfer view showing the completed CFDP download](../assets/scenarios/commissioning/22-cfdp-transfer-complete.png)
 
+## Run it automatically
+
+`make scenario SCENARIO=checkout` runs `CheckoutTest.ycs` headless and passes when every command is accepted and every check holds.
+It automates many of the checks in this lesson, and it does not walk through the visualization or the file selection.
+See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for how scenario runs work.
+
+## Limitations
+
+This scenario shows how commissioning works in the DRM, and it does not qualify a flight design.
+Keep these limits in mind when you read its results:
+
+* It is a manual walkthrough, and no single procedure asserts the whole result.
+* `make scenario SCENARIO=checkout` automates many of the same component checks, but it does not reproduce first contact timing or the choice of a stored file from a directory listing.
+* The Radio link is ideal by default, so first contact does not depend on ground station visibility.
+* RTS 6 opens a fixed Duplex window of 480 scheduler wakeups, which is a simulation interval and not a pass prediction.
+* The ADCS check covers Sun safe pointing only, with limits loose enough to tolerate spacecraft jitter, and other modes belong to separate scenarios.
+* Every device is simulated, so the results say nothing about RF performance or flight hardware.
+* The spacecraft has no safe mode, and Do No Harm is the only protective configuration this scenario exercises.
+* The screenshots show one run, so counters, times, and file names will differ in yours.
+
+Use the [evidence packet](overview.md#evidence-packet) when you need to retain the result of a run.
+
 ## Review
 
 Commissioning of the available DRM systems is complete.
@@ -281,7 +310,6 @@ You have:
 * Closed, selected, and transferred a stored data file
 
 This walkthrough leaves ADCS enabled in `SUNSAFE`, Demo enabled, and the Radio in Duplex mode for continued work.
-Nominal operations remains a planned scenario.
 
 This page composes existing commands and component procedures into a manual walkthrough.
 It is not yet one automated commissioning procedure with complete assertions and failure handling.
@@ -290,5 +318,14 @@ For an automated check of many of the same functions, run `make scenario SCENARI
 
 For a clean repeat, save the evidence, run `make stop`, then start a new DRM.
 
+Check that you can answer these before you move on:
+
+* Which devices are disabled in the Do No Harm configuration, and which mode is the Radio in?
+* Why is an accepted command in Command History not enough to show that the spacecraft executed it, and which counters did you read to confirm?
+* How did you confirm that Sun safe pointing worked, beyond the ADCS mode telemetry?
+
+The [lesson plan](overview.md#the-lesson-plan) continues with Simulation Time and Repeatability.
+There you learn to pause the simulation, change its speed, and run an exercise again from the same starting point.
+
 ***
-Last reviewed: 20261026
+Last reviewed: 20261028

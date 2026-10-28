@@ -215,6 +215,7 @@ sequenceDiagram
 
 The server console accepts `p` to pause or resume, `+` to increase the attempted rate, and `-` to decrease it.
 These are requested rates, not performance guarantees: achievable speed depends on the host and workload.
+A pause may last any length of time, as described in [Ground-commanded pause/play/speed](simulations.md#ground-commanded-pauseplayspeed).
 
 ## Component and hardware interfaces
 

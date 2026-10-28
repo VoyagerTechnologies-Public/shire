@@ -128,7 +128,7 @@ Run one headlessly with `make scenario SCENARIO=<name>`.
 | --- | --- |
 | `nominal` | Applies `debug: false` to every selected component before its device header is rendered and runs no stack. |
 | `debug` | Applies `debug: true` to every selected component before its device header is rendered and runs no stack. |
-| `checkout` | Runs `CheckoutTest.ycs` headlessly through `verify_stacks` instead of a person stepping through it. |
+| `checkout` | Runs `CheckoutTest.ycs` and then `ServerPauseResume.ycs` headlessly through `verify_stacks` instead of a person stepping through them. |
 | `eclipse-entry-adcs` | Starts the spacecraft at the `eclipse-entry` Initial Condition bin instead of the default launch state. |
 | `eclipse-exit-adcs` | Starts the spacecraft at the `eclipse-exit` Initial Condition bin instead of the default launch state. |
 | `adcs-gps-time-sync` | Confirms that cFE TIME becomes valid once ADCS pushes a GPS time sample. |

@@ -183,7 +183,7 @@ Durations are simulated seconds from `run_duration_s`, and every scenario starts
 | `debug` | The same 900 second run as `nominal` with `debug: true` on every selected component. |
 | `eclipse-entry-adcs` | A 900 second run at maximum speed from the `eclipse-entry` bin with no stacks. |
 | `eclipse-exit-adcs` | A 900 second run at maximum speed from the `eclipse-exit` bin with no stacks. |
-| `checkout` | The `CheckoutTest` stack for 240 seconds at 1x. |
+| `checkout` | The `CheckoutTest` and `ServerPauseResume` stacks for 240 seconds at 1x. |
 | `cmd-tlm-validation` | The `CmdTlmLimits`, `CmdTlmStoredCommands`, and `CmdTlmPatches` stacks for 480 seconds. |
 | `adcs-boot-config` | The `AdcsComponent` stack for 300 seconds. |
 | `adcs-gps-time-sync` | The `AdcsGpsTimeSync` stack for 120 seconds. |
@@ -299,16 +299,20 @@ exclusively through `verify_stacks`, never ones also meant for manual GUI
 use.
 See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
 
+The commander also supports two headless-only conditions that compare a parameter with its own earlier value.
+`unchanged` holds the step for the number of milliseconds in `value` and fails if the parameter changes, and `advances` passes once the parameter is greater than it was when the step began.
+A step that uses either may not mix them with other operators, and they are reserved for stacks driven through `verify_stacks` like the others.
+`ServerPauseResume.ycs` uses them to prove that the simulation clock stood still during a pause and then resumed.
+
 Every scenario in the table above except `nominal`, `debug`, `eclipse-entry-adcs`, and `eclipse-exit-adcs` uses `verify_stacks` today.
 The `adcs-*` scenarios run `comp/adcs/gsw/procedures/*.ycs` stacks, the EPS and Radio scenarios run `comp/eps` and `comp/radio` stacks, and `checkout` and `cmd-tlm-validation` run stacks from `cfg/drm/gsw/procedures/`.
 `make scenario` is a developer tool.
 No CI job runs `make scenario` at all yet (see the note above), so this
 isn't gating anything by extension either.
-Using it needs `requests`/`yamcs-client` installed on whatever host runs
+Using it needs `requests` and PyYAML installed on whatever host runs
 `make scenario`
-(`python3 -m pip install --requirement yamcs/requirements-commander.txt`),
-a prerequisite only for scenarios that set `verify_stacks`, not for
-`make scenario` in general.
+(`python3 -m pip install --requirement tools/requirements-host.txt`),
+for every scenario and not only those that set `verify_stacks`.
 
 ### Asserting on container logs (`log_assertions`)
 

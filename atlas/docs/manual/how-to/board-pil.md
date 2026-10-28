@@ -96,7 +96,7 @@ The saved board selection affects only `board-*` commands.
 Native `make build`, `make start`, and `make perf` retain their existing behavior.
 
 Select `BOARD=qemu-zynq` for the emulator, or
-`BOARD=rpi5` after replacing its `YOUR_USER@YOUR_HOST` SSH target placeholder and preparing its matching artifacts.
+`BOARD=rpi5` after setting `ssh.target` in `cfg/boards/rpi5.yaml` to your board, or passing `--target`, and preparing its matching artifacts.
 
 | Command | SSH hardware backend | QEMU backend |
 | --- | --- | --- |
@@ -205,7 +205,8 @@ List the registered scenario names with:
 python3 tools/shire-scenario.py --list-scenarios
 ```
 
-For a 64-bit Linux RPi5, replace the `YOUR_USER@YOUR_HOST` placeholder in `ssh.target` in `cfg/boards/rpi5.yaml` or pass `--target`, then prepare its AArch64 artifacts:
+For a 64-bit Linux RPi5, set `ssh.target` in `cfg/boards/rpi5.yaml` to your account and address, or pass `--target`, then prepare its AArch64 artifacts.
+The shipped value is a private lab address that will not match your network.
 
 ```bash
 make board-prepare BOARD=rpi5
