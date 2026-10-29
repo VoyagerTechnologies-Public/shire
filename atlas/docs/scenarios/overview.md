@@ -16,7 +16,7 @@ SHIRE is your operations team's rehearsal environment, where every procedure is 
 | Unit | Lesson | You will learn | Status |
 | --- | --- | --- | --- |
 | Foundations | [Commissioning](commissioning.md) | Do No Harm, first contact, health checks, Sun safe pointing, and a file download | Published |
-| Foundations | Simulation Time and Repeatability | pausing, changing speed, simulation time against wall time, initial conditions, and replaying a run | Planned |
+| Foundations | [Simulation Time and Repeatability](simulation-time-repeatability.md) | pausing, changing speed, simulation time against wall time, initial conditions, and replaying a run | Published |
 | Spacecraft systems | Power and Eclipse | loads, battery response, solar input, and eclipse | Planned |
 | Spacecraft systems | Attitude Control | detumbling, pointing modes, and comparing pointing with truth | Planned |
 | Ground control | Radio Link and Command Paths | which path carries a command, link modes, delay and loss, and recovery from lost contact | Planned |
@@ -60,6 +60,7 @@ Use command history, packet time, counters, events, and service logs together.
 Commissioning is a **manual** scenario that composes working commands and procedures into an operator walkthrough.
 The steps can be performed now, and `make scenario SCENARIO=checkout` automates the component checks with `CheckoutTest.ycs`, but no single procedure asserts the entire Commissioning result.
 Cmd/Tlm Validation is also a manual walkthrough, and its automated run proves only that the stacks' commands and checks pass, not the alarm state in YAMCS.
+Simulation Time and Repeatability is a manual walkthrough too, and `make scenario SCENARIO=checkout` automates its pause check while `make scenario-smoke` automates its repeatability check.
 
 ## Evidence packet
 

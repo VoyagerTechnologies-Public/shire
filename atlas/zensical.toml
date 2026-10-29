@@ -55,6 +55,7 @@ nav = [
   { "Scenarios" = [
     { "Overview" = "scenarios/overview.md" },
     { "Commissioning" = "scenarios/commissioning.md" },
+    { "Simulation Time and Repeatability" = "scenarios/simulation-time-repeatability.md" },
     { "Cmd/Tlm Validation" = "scenarios/cmd-tlm-validation.md" },
   ] },
 ]

@@ -324,7 +324,7 @@ Check that you can answer these before you move on:
 * Why is an accepted command in Command History not enough to show that the spacecraft executed it, and which counters did you read to confirm?
 * How did you confirm that Sun safe pointing worked, beyond the ADCS mode telemetry?
 
-The [lesson plan](overview.md#the-lesson-plan) continues with Simulation Time and Repeatability.
+The [lesson plan](overview.md#the-lesson-plan) continues with [Simulation Time and Repeatability](simulation-time-repeatability.md).
 There you learn to pause the simulation, change its speed, and run an exercise again from the same starting point.
 
 ***

@@ -1,0 +1,85 @@
+# Screenshots for atlas/docs/scenarios/simulation-time-repeatability.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=simulation-time-repeatability
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. The initial condition and replay phases are terminal
+# work on the host, and the page shows their output as text.
+scenario: simulation-time-repeatability
+doc: scenarios/simulation-time-repeatability.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Read the clocks -----------------------------------------------------------------------------------
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 6000}
+  - shot: {name: 01-viewer-clocks, clip: aside, settle_ms: 500}
+
+  - goto: /telemetry/parameters?system=%2FSHIRE_VISUAL
+  - wait: {text: SIM_TIME}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SIM_TIME}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 02-sim-time-parameter, settle_ms: 1000}
+
+  # The Server reports status only after it receives a command, so nothing is shown yet.
+  - goto: /telemetry/parameters?system=%2FSHIRE_SERVER
+  - wait: {text: PAUSED}
+  - shot: {name: 03-server-status-empty, settle_ms: 1500}
+
+  # ---- Change the speed ----------------------------------------------------------------------------------
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 4}
+  - shot: {name: 04-set-speed-command}
+  - send: true
+  - wait_param: {name: /SHIRE_SERVER/SPEED, equals: 4, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FSHIRE_SERVER
+  - wait: {text: SIM_TIME_NS}
+  - shot: {name: 05-speed-status, settle_ms: 1500}
+
+  # ---- Pause and play ------------------------------------------------------------------------------------
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_PAUSE
+  - shot: {name: 06-pause-command}
+  - send: true
+  - wait_param: {name: /SHIRE_SERVER/PAUSED, equals: PAUSED, timeout_s: 60}
+  # Hold the pause longer than the 5 second watchdog that 42 and the Director use between ticks.
+  - wait: {ms: 10000}
+  - goto: /telemetry/parameters?system=%2FSHIRE_SERVER
+  - wait: {text: SIM_TIME_NS}
+  - shot: {name: 07-paused-status, settle_ms: 1000}
+  - goto: /telemetry/parameters?system=%2FSHIRE_VISUAL
+  - wait: {text: SIM_TIME}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SIM_TIME}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 08-clock-frozen, settle_ms: 1000}
+
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_PLAY
+      send: true
+  - wait_param: {name: /SHIRE_SERVER/PAUSED, equals: RUNNING, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FSHIRE_SERVER
+  - wait: {text: SIM_TIME_NS}
+  - shot: {name: 09-resumed-status, settle_ms: 1500}
+
+  # The Server console reports attempted and actual speed every 10 simulated seconds, and logs each pause.
+  - wait: {ms: 12000}
+  - shot:
+      name: 10-server-console
+      kind: terminal
+      source: start_log
+      after: "Attempted simulation speed: 4.00x"
+      include: "shire-server"
+      head: 16
+      title: make start
+
+  # Leave the lab at real time for whatever follows.
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 1}
+      send: true

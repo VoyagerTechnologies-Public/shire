@@ -15,6 +15,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 ## [Unreleased]
 
 ### Added
+- Simulation Time and Repeatability lesson, the second in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - `ServerPauseResume.ycs` in the `checkout` scenario, which holds a 12 second pause and proves the clock stood still and then resumed, with `unchanged` and `advances` conditions in `yamcs_commander.py`
 - Atlas lesson plan: the Scenarios overview arranges the scenarios in five units with a shared mission story, a lesson page template enforced by `check_docs.py`, and a guide to writing a lesson
 - Host Python requirements in `tools/requirements-host.txt` for `make scenario`, `make campaign`, and the screenshot check

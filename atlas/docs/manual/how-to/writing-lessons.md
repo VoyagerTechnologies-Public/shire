@@ -45,7 +45,7 @@ It explains only the concepts it introduces and links back to the lesson that in
 
 | Lesson | Status and next work |
 | --- | --- |
-| Simulation Time and Repeatability | The Server pause, play, and speed commands, the initial condition bins, run archives, and `make replay` exist, so it needs lesson text, a manifest, and screenshots. |
+| Simulation Time and Repeatability | The lesson is published, and its Prerequisites should list the earlier lessons as they are published. |
 | Power and Eclipse | The `eps-functional` and `eps-backdoor-testing` scenarios and the eclipse initial conditions exist, so the [EPS Load Switching](../../scenarios/eps-load-switching.md) draft needs a newcomer rewrite with screenshots and its campaign and report material moved to a how-to. |
 | Attitude Control | The seven `adcs-*` scenarios and the tumble initial condition exist, so the [ADCS Truth Comparison](../../scenarios/adcs-truth-comparison.md) draft needs merging with the pointing mode stacks, a detumble phase, and screenshots. |
 | Radio Link and Command Paths | The `/SHIRE_GROUND` path commands and the `radio-link-testing` scenario exist, so [Debug and Radio Path Comparison](../../scenarios/link-path-comparison.md) and [Radio Link Testing](../../scenarios/radio-link-testing.md) need merging with a scripted path trial and a lost contact phase. |
