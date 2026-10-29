@@ -14,13 +14,14 @@ As the flight controller, your job is to confirm that commands are accepted and 
 ## Prerequisites
 
 The lesson plan places this lesson after Power and Eclipse, Attitude Control, and Radio Link and Command Paths.
-Attitude Control and Radio Link and Command Paths are planned, so [Commissioning](commissioning.md), [Simulation Time and Repeatability](simulation-time-repeatability.md), and [Power and Eclipse](power-eclipse.md) are the only earlier lessons you need for now.
+Radio Link and Command Paths is planned, so [Commissioning](commissioning.md), [Simulation Time and Repeatability](simulation-time-repeatability.md), [Power and Eclipse](power-eclipse.md), and [Attitude Control](attitude-control.md) are the only earlier lessons you need for now.
 Before you begin, ensure you have:
 
 * Completed [Getting Started](../manual/handbook/getting-started.md)
 * Completed [Commissioning](commissioning.md), where you learned to send commands and read housekeeping, counters, and events in YAMCS, or know how to do those things
 * Completed [Simulation Time and Repeatability](simulation-time-repeatability.md), where you learned which clock you are reading and how to pause it, or know how to do those things
 * Completed [Power and Eclipse](power-eclipse.md), where you read the battery voltage and saw it cross a limit, or know how to do those things
+* Completed [Attitude Control](attitude-control.md), where you compared telemetry with an independent truth value, or know how to do those things
 * Read [Telemetry limits](../manual/how-to/telemetry-limits.md)
 * Read [Uploading tables and patches](../manual/how-to/uplink-patches.md)
 * Have the default DRM `sat-1` configuration

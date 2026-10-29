@@ -219,7 +219,41 @@ The discharge slows to the rate of the other devices, and once the spacecraft is
 The spacecraft did nothing about the low battery by itself.
 You saw the alarm and you removed the load, and that is the job of the flight controller until onboard fault protection exists.
 [Cmd/Tlm Validation](cmd-tlm-validation.md) shows how limits and alarms are configured and acknowledged.
-Send `SPEED` set to `1` to return the clock to real time, then stop the lab with `make stop`.
+Send `/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED` with `SPEED` set to `1` to return the clock to real time.
+
+## See it on the timeline
+
+The parameter pages show one value at a time, and the Timeline shows how they change together.
+In YAMCS, select **Timeline**, then choose the **Power** view from the view menu at the top.
+Choose **Jump to...**, enter the date `2023-09-16` and the time `23:30:00`, and choose **OK**.
+Choose **1 hour**.
+The window now runs from 23:00 to 00:00, which holds the whole lesson.
+The simulation clock starts at 23:00:00, so these times are the same in every run.
+
+The view has five bands, from top to bottom.
+
+| Band | What it shows |
+| --- | --- |
+| Sunlit or Eclipse | Yellow while the spacecraft is in sunlight and purple in the shadow of the Earth. |
+| Battery Voltage | The battery voltage in volts. |
+| Solar Voltage | The solar array indicator, about 4.4 volts when the array makes power and 0 when it does not. |
+| Load Bank Current | The current on the load bank switch, in amps. |
+| ADCS Switch Current | The current on the ADCS switch, in amps. |
+
+![YAMCS Timeline showing sunlight and eclipse, the battery voltage, the solar voltage, and two switch currents over the hour](../assets/scenarios/power-eclipse/14-power-timeline.png)
+
+Read it from left to right, and match each change to something that you did.
+
+* The solar voltage flickers while the spacecraft tumbles, and then holds steady once the ADCS points at the Sun.
+* The ADCS switch current steps up at the same moment, because the ADCS now draws more power in Sun safe mode.
+* The battery voltage creeps up in sunlight, and it starts to fall when the band turns purple and the solar voltage drops to 0.
+* The load bank current steps up, and the battery voltage then falls much faster, until it passes 20 volts.
+* The load bank current steps back down when you switch it off.
+
+Each step in the current is something that you commanded, each change in the slope of the battery voltage is the result, and the order of the events is visible.
+The default **Design Reference Mission** view shows the enabled state of the Demo and the ADCS and the Radio mode in the same way.
+
+Stop the lab with `make stop`.
 
 ## Run it automatically
 
@@ -257,10 +291,12 @@ You have:
 * Watched the spacecraft enter eclipse and the battery stop charging
 * Added a large load and watched the battery cross a yellow limit and raise an alarm
 * Removed the load and returned the lab to real time
+* Read the whole hour on the timeline, with the battery voltage beside the eclipse, the solar voltage, and the switch currents
 
 This lesson adds a habit to the evidence packet.
 Record each parameter value and its limit state with the simulation time, such as a battery voltage of 19.92 volts, which was yellow at 23:57:43.
 Without the time, a voltage means little, because the same value is safe on the way up and a concern on the way down.
+A timeline image with its window times is a compact way to keep the whole sequence.
 
 Check that you can answer these before you move on:
 
@@ -268,7 +304,7 @@ Check that you can answer these before you move on:
 * What does a device look like in telemetry when its switch is off, and how is that different from a device that is disabled?
 * What happens to the battery when the spacecraft enters eclipse, and what did you have to do when the load bank pushed it below its limit?
 
-The [lesson plan](overview.md#the-lesson-plan) continues with Attitude Control.
+The [lesson plan](overview.md#the-lesson-plan) continues with [Attitude Control](attitude-control.md).
 There you learn how the spacecraft finds the Sun and holds a pointing mode, which you used here to feed the array.
 
 ***

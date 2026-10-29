@@ -31,6 +31,8 @@ components:
 
 # Scenarios for mission operations
 scenarios:
+  - name: "adcs-bdot-detumble"
+    config_file: "drm/scenarios/adcs-bdot-detumble.yaml"
   - name: "adcs-boot-config"
     config_file: "drm/scenarios/adcs-boot-config.yaml"
   - name: "adcs-gps-time-sync"

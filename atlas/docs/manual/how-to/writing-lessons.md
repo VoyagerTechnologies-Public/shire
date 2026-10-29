@@ -47,7 +47,7 @@ It explains only the concepts it introduces and links back to the lesson that in
 | --- | --- |
 | Simulation Time and Repeatability | The lesson is published, and its Prerequisites should list the earlier lessons as they are published. |
 | Power and Eclipse | The lesson is published, and the [EPS validation](eps-validation.md) guide holds the acceptance scenarios, fault injection, and campaign material that it links to. |
-| Attitude Control | The seven `adcs-*` scenarios and the tumble initial condition exist, so the [ADCS Truth Comparison](../../scenarios/adcs-truth-comparison.md) draft needs merging with the pointing mode stacks, a detumble phase, and screenshots. |
+| Attitude Control | The lesson is published, and the [ADCS validation](adcs-validation.md) guide holds the seven ADCS scenarios and the manual truth comparison that it links to. |
 | Radio Link and Command Paths | The `/SHIRE_GROUND` path commands and the `radio-link-testing` scenario exist, so [Debug and Radio Path Comparison](../../scenarios/link-path-comparison.md) and [Radio Link Testing](../../scenarios/radio-link-testing.md) need merging with a scripted path trial and a lost contact phase. |
 | Cmd/Tlm Validation | The lesson is published, and its Prerequisites should list the earlier lessons as they are published. |
 | Link Security | The `radio-security-testing` scenario exists, so [Radio Security Testing](../../scenarios/radio-security-testing.md) and [Security Incident Response](../../scenarios/security-incident-response.md) need merging with a response phase and screenshots. |

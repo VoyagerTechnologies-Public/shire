@@ -18,7 +18,7 @@ SHIRE is your operations team's rehearsal environment, where every procedure is 
 | Foundations | [Commissioning](commissioning.md) | Do No Harm, first contact, health checks, Sun safe pointing, and a file download | Published |
 | Foundations | [Simulation Time and Repeatability](simulation-time-repeatability.md) | pausing, changing speed, simulation time against wall time, initial conditions, and replaying a run | Published |
 | Spacecraft systems | [Power and Eclipse](power-eclipse.md) | loads, battery response, solar input, and eclipse | Published |
-| Spacecraft systems | Attitude Control | detumbling, pointing modes, and comparing pointing with truth | Planned |
+| Spacecraft systems | [Attitude Control](attitude-control.md) | detumbling, pointing modes, and comparing pointing with truth | Published |
 | Ground control | Radio Link and Command Paths | which path carries a command, link modes, delay and loss, and recovery from lost contact | Planned |
 | Ground control | [Cmd/Tlm Validation](cmd-tlm-validation.md) | command counting, limits and alarms, stored command upload, and flight software patches | Published |
 | Ground control | Link Security | encryption, tamper and replay rejection, and incident response | Planned |
@@ -62,6 +62,7 @@ The steps can be performed now, and `make scenario SCENARIO=checkout` automates 
 Cmd/Tlm Validation is also a manual walkthrough, and its automated run proves only that the stacks' commands and checks pass, not the alarm state in YAMCS.
 Simulation Time and Repeatability is a manual walkthrough too, and `make scenario SCENARIO=checkout` automates its pause check while `make scenario-smoke` automates its repeatability check.
 Power and Eclipse is a manual walkthrough as well, and `make scenario SCENARIO=eps-functional` automates the switch checks but not the orbit or the battery limit.
+Attitude Control is a manual walkthrough too, and `make scenario SCENARIO=adcs-modes-sweep` and `make scenario SCENARIO=adcs-truth-verification` automate its mode and truth checks.
 
 ## Evidence packet
 

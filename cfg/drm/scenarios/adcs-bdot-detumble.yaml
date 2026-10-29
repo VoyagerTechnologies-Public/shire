@@ -1,0 +1,17 @@
+# Proves that the B-dot mode removes most of the tumble, which only the magnetorquers can do in this mode.
+# An earlier version of the control law had the wrong sign and a gain about seven orders of magnitude too small,
+# so BDOT was accepted and did nothing. This scenario would have caught that.
+scenario_name: "adcs-bdot-detumble"
+description: >
+  Enables ADCS on the nominal-baseline reference orbit, pushes the gains table, commands BDOT, and waits for
+  every body rate component, from the ADCS and from 42 truth, to fall inside 0.09 rad/s from an initial tumble of
+  about 0.21 rad/s, which cannot happen unless the total rate has fallen by more than a quarter. The run ends well before the first eclipse.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+run_duration_s: 600
+simulith_speed: 4
+verification_clock_parameter: "/SIM_42_TRUTH/DYN_TIME"
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsBdotDetumble.ycs"
+    at_s: 0

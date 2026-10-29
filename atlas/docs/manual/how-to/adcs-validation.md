@@ -1,4 +1,25 @@
-# ADCS Truth Comparison
+# ADCS validation
+
+This page is the reference for the ADCS scenarios and for comparing ADCS telemetry with 42 truth.
+The [Attitude Control](../../scenarios/attitude-control.md) lesson is the place to start if you are new to the attitude control system.
+
+## The ADCS scenarios
+
+Each scenario runs from the `nominal-baseline` initial condition and passes only when its stack passes.
+Run any of them with `make scenario SCENARIO=<name>`.
+
+| Scenario | What it runs |
+| --- | --- |
+| `adcs-bdot-detumble` | The `AdcsBdotDetumble` stack for 600 seconds at 4x, which commands `BDOT` and checks that every body rate component falls inside 0.09 radians per second, which proves that the total has fallen by more than a quarter. |
+| `adcs-boot-config` | The `AdcsComponent` stack for 300 seconds, which enables the ADCS, pushes the gains table, and checks Sun pointing. |
+| `adcs-gps-time-sync` | The `AdcsGpsTimeSync` stack for 120 seconds, which waits for the cFE clock state to become valid from ADCS GPS time. |
+| `adcs-modes-sweep` | The `AdcsModesSweep` stack for 360 seconds, which commands Sun point, nadir, and target track in turn and checks each pointing vector. |
+| `adcs-sunpoint-rotisserie` | The `AdcsSunpointRotisserie` stack for 180 seconds, which Sun points, then checks the roll rate about the Sun line and that pointing stays converged. |
+| `adcs-target-track` | The `AdcsTargetTrack` stack for 180 seconds, which Sun points, then commands target mode and checks that the body rates settle. |
+| `adcs-time-file-fallback` | The `AdcsTimeFileFallback` stack for 180 seconds, which checks the boot time fallback from a file and that GPS time supersedes it. |
+| `adcs-truth-verification` | The `AdcsTruthComparison` stack for 180 seconds at 5x, which compares the ADCS Sun vector with 42 truth. |
+
+## Truth comparison
 
 > **Scenario status:** The `adcs-truth-verification` scenario and the `AdcsTruthComparison.ycs` stack automatically check that a settled ADCS Sun vector agrees with live 42 truth within a tolerance of 0.02 per component.
 > Run it with `make scenario SCENARIO=adcs-truth-verification`.

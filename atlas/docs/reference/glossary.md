@@ -93,7 +93,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | TBL | cFE Table Services, which manages application configuration tables at runtime. |
 | TC and TM | Telecommand and telemetry, the uplink and downlink frame types, which the DRM carries on virtual channel 0 and virtual channel 1. |
 | TIME | cFE Time Services, which supplies and distributes spacecraft time. |
-| Timeline | YAMCS view of parameter bands and optional scheduled items, with the current DRM default containing bands but no scheduled items. |
+| Timeline | YAMCS view of parameter bands and optional scheduled items, with the DRM shipping the Design Reference Mission, Power, and Attitude views, which contain bands but no scheduled items. |
 | TO_LAB | cFS laboratory telemetry output application used by the direct debug telemetry path. |
 | Trial | One run of a Monte Carlo campaign with its own sampled parameter values and Initial Condition bin. |
 | Truth telemetry | Selected 42 state published by the Director to YAMCS for comparison with spacecraft observations. |

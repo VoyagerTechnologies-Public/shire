@@ -19,8 +19,8 @@ ADCS_GainsTbl_t ADCS_GainsTable = {
     0.1f,   /* SunPointKd */
     0.005f, /* WheelMaxTorqueNm */
     1.42f,  /* MtbMaxDipoleAm2 */
-    0.01f,  /* DetumbleGainBase */
-    0.02f,  /* DetumbleGainHigh */
+    2.0e5f, /* DetumbleGainBase */
+    1.0e6f, /* DetumbleGainHigh */
     0.005f, /* RotisserieRateRadS */
 };
 

@@ -15,6 +15,9 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 ## [Unreleased]
 
 ### Added
+- `adcs-bdot-detumble` scenario and `AdcsBdotDetumble.ycs` stack, which prove that `BDOT` mode reduces the initial tumble using only the magnetorquers
+- Power and Attitude timeline views in `yamcs/timelines/`, with bands for eclipse, battery, solar, switch currents, ADCS mode, Sun vector, body rates, and pointing vector, shown in the Power and Eclipse and Attitude Control lessons
+- Attitude Control lesson, the fourth in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - Power and Eclipse lesson, the third in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - Simulation Time and Repeatability lesson, the second in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - `ServerPauseResume.ycs` in the `checkout` scenario, which holds a 12 second pause and proves the clock stood still and then resumed, with `unchanged` and `advances` conditions in `yamcs_commander.py`
@@ -30,7 +33,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 - Monte Carlo campaigns (`make campaign`) with campaign definitions in `cfg/drm/campaigns/`
 - Synchronized performance tooling (`make perf-smoke`, `make perf`, `make perf-compare`) and CPU placement for the simulation processes
 - Deterministic scenario initialization through Initial Condition bins in `cfg/drm/initial_conditions/` with a per-run snapshot
-- Headless `make scenario SCENARIO=<name>` and `make scenario-smoke`, with 17 DRM scenarios that run YAMCS stacks through `verify_stacks` and container log assertions through `log_assertions`
+- Headless `make scenario SCENARIO=<name>` and `make scenario-smoke`, with 18 DRM scenarios that run YAMCS stacks through `verify_stacks` and container log assertions through `log_assertions`
 - Replay archives per run (`make replay-list`, `make replay`, `make replay-delete`) and a Cesium based spacecraft visualization served by YAMCS
 - ADCS expansion with GPS time, a time file fallback, Sun point rotisserie roll, target tracking, and component stacks for each
 - EPS expansion with eight switched loads wired to the Demo, ADCS, and Radio simulators, EPS backdoors, a fault injection stack, and EPS campaigns
@@ -44,6 +47,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 - Apple Silicon (arm64) support for the SHIRE build image and component CLI builds
 
 ### Changed
+- The ADCS Truth Comparison scenario draft moved to the ADCS Validation how-to guide, with a table of the seven ADCS scenarios, because the Attitude Control lesson replaces it as the scenario page
 - The EPS Load Switching scenario draft moved to the EPS Validation how-to guide, because the Power and Eclipse lesson replaces it as the scenario page
 - All container images moved to the `ghcr.io/voyagertechnologies-public/` registry
 - `yamcs/` is wired in as the `external-yamcs` submodule
@@ -51,6 +55,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 - Pinned Python dependencies live in `tools/requirements.txt`
 
 ### Fixed
+- ADCS `BDOT` mode did not de-tumble the spacecraft: the control law had the wrong sign, so the torque aided the rotation, and the default gains were about seven orders of magnitude too small for a field measured in tesla, so the dipole was around 1e-7 A*m^2 and nothing happened. The law is now `M = +k (w x B)` in the B-dot controller and in the two MTB assist paths, the default detumble gains are 2e5 and 1e6 A*m^2 per (rad/s * T), and the unit tests that asserted the old sign now assert that the torque opposes the rotation
 - Pausing the simulation for more than about 5 seconds stopped 42 and the Director, because 42 gave up waiting for the next command batch, and 42 now keeps waiting while the Director holds its lock file and still stops if the Director exits
 - LC watchpoint table corrections that accompany the Cmd/Tlm Validation scenario
 - PSP retires the deliveries of exiting tasks, releases the tick mutex when a task is cancelled, and reports stalls by elapsed time so that application reload works in the synchronized simulation

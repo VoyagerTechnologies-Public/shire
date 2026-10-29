@@ -123,3 +123,21 @@ steps:
       name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
       args: {SPEED: 1}
       send: true
+  - wait_param: {name: /EPS/SWITCH_5_CURRENT, max: 0.01, fresh: true, timeout_s: 120}
+
+  # ---- On the timeline -----------------------------------------------------------------------------------
+  - goto: /timeline
+  - wait: {selector: 'ya-page-button[icon="view_timeline"]'}
+  - click: {selector: 'ya-page-button[icon="view_timeline"]'}
+  - click: {text: Power, exact: true}
+  - wait: {ms: 2000}
+  - click: {text: "Jump to..."}
+  - fill: {selector: 'mat-dialog-container input[placeholder="YYYY-MM-DD"]', value: "2023-09-16"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="hh"]', value: "23"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="mm"]', value: "30"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="ss"]', value: "00"}
+  - click: {selector: 'mat-dialog-container button:has-text("OK")'}
+  - wait: {ms: 1500}
+  - click: {text: "1 hour", exact: true}
+  - wait: {ms: 2500}
+  - shot: {name: 14-power-timeline, settle_ms: 1500}

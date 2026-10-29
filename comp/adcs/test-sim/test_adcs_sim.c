@@ -1851,7 +1851,8 @@ static void test_controller_deadline_overflow_saturates(void)
 static void test_convergence_mode1_bdot_dipole_saturates_positive(void)
 {
     /* Unphysically large w/B force |w x B| well past ADCS_MTB_MAX_DIPOLE so
-     * the positive-saturation clamp is exercised. */
+     * the positive-saturation clamp is exercised. The law is M = +k (w x B), so
+     * wn[0] = -1000 with B along +Z gives a positive dipole on the Y torquer. */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -1862,7 +1863,7 @@ static void test_convergence_mode1_bdot_dipole_saturates_positive(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid             = 1;
-    ctx.wn[0]             = 1000.0;
+    ctx.wn[0]             = -1000.0;
     ctx.mag_field_body[2] = 1000.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -1872,6 +1873,51 @@ static void test_convergence_mode1_bdot_dipole_saturates_positive(void)
 
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, (float)ADCS_MTB_MAX_DIPOLE, (float)cmd_mtb.cmd.mtb.dipole[1]);
+
+    drain_command_queue();
+    g_state_under_test = NULL;
+    g_iface->destroy(state);
+}
+
+static void test_convergence_mode1_bdot_torque_opposes_rotation(void)
+{
+    /* Physical check of the sign: with realistic values (rates around 0.2 rad/s and
+     * a field around 25 microtesla) the magnetorquer torque M x B must have a
+     * negative dot product with the angular rate, so B-dot always damps. A wrong
+     * sign spins the body up instead, and no saturation test would notice. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    g_state_under_test = state;
+
+    adcs_sim_state_t *as = (adcs_sim_state_t *)state;
+    arm_controller(as, 1, 300000000ULL);
+    drain_command_queue();
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid             = 1;
+    ctx.wn[0]             = 0.087;
+    ctx.wn[1]             = 0.19;
+    ctx.wn[2]             = 0.04;
+    ctx.mag_field_body[0] = -1.8e-5;
+    ctx.mag_field_body[1] = -1.8e-5;
+    ctx.mag_field_body[2] = 4.0e-6;
+    g_iface->on_tick(state, 300000000ULL, &ctx);
+
+    simulith_42_command_t cmd_mtb = {0}, tmp;
+    while (dequeue_command(&tmp) == 0)
+        if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
+
+    const double *m = cmd_mtb.cmd.mtb.dipole;
+    const double *b = ctx.mag_field_body;
+    double torque[3] = {
+        m[1] * b[2] - m[2] * b[1],
+        m[2] * b[0] - m[0] * b[2],
+        m[0] * b[1] - m[1] * b[0],
+    };
+    double power = torque[0] * ctx.wn[0] + torque[1] * ctx.wn[1] + torque[2] * ctx.wn[2];
+    TEST_ASSERT_TRUE_MESSAGE(power < 0.0, "B-dot torque must oppose the body rate");
+    TEST_ASSERT_TRUE_MESSAGE(fabs(power) > 1e-8, "B-dot torque must be large enough to matter");
 
     drain_command_queue();
     g_state_under_test = NULL;
@@ -1890,7 +1936,7 @@ static void test_convergence_mode1_bdot_dipole_saturates_negative(void)
 
     simulith_42_context_t ctx = {0};
     ctx.valid             = 1;
-    ctx.wn[0]             = -1000.0;
+    ctx.wn[0]             = 1000.0;
     ctx.mag_field_body[2] = 1000.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -1977,7 +2023,7 @@ static void test_controller_mode3_point_vector_mtb_saturates_positive(void)
     ctx.valid             = 1;
     ctx.qn[3]             = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2]          = -1.0;
-    ctx.wn[0]             = 1000.0;
+    ctx.wn[0]             = -1000.0;
     ctx.mag_field_body[2] = 1000.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -2007,7 +2053,7 @@ static void test_controller_mode3_point_vector_mtb_saturates_negative(void)
     ctx.valid             = 1;
     ctx.qn[3]             = 1.0; /* identity quaternion, scalar-last: [x,y,z,w] */
     ctx.pos_n[2]          = -1.0;
-    ctx.wn[0]             = -1000.0;
+    ctx.wn[0]             = 1000.0;
     ctx.mag_field_body[2] = 1000.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -2064,7 +2110,7 @@ static void test_controller_mode2_mtb_saturates_positive(void)
     ctx.valid              = 1;
     ctx.sun_vector_body[0] = 0.707;
     ctx.sun_vector_body[1] = 0.707;
-    ctx.wn[0]              = 1000.0;
+    ctx.wn[0]              = -1000.0;
     ctx.mag_field_body[2]  = 1000.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -2094,7 +2140,7 @@ static void test_controller_mode2_mtb_saturates_negative(void)
     ctx.valid              = 1;
     ctx.sun_vector_body[0] = 0.707;
     ctx.sun_vector_body[1] = 0.707;
-    ctx.wn[0]              = -1000.0;
+    ctx.wn[0]              = 1000.0;
     ctx.mag_field_body[2]  = 1000.0;
     g_iface->on_tick(state, 300000000ULL, &ctx);
 
@@ -2192,8 +2238,9 @@ static void test_convergence_mode0_commands_zero_actuators(void)
 static void test_convergence_mode1_bdot_dipole_opposes_rotation(void)
 {
     /* w=[1,0,0] rad/s, B=[0,0,1] T:
-     *   w x B = [0, -1, 0]  →  dipole = -gain * [0,-1,0] = [0, +gain, 0]
-     * dipole[1] > 0: the torque opposes the +X spin. */
+     *   w x B = [0, -1, 0]  →  dipole = +gain * [0,-1,0] = [0, -gain, 0]
+     *   torque = dipole x B = [dy*Bz - dz*By, dz*Bx - dx*Bz, ...] = [-gain, 0, 0]
+     * dipole[1] < 0: the torque is along -X, so it opposes the +X spin. */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -2213,7 +2260,7 @@ static void test_convergence_mode1_bdot_dipole_opposes_rotation(void)
         if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
 
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
-    TEST_ASSERT_TRUE(cmd_mtb.cmd.mtb.dipole[1] > 0.0);
+    TEST_ASSERT_TRUE(cmd_mtb.cmd.mtb.dipole[1] < 0.0);
 
     g_state_under_test = NULL;
     g_iface->destroy(state);
@@ -2253,7 +2300,8 @@ static void test_convergence_mode2_wheel_torque_reduces_pointing_error(void)
 static void test_convergence_mode2_eclipse_bdot_rate_damping(void)
 {
     /* eclipse=1: hybrid sun-pointing falls back to B-dot rate damping.
-     * w=[1,0,0], B=[0,0,1] → dipole[1] > 0 (same math as mode 1). */
+     * w=[1,0,0], B=[0,0,1] → dipole[1] < 0, so the torque is along -X and opposes the spin
+     * (same math as mode 1). */
     component_state_t *state = NULL;
     TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
     g_state_under_test = state;
@@ -2274,7 +2322,7 @@ static void test_convergence_mode2_eclipse_bdot_rate_damping(void)
         if (tmp.type == SIMULITH_42_CMD_MTB_TORQUE) cmd_mtb = tmp;
 
     TEST_ASSERT_EQUAL_INT(SIMULITH_42_CMD_MTB_TORQUE, cmd_mtb.type);
-    TEST_ASSERT_TRUE(cmd_mtb.cmd.mtb.dipole[1] > 0.0);
+    TEST_ASSERT_TRUE(cmd_mtb.cmd.mtb.dipole[1] < 0.0);
 
     g_state_under_test = NULL;
     g_iface->destroy(state);
@@ -2742,6 +2790,7 @@ int main(void)
     RUN_TEST(test_controller_null_context_with_active_controller_returns_success);
     RUN_TEST(test_controller_deadline_overflow_saturates);
     RUN_TEST(test_convergence_mode1_bdot_dipole_saturates_positive);
+    RUN_TEST(test_convergence_mode1_bdot_torque_opposes_rotation);
     RUN_TEST(test_convergence_mode1_bdot_dipole_saturates_negative);
     RUN_TEST(test_controller_mode3_nadir_negative_clamp_branches);
     RUN_TEST(test_controller_mode3_point_vector_high_rate_without_saturation);

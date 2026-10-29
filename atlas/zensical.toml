@@ -38,6 +38,7 @@ nav = [
       { "Scenarios and Initial Conditions" = "manual/how-to/scenarios.md" },
       { "Scenario Screenshots" = "manual/how-to/scenario-screenshots.md" },
       { "EPS Validation" = "manual/how-to/eps-validation.md" },
+      { "ADCS Validation" = "manual/how-to/adcs-validation.md" },
       { "Writing a Scenario Lesson" = "manual/how-to/writing-lessons.md" },
       { "Telemetry Limits" = "manual/how-to/telemetry-limits.md" },
       { "Uploading Tables and Patches" = "manual/how-to/uplink-patches.md" },
@@ -58,6 +59,7 @@ nav = [
     { "Commissioning" = "scenarios/commissioning.md" },
     { "Simulation Time and Repeatability" = "scenarios/simulation-time-repeatability.md" },
     { "Power and Eclipse" = "scenarios/power-eclipse.md" },
+    { "Attitude Control" = "scenarios/attitude-control.md" },
     { "Cmd/Tlm Validation" = "scenarios/cmd-tlm-validation.md" },
   ] },
 ]

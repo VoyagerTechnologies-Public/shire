@@ -173,7 +173,7 @@ Deriving one is a good follow-up.
 
 ## Running a scenario
 
-`cfg/drm/drm.yaml` registers 17 scenarios.
+`cfg/drm/drm.yaml` registers 18 scenarios.
 List them with `make scenario` and no argument, or with `python3 tools/shire-scenario.py --list-scenarios`.
 Durations are simulated seconds from `run_duration_s`, and every scenario starts from `nominal-baseline` unless the table says otherwise.
 
@@ -185,6 +185,7 @@ Durations are simulated seconds from `run_duration_s`, and every scenario starts
 | `eclipse-exit-adcs` | A 900 second run at maximum speed from the `eclipse-exit` bin with no stacks. |
 | `checkout` | The `CheckoutTest` and `ServerPauseResume` stacks for 240 seconds at 1x. |
 | `cmd-tlm-validation` | The `CmdTlmLimits`, `CmdTlmStoredCommands`, and `CmdTlmPatches` stacks for 480 seconds. |
+| `adcs-bdot-detumble` | The `AdcsBdotDetumble` stack for 600 seconds at 4x. |
 | `adcs-boot-config` | The `AdcsComponent` stack for 300 seconds. |
 | `adcs-gps-time-sync` | The `AdcsGpsTimeSync` stack for 120 seconds. |
 | `adcs-modes-sweep` | The `AdcsModesSweep` stack for 360 seconds. |

@@ -217,9 +217,35 @@
           "parameter": "/ADCS/ANGRATE_Z",
           "operator": "gt",
           "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_X",
+          "operator": "gt",
+          "value": "0.98"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Y",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Y",
+          "operator": "gt",
+          "value": "-0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Z",
+          "operator": "lt",
+          "value": "0.02"
+        },
+        {
+          "parameter": "/ADCS/POINT_VEC_BODY_Z",
+          "operator": "gt",
+          "value": "-0.02"
         }
       ],
-      "timeout": 30000
+      "timeout": 90000,
+      "comment": "Wait for the slew to finish. The pointing vector must reach the +X axis and the rates must settle. Rates alone passed on the first sample, before the slew had started, and could not pass later because the slew takes longer than 30 seconds."
     }
   ],
   "advancement": {

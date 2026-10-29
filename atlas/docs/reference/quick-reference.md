@@ -121,7 +121,7 @@ Optional EPS simulator diagnostics are console output, with no dedicated Yamcs t
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The DRM provides the 17 scenarios in the following table.
+The DRM provides the 18 scenarios in the following table.
 Run one headlessly with `make scenario SCENARIO=<name>`.
 
 | Scenario | What it does |
@@ -131,6 +131,7 @@ Run one headlessly with `make scenario SCENARIO=<name>`.
 | `checkout` | Runs `CheckoutTest.ycs` and then `ServerPauseResume.ycs` headlessly through `verify_stacks` instead of a person stepping through them. |
 | `eclipse-entry-adcs` | Starts the spacecraft at the `eclipse-entry` Initial Condition bin instead of the default launch state. |
 | `eclipse-exit-adcs` | Starts the spacecraft at the `eclipse-exit` Initial Condition bin instead of the default launch state. |
+| `adcs-bdot-detumble` | Confirms that `BDOT` mode reduces the initial tumble using only the magnetorquers. |
 | `adcs-gps-time-sync` | Confirms that cFE TIME becomes valid once ADCS pushes a GPS time sample. |
 | `adcs-boot-config` | Confirms that the boot loaded ADCS gains table reaches the device and can be pushed again. |
 | `adcs-sunpoint-rotisserie` | Confirms that `SUNSAFE` pointing stays converged while the boot configured rotisserie roll rate holds. |
