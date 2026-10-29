@@ -1,8 +1,11 @@
-# EPS Load Switching
+# EPS validation
 
-## Objective
+This page is the reference for the EPS acceptance scenarios, their fault injection, and their campaigns.
+The [Power and Eclipse](../../scenarios/power-eclipse.md) lesson is the place to start if you are new to the power system.
 
-Demonstrate EPS flight command switching, mapped device shutdown and recovery, mode dependent electrical demand, simulator backdoor application, and injected fault recovery.
+## Purpose
+
+The scenarios demonstrate EPS flight command switching, mapped device shutdown and recovery, mode dependent electrical demand, simulator backdoor application, and injected fault recovery.
 The executable scenarios use the configured Simulith wiring and preserve the closed simulation loop.
 
 ## Configuration
@@ -75,7 +78,7 @@ Before pressing Run, enable `debug-in` and `sim-backdoor` in Yamcs Links.
 This prevents normal flight commands from following the radio path after its EPS supply is cut.
 `EpsAllOn.ycs`, `EpsAllOff.ycs`, and `EpsComponent.ycs` have no ground path step.
 Both command links are enabled at startup and YAMCS sends each command on every enabled command link, so stacks without a path step follow the current link state.
-See [Choosing a command path](../manual/core-concepts/ground-software.md#choosing-a-command-path).
+See [Choosing a command path](../core-concepts/ground-software.md#choosing-a-command-path).
 Keep the simulation playing throughout the stack.
 `EpsFaultInjection.ycs` selects the debug path, clears injections, proves flight commanding and housekeeping work with the radio rail off, and initializes the mapped FSW devices.
 Each preflight check has a five-second timeout and identifies an unavailable debug path.

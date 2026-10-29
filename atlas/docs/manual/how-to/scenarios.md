@@ -424,7 +424,7 @@ Only `scenario_name` is needed to name it, and every other key is optional.
 
 The EPS and Radio acceptance scenarios set `synchronize_ground_output`, `accelerate_after_verification`, and `post_verification_speed`.
 The two EPS scenarios also set `eps_validation` and `retain_all_events`.
-See [EPS load switching](../../scenarios/eps-load-switching.md) for why.
+See [EPS validation](eps-validation.md) for why.
 
 `result.json` also records a `fault_scan` entry.
 It is a heuristic grep for ` ERROR` and ` CRITICAL` lines across the container logs, with a `match_count` and the first 50 matches.

@@ -15,6 +15,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 ## [Unreleased]
 
 ### Added
+- Power and Eclipse lesson, the third in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - Simulation Time and Repeatability lesson, the second in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - `ServerPauseResume.ycs` in the `checkout` scenario, which holds a 12 second pause and proves the clock stood still and then resumed, with `unchanged` and `advances` conditions in `yamcs_commander.py`
 - Atlas lesson plan: the Scenarios overview arranges the scenarios in five units with a shared mission story, a lesson page template enforced by `check_docs.py`, and a guide to writing a lesson
@@ -43,6 +44,7 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 - Apple Silicon (arm64) support for the SHIRE build image and component CLI builds
 
 ### Changed
+- The EPS Load Switching scenario draft moved to the EPS Validation how-to guide, because the Power and Eclipse lesson replaces it as the scenario page
 - All container images moved to the `ghcr.io/voyagertechnologies-public/` registry
 - `yamcs/` is wired in as the `external-yamcs` submodule
 - External vendored directories converted to git submodules (`42`, `cfs/cfe`, `cfs/osal`, `cfs/psp`, `cfs/tools/elf2cfetbl`, nine cFS apps, `yamcs`, and `comp/cryptolib`)

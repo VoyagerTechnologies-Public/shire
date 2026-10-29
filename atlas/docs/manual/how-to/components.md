@@ -292,7 +292,7 @@ Rebuild all component libraries when changing the shared ABI contract.
 Verify real OFF/ON edges, repeated ON during boot, off and booting request completion without payloads, restored device defaults, mode/boot watts, and preserved diagnostic history.
 Check explicit reset while already off and OFF/ON within one boundary.
 For actuator or radio models, also verify zero owned actuation or stopped RF traffic during an outage and valid recovery.
-Run the focused simulator tests and the [EPS scenarios](../../scenarios/eps-load-switching.md).
+Run the focused simulator tests and the [EPS validation](eps-validation.md) scenarios.
 FSW stacks establish observable device behavior and electrical readings.
 They do not prove every internal power field or every tick of actuator and traffic history.
 

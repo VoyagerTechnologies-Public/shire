@@ -382,7 +382,7 @@ Check that you can answer these before you move on:
 * What is the difference between running a scenario again and replaying a run, and which command does each?
 * What would you record so that a colleague could start the same run again?
 
-The [lesson plan](overview.md#the-lesson-plan) continues with Power and Eclipse.
+The [lesson plan](overview.md#the-lesson-plan) continues with [Power and Eclipse](power-eclipse.md).
 There you learn how the loads, the battery, and the solar input behave, and why eclipse matters, using the eclipse starting points you met here.
 
 ***
