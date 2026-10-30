@@ -152,6 +152,7 @@ Call the script directly for the other options.
 | `eps-nominal` | 100 trials of the `eps-functional` scenario with EPS capacity, solar, load and startup dispersions. |
 | `eps-wiring-smoke` | 5 trials of the `eps-functional` scenario with similar dispersions as a quick smoke check. |
 | `eps-backdoor-faults` | 20 trials of the `eps-backdoor-testing` scenario with similar EPS dispersions. |
+| `adcs-tumble-sweep` | 6 trials of `adcs-truth-verification` sweeping the initial tumble rate and measuring SUNSAFE convergence time, which the Monte Carlo Analysis lesson runs. |
 | `test-adcs-sunpointing` | 2 trials of `adcs-truth-verification` sweeping initial tumble rate and measuring SUNSAFE convergence time. |
 | `test-orbit-sweep` | 4 trials of `nominal` sweeping orbit inclination, which exercises the no-deduplication build path. |
 | `test-soc-choice` | 4 trials of `nominal` choosing between two EPS initial charge values, which exercises build deduplication. |

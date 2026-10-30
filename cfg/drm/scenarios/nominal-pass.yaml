@@ -1,0 +1,31 @@
+# Nominal Operations: one complete pass that prepares, opens the radio window, reviews health, collects payload data,
+# downloads a closed data file over the radio path with CFDP, and closes the pass in Receive mode.
+#
+# Manual (GUI + YAMCS):  set scenario: nominal-pass in build/active.yaml, `make`, `make start`, then run NominalPass.ycs
+#                        by hand from Procedures / Stacks. Atlas's Nominal Operations lesson walks through the pass
+#                        and adds the hash comparison.
+# Autonomous (no GUI):   make scenario SCENARIO=nominal-pass
+#
+# The automated run proves the pass commands and checks pass. It does not compare the hash of the source and received
+# files, which the lesson does by hand.
+scenario_name: "nominal-pass"
+description: >
+  Runs NominalPass.ycs on the nominal-baseline reference orbit. The stack records a zero counter baseline, arms the Demo
+  restart, checks the battery against its yellow limit, starts RTS 6 so the Radio enters Duplex mode, enables the Demo
+  device with a marker configuration, closes the data files, downloads the boot data file with CFDP Class 2 over the
+  radio path, and returns the Radio to Receive mode. The stack leaves the spacecraft in its boot configuration except for
+  the Demo device, which stays enabled with the marker configuration.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+# The stack finishes within about 100 simulated seconds, since the pass waits for housekeeping after each step and the
+# CFDP download of the boot file takes a few seconds.
+run_duration_s: 180
+verify_stacks:
+  - stack: "cfg/drm/gsw/procedures/NominalPass.ycs"
+    at_s: 0
+log_assertions:
+  - container: fsw
+    pattern: 'DS \d+: DEST CLOSE ALL'
+    min: 1
+    description: the data files were closed before the download

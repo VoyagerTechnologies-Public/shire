@@ -271,8 +271,8 @@ sequenceDiagram
     end
 ```
 
-Both command links are enabled when the lab starts, and YAMCS sends each command on every enabled command link.
-It has no preferred path and no automatic fallback.
+Both command links are enabled when the lab starts, and while both are enabled YAMCS sends each command by `radio-out` alone.
+`debug-out` carries commands only while `radio-out` is disabled, and there is no automatic fallback.
 Send `/SHIRE_GROUND/USE_DEBUG_UPLINK` to make `debug-out` the only command path.
 Send `/SHIRE_GROUND/USE_RADIO_UPLINK` to make `radio-out` the only command path for 30 seconds, and `/SHIRE_GROUND/RESTORE_UPLINK` to end that selection sooner.
 These ground commands change YAMCS link state and send no spacecraft packet.

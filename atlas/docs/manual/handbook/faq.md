@@ -154,8 +154,8 @@ Inspect the generated mission volume and the cleanup behavior in [Docker](../how
 
 ## A command uses an unexpected path
 
-Both `debug-out` and `radio-out` are enabled at startup, and YAMCS sends each command on every enabled command link.
-It has no preferred path and no fallback.
+Both `debug-out` and `radio-out` are enabled at startup, and while both are enabled YAMCS sends each command by `radio-out` alone.
+`debug-out` carries commands only while `radio-out` is disabled, and there is no fallback.
 
 Send `/SHIRE_GROUND/USE_DEBUG_UPLINK` to use only `debug-out`.
 See [Choosing a command path](../core-concepts/ground-software.md#choosing-a-command-path) for the radio selection.

@@ -482,19 +482,29 @@ class Runner:
 
     def do_wait_transfer(self, arg: dict | None) -> None:
         """Waits until the file transfer service has at least one transfer and every transfer has completed.
-        A failed or cancelled transfer ends the wait with an error, since its screenshot would be wrong."""
+        A failed or cancelled transfer ends the wait with an error, since its screenshot would be wrong.
+        A lesson that fails a transfer on purpose sets `ignore_failed`, and `completed: N` then waits until N
+        transfers have completed, so an earlier failure never satisfies or ends the wait.
+        `state: FAILED` waits instead until some transfer is in that state, for the screenshot of a failure."""
         arg = arg or {}
         service = arg.get("service", "cfdp")
+        wanted, ignore_failed = arg.get("completed"), bool(arg.get("ignore_failed", False))
+        state = arg.get("state")
 
         def finished() -> bool:
             transfers = self.env.yamcs.transfers(service)
             if not transfers:
                 return False
+            if state is not None:
+                return any(transfer.get("state") == state for transfer in transfers)
             for transfer in transfers:
-                if transfer.get("state") in ("FAILED", "CANCELLED"):
+                if transfer.get("state") in ("FAILED", "CANCELLED") and not ignore_failed:
                     raise CaptureError(f"transfer {transfer.get('id', '?')} ended {transfer['state']}: "
                                        f"{transfer.get('failureReason') or 'no reason given'}")
-            return all(transfer.get("state") == "COMPLETED" for transfer in transfers)
+            completed = sum(1 for transfer in transfers if transfer.get("state") == "COMPLETED")
+            if wanted is not None:
+                return completed >= wanted
+            return completed == len(transfers)
 
         self.poll(f"{service} transfers to complete", float(arg.get("timeout_s", 300)), finished)
 

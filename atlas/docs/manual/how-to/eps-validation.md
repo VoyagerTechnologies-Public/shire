@@ -77,7 +77,7 @@ Before pressing Run, enable `debug-in` and `sim-backdoor` in Yamcs Links.
 `EpsPowerFunctional.ycs`, `EpsBackdoorFunctional.ycs`, and `EpsFaultInjection.ycs` first issue `/SHIRE_GROUND/USE_DEBUG_UPLINK` to enable `debug-out` and disable `radio-out`.
 This prevents normal flight commands from following the radio path after its EPS supply is cut.
 `EpsAllOn.ycs`, `EpsAllOff.ycs`, and `EpsComponent.ycs` have no ground path step.
-Both command links are enabled at startup and YAMCS sends each command on every enabled command link, so stacks without a path step follow the current link state.
+Both command links are enabled at startup and a command leaves by `radio-out` alone while both are enabled, so stacks without a path step follow the current link state.
 See [Choosing a command path](../core-concepts/ground-software.md#choosing-a-command-path).
 Keep the simulation playing throughout the stack.
 `EpsFaultInjection.ycs` selects the debug path, clears injections, proves flight commanding and housekeeping work with the radio rail off, and initializes the mapped FSW devices.

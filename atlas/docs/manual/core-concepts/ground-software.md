@@ -39,7 +39,8 @@ See [System Architecture](architecture.md#ground-links) for the complete endpoin
 ### Choosing a command path
 
 Both command links, `debug-out` and `radio-out`, are enabled when the lab starts.
-YAMCS sends each command on every enabled command link, and it has no preferred path and no automatic fallback.
+While both are enabled, YAMCS sends each command by `radio-out` alone, and `debug-out` carries commands only while `radio-out` is disabled.
+There is no automatic fallback, so a command that the radio path loses is not sent again on the debug path.
 The radio path delivers a command only while the Radio is enabled in a receiving mode.
 
 Three ground only commands in the `/SHIRE_GROUND` space system choose the path.
@@ -52,6 +53,7 @@ They change YAMCS link state and send no spacecraft packet.
 | `RESTORE_UPLINK` | Restores the link states saved by `USE_RADIO_UPLINK`, and is rejected if the selection has expired. |
 
 Check the YAMCS **Links** page before a command when the path matters to the result, and record which links were enabled.
+The [Radio Link and Command Paths](../../scenarios/radio-link-command-paths.md) lesson shows how to prove from counters which path carried a command.
 Command history shows that YAMCS sent a command, while the link counters and service logs show which path carried it.
 
 ## Displays and procedure stacks
@@ -61,7 +63,7 @@ The reference components currently provide these YAMCS procedures:
 * ADCS: `AdcsComponent.ycs`, `AdcsModesSweep.ycs`, `AdcsSunpointRotisserie.ycs`, `AdcsTargetTrack.ycs`, `AdcsTruthComparison.ycs`, `AdcsGpsTimeSync.ycs`, and `AdcsTimeFileFallback.ycs`
 * Demo: `DemoComponent.ycs` and `DemoFDIR.ycs`
 * EPS: `EpsComponent.ycs`, `EpsAllOn.ycs`, `EpsAllOff.ycs`, `EpsPowerFunctional.ycs`, `EpsBackdoorFunctional.ycs`, and `EpsFaultInjection.ycs`
-* Radio: `RadioComponent.ycs`, `RadioLinkBackdoor.ycs`, and `RadioSecurity.ycs`
+* Radio: `RadioComponent.ycs`, `RadioLinkBackdoor.ycs`, `RadioCommandPaths.ycs`, and `RadioSecurity.ycs`
 
 A `CheckoutTest.ycs` stack is also provided to allow for confirmation that the DRM is operating nominally as changes are made.
 The `ServerPauseResume.ycs` stack follows it in the `checkout` scenario and holds a long pause, as described under [Checkout stack](#checkout-stack).
@@ -151,7 +153,7 @@ Use `python3 yamcs/yamcs_timeline.py --help` for the complete interface and the 
 
 `yamcs/yamcs_commander.py` is a developer utility for exploring the active mission database and issuing commands through the YAMCS realtime processor.
 It does not start YAMCS or select an outbound link.
-YAMCS sends each command on every enabled command link.
+YAMCS sends each command by `radio-out` alone while both command links are enabled.
 Inspect the YAMCS link state before using it so you know which interface will carry the command, as described in [Choosing a command path](#choosing-a-command-path).
 
 Install its host dependencies when they are not already available:

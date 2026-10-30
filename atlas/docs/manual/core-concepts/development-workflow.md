@@ -122,7 +122,7 @@ Use the gates and evidence guidance in this workflow when moving from simulation
 
 SHIRE can run the CPU1 cFS bundle on a Linux processor while time, dynamics, and device simulators stay on the host.
 `cfg/shire_defs/targets.cmake` selects `armv7l-shire` or `aarch64-shire` from `SHIRE_FSW_SYSTEM`, and the `make board-prepare`, `board-build`, `board-deploy`, `board-start`, `board-test`, and `board-stop` targets drive a profile chosen with `BOARD=<profile>`.
-The profiles in `cfg/boards/` are `qemu-zynq` for an emulated ARM32 guest, `zybo7020` for a Zybo 7020, and `rpi5` for an AArch64 example whose hardware the profile marks as unvalidated.
+The profiles in `cfg/boards/` are `qemu-zynq` for an emulated ARM32 guest, `zybo7020` for a Zybo 7020, and `rpi5` for a Raspberry Pi 5 with AArch64 Linux, where both physical profiles are validated for processor PIL only.
 This gives integration and test work a processor target before component hardware exists, and it does not exercise physical component buses.
 See [Configurable Linux Board PIL](../how-to/board-pil.md), [Zynq QEMU PIL](../how-to/qemu-pil.md), [Zybo Linux PIL](../how-to/zybo-pil.md), and [Development Board](../how-to/development-board.md).
 

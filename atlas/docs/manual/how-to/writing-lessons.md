@@ -15,7 +15,7 @@ Each lesson opens with a short mission brief that gives it a place in the story 
 * Attitude Control is the spacecraft finding the Sun and then pointing where the mission needs.
 * Radio Link and Command Paths is contact that is scarce and imperfect, so the team learns how a command travels.
 * Cmd/Tlm Validation is the team proving that commands, limits, and uploads behave before it trusts routine work.
-* Link Security is someone tampering with or replaying traffic, and the team learning what the spacecraft rejects.
+* Space Link Security is someone tampering with or replaying traffic, and the team learning what the spacecraft rejects.
 * Fault Detection and Recovery is the spacecraft on its own between passes, handling a fault without the ground.
 * Nominal Operations is a normal day that brings every skill together in one complete pass.
 * Monte Carlo Analysis is the engineering team asking how far it can trust a result from a single run.
@@ -48,16 +48,15 @@ It explains only the concepts it introduces and links back to the lesson that in
 | Simulation Time and Repeatability | The lesson is published, and its Prerequisites should list the earlier lessons as they are published. |
 | Power and Eclipse | The lesson is published, and the [EPS validation](eps-validation.md) guide holds the acceptance scenarios, fault injection, and campaign material that it links to. |
 | Attitude Control | The lesson is published, and the [ADCS validation](adcs-validation.md) guide holds the seven ADCS scenarios and the manual truth comparison that it links to. |
-| Radio Link and Command Paths | The `/SHIRE_GROUND` path commands and the `radio-link-testing` scenario exist, so [Debug and Radio Path Comparison](../../scenarios/link-path-comparison.md) and [Radio Link Testing](../../scenarios/radio-link-testing.md) need merging with a scripted path trial and a lost contact phase. |
+| Radio Link and Command Paths | The lesson is published, and the [Radio validation](radio-validation.md) guide holds the link model and the backdoor commands that it links to. |
 | Cmd/Tlm Validation | The lesson is published, and its Prerequisites should list the earlier lessons as they are published. |
-| Link Security | The `radio-security-testing` scenario exists, so [Radio Security Testing](../../scenarios/radio-security-testing.md) and [Security Incident Response](../../scenarios/security-incident-response.md) need merging with a response phase and screenshots. |
-| Fault Detection and Recovery | `DemoFDIR.ycs` passes repeatedly, so [FDIR](../../scenarios/fdir.md) needs a registered scenario and screenshots, and a battery response phase once an LC action point and a load shedding RTS exist. |
-| Nominal Operations | Every phase can be done by hand, so [Nominal Operations](../../scenarios/nominal-operations.md) and [Data Lifecycle](../../scenarios/data-lifecycle.md) need merging with file selection, a hash check, a pass stack, and screenshots, and it is written last. |
-| Monte Carlo Analysis | `make campaign`, the campaign files for EPS and the sun pointing tests, and the report and dataset exist, so it needs a small campaign whose run time is measured, lesson text, and a plain account of what the statistics do not prove, while the [Monte Carlo campaigns](monte-carlo-campaigns.md) guide stays the reference. |
-| New Component Development | `make mold` and the [Component Mold](component-mold.md) guide exist, so it needs one worked example that goes from the mold to a simulator, XTCE definitions, and a passing checkout stack. |
-| Processor in the Loop | The [board](board-pil.md), [Zybo](zybo-pil.md), and [QEMU](qemu-pil.md) guides exist, and the Zybo path has retained results, so the `rpi5` profile needs an acceptance run on the powered board first, then the [Component Hardware Development](../../scenarios/component-hardware-development.md) draft needs a rewrite around that run. |
+| Space Link Security | The lesson is published, and the [Radio security validation](radio-security-validation.md) guide holds the configuration and the scenario that it links to. |
+| Fault Detection and Recovery | The lesson is published with the `demo-fdir` scenario, and a battery response phase waits for an LC action point and a load shedding RTS that do not exist yet. |
+| Nominal Operations | The lesson is published with the `nominal-pass` scenario, and it ends with the complete evidence packet. |
+| Monte Carlo Analysis | The lesson is published with the `adcs-tumble-sweep` campaign, and the [Monte Carlo campaigns](monte-carlo-campaigns.md) guide stays the reference. |
+| New Component Development | The lesson is published with a `thermal` example that the learner creates and removes, and the [Component Mold](component-mold.md) guide stays the reference. |
+| Processor in the Loop | The lesson is published and runs on the `qemu-zynq` emulator profile, and the `rpi5` and `zybo7020` boards are validated by the team and not run in the lesson, so the [Component Hardware Development](../../scenarios/component-hardware-development.md) draft still needs a rewrite around the board runs. |
 
-The open question for Radio Link and Command Paths is how an interrupted CFDP transfer behaves, which decides how its lost contact phase ends.
 Processor in the Loop is named for what happens, because the flight software runs on the board and the devices stay simulated.
 The lesson must say so, and must not claim any peripheral qualification.
 

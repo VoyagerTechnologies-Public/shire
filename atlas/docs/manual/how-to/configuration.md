@@ -130,7 +130,7 @@ Set `log_mode: stdout` and run `make cfg` before diagnosing Director or FSW star
 `board` selects the profile in `cfg/boards/` that board commands use, and `qemu-zynq` is the default.
 
 Valid DRM spacecraft in the current checkout are `flatsat`, `sat-1`, and `sat-2`.
-The DRM registers 18 scenarios in `cfg/drm/drm.yaml`, and `make scenario` with no argument lists them.
+The DRM registers 20 scenarios in `cfg/drm/drm.yaml`, and `make scenario` with no argument lists them.
 See [Scenarios and initial conditions](scenarios.md#running-a-scenario) for what each one runs.
 The current spacecraft component sets are:
 

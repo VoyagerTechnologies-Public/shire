@@ -76,7 +76,7 @@ An empty value or `amd64-shire` builds the default simulation target, `armv7l-sh
 Any other value stops the build.
 The `board-prepare`, `board-build`, and `board-deploy` targets, with `BOARD=<profile>`, drive these builds for the processor-in-the-loop (PIL) profiles in `cfg/boards/`, which are `qemu-zynq`, `zybo7020`, and `rpi5`.
 In a PIL lab only cFS runs on the target processor or in the QEMU guest, while time, dynamics, and device simulators stay on the host.
-The `rpi5` profile describes its hardware as unvalidated, and no profile qualifies physical component buses.
+The `zybo7020` and `rpi5` profiles are validated on their physical boards as processor PIL with simulated devices, and no profile qualifies physical component buses.
 See [Configurable Linux Board PIL](../how-to/board-pil.md), [Zynq QEMU PIL](../how-to/qemu-pil.md), [Zybo Linux PIL](../how-to/zybo-pil.md), and [Development Board](../how-to/development-board.md).
 
 ## Current mission content

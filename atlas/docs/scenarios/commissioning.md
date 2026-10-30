@@ -92,8 +92,8 @@ Confirm that the nine links in this table are present.
 | `visual-in` | Receives the data that drives the visualization. |
 
 
-Both command links are enabled when the lab starts, and YAMCS sends each command on every enabled command link.
-The radio path delivers a command only while the Radio is enabled in a receiving mode, so a command sent before RTS 5 completes reaches the spacecraft through `debug-out`.
+Both command links are enabled when the lab starts, and while both are enabled YAMCS sends each command by `radio-out` alone.
+The radio path delivers a command only while the Radio is enabled in a receiving mode, so wait for RTS 5 to complete before you send a command, or send `/SHIRE_GROUND/USE_DEBUG_UPLINK` first.
 To use one path, send `/SHIRE_GROUND/USE_DEBUG_UPLINK` or `/SHIRE_GROUND/USE_RADIO_UPLINK`, as described in [Ground software](../manual/core-concepts/ground-software.md#choosing-a-command-path).
 
 ![YAMCS Links view showing the nine configured links](../assets/scenarios/commissioning/04-yamcs-startup-links.png)

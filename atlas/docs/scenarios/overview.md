@@ -13,20 +13,20 @@ SHIRE is your operations team's rehearsal environment, where every procedure is 
 
 ## The lesson plan
 
-| Unit | Lesson | You will learn | Status |
-| --- | --- | --- | --- |
-| Foundations | [Commissioning](commissioning.md) | Do No Harm, first contact, health checks, Sun safe pointing, and a file download | Published |
-| Foundations | [Simulation Time and Repeatability](simulation-time-repeatability.md) | pausing, changing speed, simulation time against wall time, initial conditions, and replaying a run | Published |
-| Spacecraft systems | [Power and Eclipse](power-eclipse.md) | loads, battery response, solar input, and eclipse | Published |
-| Spacecraft systems | [Attitude Control](attitude-control.md) | detumbling, pointing modes, and comparing pointing with truth | Published |
-| Ground control | Radio Link and Command Paths | which path carries a command, link modes, delay and loss, and recovery from lost contact | Planned |
-| Ground control | [Cmd/Tlm Validation](cmd-tlm-validation.md) | command counting, limits and alarms, stored command upload, and flight software patches | Published |
-| Ground control | Link Security | encryption, tamper and replay rejection, and incident response | Planned |
-| Autonomy and operations | Fault Detection and Recovery | onboard detection and recovery with limit checking and stored commands | Planned |
-| Autonomy and operations | Nominal Operations | a complete pass that uses every earlier skill | Planned |
-| Engineering and analysis | Monte Carlo Analysis | running a campaign, reading its report, and what the spread of results shows | Planned |
-| Engineering and analysis | New Component Development | creating a component from the mold, simulating it, and checking it out | Planned |
-| Engineering and analysis | Processor in the Loop | running the flight software on a board while SHIRE drives time, dynamics, and simulated devices | Planned |
+| Unit | Lesson | You will learn |
+| --- | --- | --- |
+| Foundations | [Commissioning](commissioning.md) | Do No Harm, first contact, health checks, Sun safe pointing, and a file download |
+| Foundations | [Simulation Time and Repeatability](simulation-time-repeatability.md) | Pausing, changing speed, simulation time against wall time, initial conditions, and replaying a run |
+| Spacecraft systems | [Power and Eclipse](power-eclipse.md) | Loads, battery response, solar input, and eclipse |
+| Spacecraft systems | [Attitude Control](attitude-control.md) | Detumbling, pointing modes, and comparing pointing with truth |
+| Ground control | [Radio Link and Command Paths](radio-link-command-paths.md) | Which path carries a command, link modes, delay and loss, and recovery from lost contact |
+| Ground control | [Cmd/Tlm Validation](cmd-tlm-validation.md) | Command counting, limits and alarms, stored command upload, and flight software patches |
+| Ground control | [Space Link Security](space-link-security.md) | Encryption, tamper and replay rejection, and incident response |
+| Autonomy and operations | [Fault Detection and Recovery](fault-detection-recovery.md) | Onboard detection and recovery with limit checking and stored commands |
+| Autonomy and operations | [Nominal Operations](nominal-operations.md) | A complete pass that uses every earlier skill |
+| Engineering and analysis | [Monte Carlo Analysis](monte-carlo-analysis.md) | Running a campaign, reading its report, and what the spread of results shows |
+| Engineering and analysis | [New Component Development](new-component-development.md) | Creating a component from the mold, simulating it, and checking it out |
+| Engineering and analysis | [Processor in the Loop](processor-in-the-loop.md) | Running the flight software on a board while SHIRE drives time, dynamics, and simulated devices |
 
 Start with Commissioning.
 
@@ -55,15 +55,6 @@ The default DRM uses both a direct debug path and a representative radio path.
 A green link does not by itself prove that the path you intend to test carried a particular command or telemetry packet.
 Use command history, packet time, counters, events, and service logs together.
 
-## Current scenario status
-
-Commissioning is a **manual** scenario that composes working commands and procedures into an operator walkthrough.
-The steps can be performed now, and `make scenario SCENARIO=checkout` automates the component checks with `CheckoutTest.ycs`, but no single procedure asserts the entire Commissioning result.
-Cmd/Tlm Validation is also a manual walkthrough, and its automated run proves only that the stacks' commands and checks pass, not the alarm state in YAMCS.
-Simulation Time and Repeatability is a manual walkthrough too, and `make scenario SCENARIO=checkout` automates its pause check while `make scenario-smoke` automates its repeatability check.
-Power and Eclipse is a manual walkthrough as well, and `make scenario SCENARIO=eps-functional` automates the switch checks but not the orbit or the battery limit.
-Attitude Control is a manual walkthrough too, and `make scenario SCENARIO=adcs-modes-sweep` and `make scenario SCENARIO=adcs-truth-verification` automate its mode and truth checks.
-
 ## Evidence packet
 
 A scenario run becomes useful evidence only when its context and result are retained.
@@ -90,30 +81,12 @@ Each lesson adds one habit to this packet, so Nominal Operations ends with a com
 | Attitude Control | Record pointing values next to the truth values. |
 | Radio Link and Command Paths | Record which links were enabled and the counters on each path. |
 | Cmd/Tlm Validation | Record the alarm history and the file transfer records. |
-| Link Security | Record the log assertions with keys and addresses removed. |
+| Space Link Security | Record the log assertions with keys and addresses removed. |
 | Fault Detection and Recovery | Record the events and the stored command status as a timeline. |
 | Nominal Operations | Assemble the complete evidence packet. |
 | Monte Carlo Analysis | Record the campaign file, the seed, and the number of trials beside every statistic. |
 | New Component Development | Record the generated files and the checkout result against the reference component. |
 | Processor in the Loop | Record the board profile and build revision beside the board output and the simulated result. |
-
-## Screenshot capture points
-
-Capture screenshots only after the corresponding step is repeatable and its expected result is known.
-The most useful scenario captures are:
-
-* Healthy YAMCS link state before a run
-* Do No Harm housekeeping after automatic startup actions complete
-* Radio housekeeping after the pass sequence enters `DUPLEX`
-* Successful component checkout results
-* The FM listing used to select the stored file
-* CFDP completion and the received file record
-
-Crop screenshots to the information needed by the step.
-Remove credentials, host details, keys, and unrelated mission data before publication.
-
-Scenario screenshots are captured by script and not by hand.
-See [Scenario screenshots](../manual/how-to/scenario-screenshots.md) to refresh a scenario's images after a change.
 
 ## Stop or recover a run
 
@@ -127,4 +100,4 @@ Questions and improvement ideas are welcome in [GitHub Discussions](https://gith
 Report reproducible defects through [GitHub Issues](https://github.com/VoyagerTechnologies-Public/shire/issues).
 
 ***
-Last reviewed: 20261028
+Last reviewed: 20261030

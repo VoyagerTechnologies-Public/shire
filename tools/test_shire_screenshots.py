@@ -359,6 +359,24 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(CaptureError, "transfer 7 ended FAILED: file not found"):
             self.runner([{"wait_transfer": {}}], FakeYamcs(reading(0), transfers=[failed])).run()
 
+    def test_wait_transfer_counts_completed_transfers_past_a_failure_that_was_expected(self):
+        failed = {"id": "1", "state": "FAILED"}
+        first, second = {"id": "0", "state": "COMPLETED"}, {"id": "2", "state": "RUNNING"}
+        yamcs = FakeYamcs(reading(0), transfers=[[first, failed], [first, failed, second],
+                                                 [first, failed, {"id": "2", "state": "COMPLETED"}]])
+        self.runner([{"wait_transfer": {"completed": 2, "ignore_failed": True}}], yamcs).run()
+        self.assertEqual(self.clock.time, 2.0)
+
+    def test_wait_transfer_still_fails_on_a_failure_that_is_not_expected(self):
+        failed = [{"id": "7", "state": "FAILED"}, {"id": "8", "state": "COMPLETED"}]
+        with self.assertRaisesRegex(CaptureError, "transfer 7 ended FAILED"):
+            self.runner([{"wait_transfer": {"completed": 1}}], FakeYamcs(reading(0), transfers=[failed])).run()
+
+    def test_wait_transfer_can_wait_for_a_named_state(self):
+        running, failed = [{"id": "1", "state": "RUNNING"}], [{"id": "1", "state": "FAILED"}]
+        self.runner([{"wait_transfer": {"state": "FAILED"}}], FakeYamcs(reading(0), transfers=[running, running, failed])).run()
+        self.assertEqual(self.clock.time, 2.0)
+
     def test_wait_transfer_times_out_while_still_running(self):
         running = [{"id": "1", "state": "RUNNING"}]
         with self.assertRaisesRegex(CaptureError, "timed out after 3s waiting for cfdp transfers"):

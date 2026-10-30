@@ -121,7 +121,7 @@ Optional EPS simulator diagnostics are console output, with no dedicated Yamcs t
 The spacecraft selection controls which component simulators are built and loaded and which component applications remain in the generated CPU1 startup script.
 The current `cfg/shire_defs/targets.cmake` still compiles all four reference component applications.
 
-The DRM provides the 18 scenarios in the following table.
+The DRM provides the 20 scenarios in the following table.
 Run one headlessly with `make scenario SCENARIO=<name>`.
 
 | Scenario | What it does |
@@ -141,8 +141,10 @@ Run one headlessly with `make scenario SCENARIO=<name>`.
 | `adcs-time-file-fallback` | Confirms the boot time fallback file, its replacement by GPS time, and its refresh. |
 | `eps-functional` | Runs `EpsPowerFunctional.ycs` for switching and device power cycle acceptance. |
 | `eps-backdoor-testing` | Runs `EpsBackdoorFunctional.ycs` and `EpsFaultInjection.ycs` for backdoor application and fault recovery. |
-| `radio-link-testing` | Runs `RadioLinkBackdoor.ycs` to exercise Radio link visibility, one way delay, and packet loss through backdoors. |
+| `radio-link-testing` | Runs `RadioLinkBackdoor.ycs` and `RadioCommandPaths.ycs` to exercise Radio link visibility, one way delay, packet loss, and the debug and radio command paths. |
 | `radio-security-testing` | Runs `RadioSecurity.ycs` plus CryptoLib log assertions for AES-256-GCM, tamper rejection, and replay rejection. |
+| `nominal-pass` | Runs `NominalPass.ycs`, one pass with a CFDP download of the DS boot file over the radio path, plus a flight software log assertion for the file close. |
+| `demo-fdir` | Runs `DemoFDIR.ycs` plus flight software log assertions for onboard detection of a Demo device fault and its restart. |
 | `cmd-tlm-validation` | Runs three stacks that check commanding, telemetry limits, RTS upload and activation, and flight software table and application patches. |
 
 See [Scenarios and initial conditions](../manual/how-to/scenarios.md) for the Initial Condition bin and `verify_stacks` mechanisms.

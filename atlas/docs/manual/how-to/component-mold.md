@@ -3,6 +3,8 @@
 The component mold copies an existing reference component and applies mechanical name and identifier substitutions.
 It creates a starting point, not a fully integrated or flight ready component.
 
+The [New Component Development](../../scenarios/new-component-development.md) lesson walks through this guide with one example.
+
 From the repository root:
 
 ```bash

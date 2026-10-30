@@ -19,7 +19,7 @@ The current implementation provides the following operational building blocks.
 | Demo | cFS control of a representative device whose three channels normally encode the 42 body Sun vector | Demo publishes telemetry and does not create standalone science data files. |
 | EPS | Simulated solar input, battery energy, and eight switched loads with cFS switch control, device telemetry, and yellow and red battery voltage and temperature limits that raise YAMCS alarms | The DRM wires the Demo, ADCS, and Radio loads to switches 0, 4, and 6 and the EPS power cycles them as their switches change, but the limits are ground alarms and the model has no named power modes, automatic load shedding, state of charge telemetry, or onboard battery protection response. |
 | Radio | Command and telemetry packet exchange using `SLEEP`, `TX`, `RX`, and `DUPLEX` configurations plus a simulated link with ground station visibility, one way delay, and packet loss | The default link is ideal with `always` visibility, the `auto` link mode computes visibility from the ground station catalog and an elevation mask, and the model has no RF propagation, signal strength, data rate, or bit error model. |
-| CryptoLib | Flight Radio security processing with reciprocal processing by the standalone ground service, using AES-256-GCM encryption and authentication by default with the built in test keys | The [Radio Security Testing](../scenarios/radio-security-testing.md) scenario exercises tamper and replay rejection, but the built in test keys are a development example rather than operational key management or a security deployment. |
+| CryptoLib | Flight Radio security processing with reciprocal processing by the standalone ground service, using AES-256-GCM encryption and authentication by default with the built in test keys | The [Space Link Security](../scenarios/space-link-security.md) lesson exercises tamper and replay rejection, but the built in test keys are a development example rather than operational key management or a security deployment. |
 | Flight data | Selected DS packet storage under `/d`, FM file operations, and CF with YAMCS CFDP services | DS does not record every telemetry packet and no payload processing pipeline is implemented. |
 | Ground operations | YAMCS commanding, telemetry, archives, procedures, displays, timelines, CFDP downlink, and CFDP upload of tables and files to `/d` | The default timeline contains parameter bands but no scheduled activities, and uploaded tables and patches follow a reviewed operator procedure. |
 
@@ -195,7 +195,7 @@ The debug path is a development convenience and is not evidence that the represe
 In `RX`, the Radio path can deliver commands but does not return radio telemetry.
 In `DUPLEX`, commands and telemetry can flow in both directions.
 
-Both command interfaces are enabled at startup, and YAMCS sends each command on every enabled command link.
+Both command interfaces are enabled at startup, and a command leaves by `radio-out` alone while both are enabled.
 The ground commands `USE_DEBUG_UPLINK` and `USE_RADIO_UPLINK` select one path.
 Record the interface used when the transport path matters to the result.
 
@@ -210,7 +210,7 @@ The mission phases remain useful organizing concepts, but their implementation d
 | --- | --- | --- |
 | Launch and deployment | Conservative configuration after separation | 42 begins directly in the configured LEO state and the flight stack performs the distributed Do No Harm startup, but launch and separation are not simulated events. |
 | Commissioning | Radio path establishment with core and component checkout | The manual Commissioning scenario composes RTS 6, cFE checks, component procedures, FM, DS, and CFDP, but no single end to end commissioning procedure exists. |
-| Nominal operations | Attitude, payload, storage, and downlink activities | The manual Nominal Operations scenario uses current building blocks, but no scheduled timeline items or complete nominal procedure exist. |
+| Nominal operations | Attitude, payload, storage, and downlink activities | The Nominal Operations lesson and the `nominal-pass` scenario use current building blocks to run one pass, but no scheduled timeline items exist. |
 | Contingency response | Detection, isolation, recovery, and evidence retention | cFE events, LC action points 5 and 11, component procedures such as `DemoFDIR.ycs` and `EpsFaultInjection.ycs`, simulator and Radio link backdoors, and the table patch and bad patch stacks are available, but there is no general safing manager or complete anomaly response procedure. |
 | Decommissioning | Final data retrieval and a reviewed passive configuration | The concept and proposed requirements describe this phase, but no decommissioning sequence or procedure is implemented. |
 

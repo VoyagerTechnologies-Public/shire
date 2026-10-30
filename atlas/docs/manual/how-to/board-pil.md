@@ -42,9 +42,9 @@ Physical buses and FPGA peripherals require separate configuration and qualifica
 | --- | --- | --- |
 | `qemu-zynq` | ARMv7 hard-float, `armv7l-shire`, public Zynq ZC702 Linux guest | Emulator acceptance with separate physical board and peripheral gates. |
 | `zybo7020` | ARMv7 little-endian hard-float, `armv7l-shire`, matching public Buildroot SDK/userspace | Physical Zybo PIL validated with command acceptance, telemetry, fidelity, and repeatability. |
-| `rpi5` | AArch64 little-endian, `aarch64-shire`, matching public SDK/userspace with 16 KiB page alignment | Physical RPi5 processor PIL was exercised on a 16 KiB-page kernel, but the profile still describes the hardware as unvalidated and the repository retains no acceptance report for it. |
+| `rpi5` | AArch64 little-endian, `aarch64-shire`, matching public SDK/userspace with 16 KiB page alignment | Physical RPi5 processor PIL validated on a 16 KiB-page Raspberry Pi kernel, with three of three acceptance trials passing command acceptance, telemetry, and repeatability checks, and no QEMU baseline comparison. |
 
-The RPi example selects 64-bit userspace.
+The RPi profile selects 64-bit userspace.
 Select the actual OS and executable ABI rather than inferring it from the board name.
 [Raspberry Pi OS documents its 32-bit and 64-bit variants](https://www.raspberrypi.com/documentation/computers/os.html#architecture).
 An ARM32 Zybo executable and root filesystem are not an AArch64 build.
@@ -426,7 +426,8 @@ Before treating a new target as supported, establish successful SDK/bundle archi
 clean startup, a Yamcs command accepted by physical cFS, returning board telemetry,
 pause/resume, repeated full acceptance, and cleanup with its original board settings preserved.
 Retain the resulting report as evidence for that specific profile and board image.
-The `rpi5` profile has no such retained report in this repository, so treat it as an example until you produce one.
+The `rpi5` profile passed this gate on a physical Raspberry Pi 5, and `board-test` retains the report under `build/boards/rpi5/reports/`.
+Produce your own report for your board image before you rely on it, because the evidence is for that board and image.
 Physical peripheral compatibility and flight readiness remain separate gates.
 
 ***

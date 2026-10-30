@@ -24,6 +24,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | CI_LAB | cFS laboratory command ingest application used by the direct debug command path. |
 | CLI | Command line interface used for focused component protocol and hardware checkout without cFS or YAMCS. |
 | COMMIT | Final Simulith tick phase that quiesces component service, publishes actuator outputs, and commits the combined command batch to 42. |
+| Command path | The route that a command takes to the flight software, which is the debug path through `debug-out`, or the radio path through `radio-out`, CryptoLib, and the Radio, as the Radio Link and Command Paths lesson explains. |
 | Component | A SHIRE subsystem package containing a flight application, simulated device, shared protocol code, tests, configuration, and ground artifacts as applicable. |
 | Component mold | Mechanical starting point created from the Demo component with `make mold COMP=<name>`. |
 | Component simulator | Director loadable shared library that implements the Simulith lifecycle and models a component's device behavior. |
@@ -46,6 +47,7 @@ This glossary defines terms as they are used in the current SHIRE repository and
 | FM | cFS File Manager application used for onboard file and directory operations. |
 | FSW | Flight software, which in the current DRM is the cFS runtime and its loaded applications. |
 | GPIO | General purpose input and output pin interface in HWLIB, which the Radio component uses for its power enable and interrupt lines. |
+| Ground lock | The `RADIO_DEVICE_GroundLock` housekeeping flag, which is 1 while the Radio link model has the spacecraft in view and 0 while it does not. |
 | Ground station catalog | List of named ground stations in `cfg/drm/ground_stations.yaml` that feeds the 42 ground station block and the Radio link model, with an optional elevation mask and enabled flag per station. |
 | GSW | Ground software, which in SHIRE primarily means the included YAMCS instance and component ground artifacts. |
 | HK | Housekeeping telemetry that an application publishes with its counters and state. |

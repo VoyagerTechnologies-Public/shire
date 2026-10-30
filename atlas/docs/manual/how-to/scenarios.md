@@ -7,9 +7,9 @@ There are two ways to exercise a scenario today.
 An Atlas doc scenario (`atlas/docs/scenarios/*.md`) is a scenario walked through
 manually: a human reads the steps and drives 42, YAMCS, and the vehicle by
 hand.
-Commissioning, nominal operations, and FDIR are manual only.
-They have no DRM scenario behind them, and the DRM scenario named `nominal` is a separate, shorter configuration run rather than the Nominal Operations page.
-Other doc pages pair with a DRM scenario that automates their checks, such as Cmd/Tlm Validation, Radio link testing, Radio security testing, ADCS truth comparison, and EPS load switching.
+Commissioning is manual only, and `checkout` automates its component checks.
+The DRM scenario named `nominal` is a separate, shorter configuration run, and it is not the Nominal Operations lesson, which has the `nominal-pass` scenario.
+Other doc pages pair with a DRM scenario that automates their checks, such as Cmd/Tlm Validation, Fault Detection and Recovery, Radio link testing, Radio security testing, ADCS truth comparison, and EPS load switching.
 A DRM scenario (`cfg/drm/scenarios/*.yaml`, selected via `build/active.yaml`'s
 `scenario:`) is the same concept exercised through configuration instead: it
 is built, and can be run automatically, without a human walking through
@@ -173,7 +173,7 @@ Deriving one is a good follow-up.
 
 ## Running a scenario
 
-`cfg/drm/drm.yaml` registers 18 scenarios.
+`cfg/drm/drm.yaml` registers 20 scenarios.
 List them with `make scenario` and no argument, or with `python3 tools/shire-scenario.py --list-scenarios`.
 Durations are simulated seconds from `run_duration_s`, and every scenario starts from `nominal-baseline` unless the table says otherwise.
 
@@ -195,8 +195,10 @@ Durations are simulated seconds from `run_duration_s`, and every scenario starts
 | `adcs-truth-verification` | The `AdcsTruthComparison` stack for 180 seconds at 5x with a Yamcs clock parameter. |
 | `eps-functional` | The `EpsPowerFunctional` stack for 1200 seconds at 2x with EPS validation. |
 | `eps-backdoor-testing` | The `EpsBackdoorFunctional` and `EpsFaultInjection` stacks for 1200 seconds at 2x with EPS validation. |
-| `radio-link-testing` | The `RadioLinkBackdoor` stack for 600 seconds at 2x with two ground stations and an always in view link. |
+| `radio-link-testing` | The `RadioLinkBackdoor` and `RadioCommandPaths` stacks for 600 seconds at 2x with two ground stations and an always in view link, plus `log_assertions` on the director log. |
 | `radio-security-testing` | The `RadioSecurity` stack for 600 seconds at 2x plus `log_assertions` on the CryptoLib and FSW logs. |
+| `demo-fdir` | The `DemoFDIR` stack for 120 seconds plus `log_assertions` on the FSW log. |
+| `nominal-pass` | The `NominalPass` stack for 180 seconds plus `log_assertions` on the FSW log. |
 
 Use `<name>` below to try any of them.
 

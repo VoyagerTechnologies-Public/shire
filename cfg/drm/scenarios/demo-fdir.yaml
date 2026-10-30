@@ -1,0 +1,41 @@
+# Fault Detection and Recovery: injects a Demo device data fault through the simulator backdoor and proves that the
+# onboard Limit Checker and Stored Command response restart the device, then that valid data returns.
+#
+# Manual (GUI + YAMCS):  set scenario: demo-fdir in build/active.yaml, `make`, `make start`, then run DemoFDIR.ycs
+#                        by hand from Procedures / Stacks. Atlas's Fault Detection and Recovery lesson walks
+#                        through it.
+# Autonomous (no GUI):   make scenario SCENARIO=demo-fdir
+#
+# The log assertions read the flight software log for the events that show the response was onboard.
+scenario_name: "demo-fdir"
+description: >
+  Runs DemoFDIR.ycs on the nominal-baseline reference orbit. The stack enables the Demo device, injects random channel
+  data with the Demo backdoor, and checks that Limit Checker action point 11 detects Demo channel 1 below 256 and starts
+  RTS 11, which disables the device and enables it again ten simulated seconds later, and that valid channel data then
+  returns. The stack arms action point 11 before and after, so it leaves the spacecraft in its boot configuration. The
+  log assertions confirm the detection, the disable, and the enable in the flight software events.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+# The stack finishes within about 50 simulated seconds, since the response needs about 15 and each verify step polls for
+# fresh Demo housekeeping. The budget leaves a margin without waiting out a long run.
+run_duration_s: 120
+verify_stacks:
+  - stack: "comp/demo/gsw/procedures/DemoFDIR.ycs"
+    at_s: 0
+# The response is onboard, so the evidence is the flight software events and not only the YAMCS parameters.
+log_assertions:
+  - container: fsw
+    pattern: 'LC 0: Demo CHAN1 out of range : AP = 11, FailCount = 1, RTS = 11'
+    min: 1
+    max: 1
+    description: limit checker action point 11 detected the fault once and requested RTS 11
+  - container: fsw
+    pattern: 'DEMO_APP 15: DEMO: Device disabled successfully'
+    min: 1
+    max: 1
+    description: the response disabled the Demo device once
+  - container: fsw
+    pattern: 'DEMO_APP 13: DEMO: Device enabled successfully'
+    min: 2
+    description: the stack enabled the device and then the response enabled it again

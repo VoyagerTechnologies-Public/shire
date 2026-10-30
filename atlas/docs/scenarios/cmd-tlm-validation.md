@@ -14,7 +14,7 @@ As the flight controller, your job is to confirm that commands are accepted and 
 ## Prerequisites
 
 The lesson plan places this lesson after Power and Eclipse, Attitude Control, and Radio Link and Command Paths.
-Radio Link and Command Paths is planned, so [Commissioning](commissioning.md), [Simulation Time and Repeatability](simulation-time-repeatability.md), [Power and Eclipse](power-eclipse.md), and [Attitude Control](attitude-control.md) are the only earlier lessons you need for now.
+You need all five of the earlier lessons, [Commissioning](commissioning.md), [Simulation Time and Repeatability](simulation-time-repeatability.md), [Power and Eclipse](power-eclipse.md), [Attitude Control](attitude-control.md), and [Radio Link and Command Paths](radio-link-command-paths.md).
 Before you begin, ensure you have:
 
 * Completed [Getting Started](../manual/handbook/getting-started.md)
@@ -22,6 +22,7 @@ Before you begin, ensure you have:
 * Completed [Simulation Time and Repeatability](simulation-time-repeatability.md), where you learned which clock you are reading and how to pause it, or know how to do those things
 * Completed [Power and Eclipse](power-eclipse.md), where you read the battery voltage and saw it cross a limit, or know how to do those things
 * Completed [Attitude Control](attitude-control.md), where you compared telemetry with an independent truth value, or know how to do those things
+* Completed [Radio Link and Command Paths](radio-link-command-paths.md), where you learned which path carries a command and how to tell from counters whether it arrived, or know how to do those things
 * Read [Telemetry limits](../manual/how-to/telemetry-limits.md)
 * Read [Uploading tables and patches](../manual/how-to/uplink-patches.md)
 * Have the default DRM `sat-1` configuration
@@ -306,7 +307,7 @@ Check that you can answer these before you move on:
 * Why must you send `SC_ENABLE_RTS` after activating a stored command table, and what does that show about activation?
 * How did you prove the EPS patch was running, beyond the reload command succeeding?
 
-The [lesson plan](overview.md#the-lesson-plan) continues with Link Security.
+The [lesson plan](overview.md#the-lesson-plan) continues with [Space Link Security](space-link-security.md).
 There you tamper with and replay link traffic and watch the spacecraft reject it.
 
 ***

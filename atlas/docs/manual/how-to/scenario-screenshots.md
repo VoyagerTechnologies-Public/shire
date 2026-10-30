@@ -48,6 +48,21 @@ Call `tools/shire-screenshots.py run` from the environment's Python for options 
 Images are written to `atlas/docs/assets/scenarios/<name>/`.
 Review each one before committing it, as described in [Review the images](#review-the-images).
 
+## Choose what to capture
+
+Capture a screenshot only after its step is repeatable and its expected result is known.
+Each image should support one sentence of the lesson, such as one of these:
+
+* Healthy YAMCS link state before a run
+* Do No Harm housekeeping after the automatic startup actions complete
+* Radio housekeeping after the pass sequence enters `DUPLEX`
+* Successful component checkout results
+* The FM listing used to select the stored file
+* CFDP completion and the received file record
+
+Crop each image to the information that the step needs.
+Remove credentials, host details, keys, and unrelated mission data before publication, as described under [Redaction](#redaction).
+
 ## Manifests
 
 A manifest lists the steps for one scenario in the order the scenario page presents them.
@@ -90,7 +105,7 @@ Each step has exactly one action:
 | `wait: {text, selector, or ms}` | Wait for page content or a fixed time, with an optional `timeout_s`. |
 | `wait_param: {name, equals, fresh}` | Wait until telemetry holds a value, and with `fresh` until a new packet arrives. |
 | `wait_log: {pattern, source}` | Wait until a log line appears, so timing follows the run and not a guess. |
-| `wait_transfer: {service, timeout_s}` | Wait until the file transfer service, `cfdp` by default, has at least one transfer and all have completed, and fail if one fails or is cancelled. |
+| `wait_transfer: {service, timeout_s, completed, ignore_failed, state}` | Wait until the file transfer service, `cfdp` by default, has at least one transfer and all have completed, and fail if one fails or is cancelled, unless `ignore_failed` is set with `completed: N` to wait for N completed transfers, or `state` names the state to wait for, such as `FAILED`, when a lesson fails one on purpose. |
 | `record: {name, as}` | Store a parameter's current value as `{as}` so later steps can use it in any string, such as a counter before a command. |
 | `send: true` | Send the command form that is already open, so the form can be captured before it is sent. |
 | `shot: {name, ...}` | Write `<name>.png`. |
@@ -156,4 +171,4 @@ Check that nothing private appears, such as host names, keys, or unrelated missi
 Counters, times, and file names differ between runs, so the page text describes values to look for and not the exact numbers.
 
 ***
-Last reviewed: 20261027
+Last reviewed: 20261030

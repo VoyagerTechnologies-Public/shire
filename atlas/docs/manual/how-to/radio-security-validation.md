@@ -1,8 +1,11 @@
-# Radio Security Testing
+# Radio security validation
 
-## Objective
+This page is the reference for the radio link security configuration and the scenario that attacks it.
+The [Space Link Security](../../scenarios/space-link-security.md) lesson is the place to start if you are new to it.
 
-Show that the radio path is protected in both directions and that tampering and replay are caught.
+## Purpose
+
+The scenario shows that the radio path is protected in both directions and that tampering and replay are caught.
 Radio commands and telemetry are AES-256-GCM encrypted and authenticated by CryptoLib, which runs in the ground `shire-cryptolib` container and in the flight radio app.
 
 ## Configuration
@@ -18,7 +21,8 @@ The orchestrator renders the same values into the flight app's `device_cfg.h` an
 
 The keys are CryptoLib's built-in in-memory test keys, identical on both ends.
 This protects a simulation, not a real link.
-The anti-replay window is 65535 frames, so a long loss of signal or a high drop rate does not desynchronize the receiver.
+The anti-replay window is 65535 frames, so an ordinary loss of signal or a high drop rate does not desynchronize the receiver.
+A very long outage can pass the window, as the Limitations of the [Space Link Security](../../scenarios/space-link-security.md#limitations) lesson explain.
 Restart the ground CryptoLib and the flight software together, because each end tracks its own IV.
 
 ## What the scenario checks
@@ -55,4 +59,4 @@ To compare with an unprotected link, set `uplink_encryption` or `downlink_encryp
 The clear-mode frames carry the command bytes in the open, which the CryptoLib unit tests in `comp/cryptolib/test/unit/ut_shire_security.c` also check directly.
 
 ***
-Last reviewed: 20261027
+Last reviewed: 20261029

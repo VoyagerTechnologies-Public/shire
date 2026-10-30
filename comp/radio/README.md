@@ -145,7 +145,7 @@ Each command prints a parseable `RADIO_BACKDOOR {...}` line with the resulting l
 Malformed or out-of-range commands are rejected and leave the link unchanged.
 Link settings survive a radio power cycle; packets in flight do not.
 
-Commands that must reach the spacecraft while the link is impaired should use the debug uplink; the `radio-link-testing` scenario's `RadioLinkBackdoor.ycs` stack does this.
+Commands that must reach the spacecraft while the link is impaired should use the debug uplink; the `radio-link-testing` scenario's `RadioLinkBackdoor.ycs` stack does this, and its `RadioCommandPaths.ycs` stack sends the same command over both paths and checks the flight counter.
 
 #### Link security
 Both directions of the radio path are protected by CCSDS SDLS using CryptoLib, which runs at both ends: the ground `shire-cryptolib` container applies security to commands and processes telemetry, and the flight radio app does the reverse.

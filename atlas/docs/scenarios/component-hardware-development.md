@@ -37,7 +37,7 @@ The shared device code should keep both paths consistent where their behavior tr
 | Host cFS with Simulith | Implemented through the DRM after component integration. |
 | Board CLI with hardware | Partial source selection exists for Linux HWLIB UART, I2C, SPI, and GPIO, but ARM CLI build and deployment are not implemented. |
 | Simulator reconciliation | Supported as source and test changes but requires developer judgment. |
-| Board cFS with simulated devices | Implemented through the `board-*` Make targets for `qemu-zynq`, `zybo7020`, and `rpi5`, with the Zybo results retained for command acceptance, telemetry, fidelity, and repeatability on the processor, and the `rpi5` profile kept as an unvalidated example. |
+| Board cFS with simulated devices | Implemented through the `board-*` Make targets for `qemu-zynq`, `zybo7020`, and `rpi5`, with the Zybo results retained for command acceptance, telemetry, fidelity, and repeatability on the processor, and the `rpi5` results retained for command acceptance, telemetry, and repeatability on the physical board. |
 | Board cFS with physical component hardware | Not implemented, because the PIL runtime exposes no physical buses and the CPU2 target is disabled and unvalidated. |
 
 The root `make cli` path selects `cpu1` and the Simulith UART implementation.
