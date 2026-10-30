@@ -96,6 +96,8 @@ int simulith_42_send_set_mode(int spacecraft_id, int mode, const void* extra);
 // provided for advanced use or diagnostics.
 int enqueue_command(const simulith_42_command_t* cmd);
 int dequeue_command(simulith_42_command_t* cmd);
+/* Director boundary check. Commands may be emitted only during ACTUATE. */
+int simulith_42_pending_commands(void);
 void simulith_42_get_command_queue_stats(simulith_42_cmd_queue_stats_t *stats);
 
 #ifdef __cplusplus

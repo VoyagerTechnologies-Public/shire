@@ -1,0 +1,56 @@
+# Initial Condition (IC) bin: spacecraft at eclipse entry on the DRM
+# reference orbit, for ADCS eclipse-transition investigation and
+# as a worked example of authoring an event-based IC bin.
+#
+# HOW THIS WAS DERIVED (no live resolver computes this):
+#   1. Ran nominal-baseline for one orbit period (`SIMULITH_SPEED=max
+#      SIMULITH_DURATION=11000 docker compose -f build/drm/shire-compose.yaml
+#      up -d`, mission=drm, spacecraft=sat-1) and read 42's own real output:
+#      svn.42 (sun vector, body... actually inertial frame here) and
+#      PosN.42 (spacecraft position, inertial frame), both in
+#      /42/InOut inside the shire-42-sat-1 container.
+#   2. Found the eclipse entry crossing by applying 42's own cylindrical
+#      shadow test (Source/42ephem.c, "Eclipse Flag" block) to those two
+#      real output columns: eclipse = (sun_dot_earthward > 0) and
+#      (earth_radius/|pos|)^2 > 1 - sun_dot_earthward^2. First crossing:
+#      row 130194, t = 1301.94s after the nominal-baseline epoch.
+#   3. Converted elapsed time to true anomaly. This orbit is circular
+#      (periapsis_alt_km == apoapsis_alt_km, so eccentricity is exactly 0),
+#      so true anomaly advances linearly with time -- true_anomaly(t) =
+#      true_anomaly(0) + (t/period)*360deg -- which for this orbit (period
+#      ~5553.6s, computed from the same periapsis/apoapsis/mu) gives
+#      284.395deg. Cross-checked directly against the real PosN.42 vector
+#      at that row by rotating it into the orbital plane (using the fixed,
+#      known inclination/RAAN, not derived): 284.395deg, agreeing to
+#      <0.001deg. Both numbers come from 42's own real propagation, not an
+#      independently reimplemented orbit propagator.
+#   4. epoch = nominal-baseline epoch (2023-09-16T23:00:00Z) + 1301.94s
+#            = 2023-09-16T23:21:41.94Z.
+#
+# Attitude is carried over from nominal-baseline unchanged (this bin is
+# about orbital/eclipse state, not attitude) -- change it if a specific
+# investigation needs the spacecraft already in a particular attitude/mode.
+name: "eclipse-entry"
+description: >
+  Spacecraft on the DRM reference orbit, starting exactly at eclipse entry.
+  See the derivation notes above; reproduce by re-running the same steps if
+  the reference orbit ever changes.
+epoch:
+  month: 9
+  day: 16
+  year: 2023
+  hour: 23
+  minute: 21
+  second: 41.94
+  leap_seconds: 37.0
+orbit:
+  periapsis_alt_km: 400.0
+  apoapsis_alt_km: 400.0
+  inclination_deg: 52.0
+  raan_deg: 0.0
+  arg_periapsis_deg: 0.0
+  true_anomaly_deg: 284.395
+attitude:
+  angular_velocity_deg_s: [5.0, -5.0, 10.0]
+  quaternion: [0.0, 0.0, 0.0, 1.0]
+component_overrides: {}

@@ -15,7 +15,10 @@ typedef enum
     SCENARIO_SCENARIO_FAILURE,
     SCENARIO_CLIENT_INIT_FAILURE,
     SCENARIO_PHASE_CONFIG_FAILURE,
-    SCENARIO_HANDSHAKE_FAILURE
+    SCENARIO_HANDSHAKE_FAILURE,
+    SCENARIO_PHASE_RUN_FAILURE,
+    SCENARIO_TRACE_OPEN_FAILURE,
+    SCENARIO_TRACE_DURATION_FAILURE
 } scenario_t;
 
 director_config_t g_director_config;
@@ -81,6 +84,24 @@ int initialize_telemetry(void)
     return scenario == SCENARIO_TELEMETRY_FAILURE ? -1 : 0;
 }
 
+static int trace_abort_calls;
+
+int simulith_control_trace_open(const char *directory)
+{
+    (void)directory;
+    return scenario == SCENARIO_TRACE_OPEN_FAILURE ? -1 : 0;
+}
+
+int director_configure_trace_duration(void)
+{
+    return scenario == SCENARIO_TRACE_DURATION_FAILURE ? -1 : 0;
+}
+
+void simulith_control_trace_abort(void)
+{
+    trace_abort_calls++;
+}
+
 int initialize_scenario(director_config_t *config)
 {
     (void)config;
@@ -117,14 +138,15 @@ void simulith_client_run_loop(simulith_tick_callback callback)
     client_run_calls++;
 }
 
-void simulith_client_run_phased_loop(simulith_phase_callback prepare,
-                                     simulith_phase_callback execute,
-                                     simulith_phase_callback commit)
+int simulith_client_run_phased_loop(simulith_phase_callback prepare,
+                                    simulith_phase_callback execute,
+                                    simulith_phase_callback commit)
 {
     TEST_ASSERT_EQUAL_PTR(director_prepare_tick, prepare);
     TEST_ASSERT_EQUAL_PTR(director_execute_tick, execute);
     TEST_ASSERT_EQUAL_PTR(director_commit_tick, commit);
     client_run_calls++;
+    return scenario == SCENARIO_PHASE_RUN_FAILURE ? -1 : 0;
 }
 
 void simulith_client_shutdown(void)
@@ -170,6 +192,7 @@ void setUp(void)
     client_run_calls = 0;
     telemetry_calls = 0;
     configured_phase_calls = 0;
+    trace_abort_calls = 0;
     memset(&g_director_config, 0, sizeof(g_director_config));
 }
 
@@ -246,10 +269,37 @@ static void test_client_startup_failures(void)
     TEST_ASSERT_EQUAL_INT(1, client_shutdown_calls);
 }
 
+static void test_control_trace_startup_failures(void)
+{
+    /* The trace cannot be opened: nothing was started, so nothing needs aborting. */
+    scenario = SCENARIO_TRACE_OPEN_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+    TEST_ASSERT_EQUAL_INT(0, trace_abort_calls);
+    TEST_ASSERT_EQUAL_INT(0, client_shutdown_calls);
+
+    /* The trace opened but the run length is invalid for it: the open trace is aborted. */
+    setUp();
+    scenario = SCENARIO_TRACE_DURATION_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+    TEST_ASSERT_EQUAL_INT(1, trace_abort_calls);
+    TEST_ASSERT_EQUAL_INT(0, client_shutdown_calls);
+}
+
 static void test_successful_lifecycle(void)
 {
     TEST_ASSERT_EQUAL_INT(0, run_entry());
     TEST_ASSERT_EQUAL_INT(1, telemetry_calls);
+    TEST_ASSERT_EQUAL_INT(1, client_run_calls);
+    TEST_ASSERT_EQUAL_INT(1, client_shutdown_calls);
+    TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
+}
+
+static void test_phase_failure_exits_nonzero(void)
+{
+    scenario = SCENARIO_PHASE_RUN_FAILURE;
+    TEST_ASSERT_EQUAL_INT(1, run_entry());
     TEST_ASSERT_EQUAL_INT(1, client_run_calls);
     TEST_ASSERT_EQUAL_INT(1, client_shutdown_calls);
     TEST_ASSERT_EQUAL_INT(1, cleanup_calls);
@@ -262,6 +312,8 @@ int main(void)
     RUN_TEST(test_component_startup_failures);
     RUN_TEST(test_42_failure_refuses_open_loop_run);
     RUN_TEST(test_client_startup_failures);
+    RUN_TEST(test_control_trace_startup_failures);
     RUN_TEST(test_successful_lifecycle);
+    RUN_TEST(test_phase_failure_exits_nonzero);
     return UNITY_END();
 }

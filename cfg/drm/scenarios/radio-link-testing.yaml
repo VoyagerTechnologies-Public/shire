@@ -1,0 +1,33 @@
+scenario_name: radio-link-testing
+description: Radio simulator link control - ground station visibility, transmission delay and packet loss via backdoor, and the same command sent over the debug and radio paths
+initial_conditions: nominal-baseline
+overrides:
+  debug: false
+radio:
+  # Real ground station geometry is available via the AUTO backdoor mode; the
+  # ideal always-in-view link stays the starting state so command links work.
+  link_mode: always
+  ground_stations:
+    - "VOYG San Diego, CA"
+    - "VOYG Denver, CO"
+run_duration_s: 600
+simulith_speed: 2
+verify_stacks:
+- stack: comp/radio/gsw/procedures/RadioLinkBackdoor.ycs
+  at_s: 0
+- stack: comp/radio/gsw/procedures/RadioCommandPaths.ycs
+  at_s: 0
+accelerate_after_verification: true
+post_verification_speed: 0
+synchronize_ground_output: true
+# Evidence that is only in the director log. The Radio prints its own packet counters with every backdoor command, so
+# a packet discarded because the spacecraft was out of view, and a packet dropped by the loss model, both leave a line.
+log_assertions:
+- container: director
+  pattern: '"out_of_view":\[[1-9]'
+  min: 1
+  description: the Radio discarded uplink packets while the spacecraft was out of view
+- container: director
+  pattern: '"dropped":\[[1-9]'
+  min: 1
+  description: the loss model dropped uplink packets

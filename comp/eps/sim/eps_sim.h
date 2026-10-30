@@ -1,34 +1,57 @@
 #ifndef _EPS_SIM_H_
 #define _EPS_SIM_H_
-
 #include "eps_device.h"
 #include "simulith.h"
 #include "simulith_component.h"
 
-/* Power calculation macro using configurable constants */
-#define EPS_SWITCH_POWER_W(switch_idx) \
-    ((switch_idx == 0 || switch_idx == 1) ? EPS_SWITCH_3V3_POWER_W : \
-     (switch_idx == 2 || switch_idx == 3) ? EPS_SWITCH_5V_POWER_W : \
-     (switch_idx == 4 || switch_idx == 5) ? EPS_SWITCH_12V_POWER_W : \
-     (switch_idx == 6 || switch_idx == 7) ? EPS_SWITCH_24V_POWER_W : 0.0)
+#define EPS_CONSOLE_DOUBLES 110U
 
-/*
-** EPS simulation state structure
-*/
-typedef struct 
-{
-    EPS_Device_HK_tlm_t hk;         /* Housekeeping telemetry */
-    uint32_t device_counter;        /* Device counter */
-    transport_port_t i2c_device;    /* I2C device handle */
-    double battery_energy_wh;       /* Battery energy in watt-hours */
-    uint64_t next_hk_update_ns;     /* Absolute simulated-time deadline */
-    uint32_t prng_state;            /* Instance-owned deterministic noise */
+/* Optional debug console serialization, private to EPS. */
+size_t eps_sim_console_state(component_state_t *state, uint64_t ns, double dyn_time,
+                             uint8_t *packet, size_t capacity);
+
+#define EPS_BD_SET_SOC 1U
+#define EPS_BD_SET_SOLAR 2U
+#define EPS_BD_SET_SWITCH 3U
+#define EPS_BD_SET_LOAD_SCALE 4U
+#define EPS_BD_SET_SWITCH_FAULT 5U
+#define EPS_BD_CORRUPT_HK_CRC 6U
+#define EPS_BD_FAIL_REQUESTS 7U
+#define EPS_BD_CLEAR_FAULTS 8U
+#define EPS_BD_RESET 9U
+
+typedef struct {
+    EPS_Device_HK_tlm_t hk;
+    uint32_t device_counter;
+    transport_port_t i2c_device;
+    double battery_energy_wh;
+    uint64_t next_hk_update_ns;
+    uint32_t prng_state;
+    simulith_power_supply_t power;
+    uint64_t model_time_ns;
+    double solar_power_w;
+    double auto_solar_power_w;
+    double load_power_w;
+    double initial_energy_wh;
+    double solar_energy_wh;
+    double load_energy_wh;
+    double adjustment_wh;
+    uint8_t solar_override;
+    double solar_override_w;
+    uint64_t requests_successful;
+    uint64_t requests_rejected;
+    uint16_t crc_remaining;
+    uint16_t fail_remaining;
+    uint8_t fail_selector;
+    uint64_t backdoor_accepted;
+    uint64_t backdoor_rejected;
+    uint16_t backdoor_last_id;
+    uint8_t backdoor_last_status;
+    uint64_t backdoor_generation;
+    uint64_t backdoor_applied_ns;
+    uint8_t debug_enabled;
 } eps_sim_state_t;
 
-/*
-** Function prototypes
-*/
-int eps_sim_init(eps_sim_state_t* state);
-void eps_sim_cleanup(eps_sim_state_t* state);
-
-#endif /* _EPS_SIM_H_ */
+int eps_sim_init(eps_sim_state_t *state);
+void eps_sim_cleanup(eps_sim_state_t *state);
+#endif

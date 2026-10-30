@@ -55,3 +55,26 @@ add_dependencies(test_demo_sim demo_sim_component)
 
 enable_testing()
 add_test(NAME DemoSimTests COMMAND test_demo_sim)
+
+# Compile the production simulator directly into a fault-injection binary so
+# transport send/complete/receive failures and an allocation failure can be
+# forced deterministically (a real ZMQ_PAIR transport essentially never
+# produces these in a fast unit test).
+add_executable(test_demo_sim_failures
+    test_demo_sim_failures.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../sim/demo_sim.c
+    ${UNITY_SRC}
+)
+
+target_include_directories(test_demo_sim_failures PRIVATE
+    ${UNITY_INC}
+    ${SIMULITH_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../sim
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../${FSW_DIR}/psp/fsw/hwlib/inc
+    ${ZeroMQ_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_demo_sim_failures PRIVATE pthread m)
+target_link_options(test_demo_sim_failures PRIVATE -Wl,--wrap=malloc)
+add_test(NAME DemoSimFailureTests COMMAND test_demo_sim_failures)

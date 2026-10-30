@@ -14,6 +14,17 @@ This example ADCS in a box manages the following hardware suite:
 * Three orthogonal reaction wheels (RWs)
 * A star tracker (ST)
 
+The simulator owns the actuator indices selected by `wheel_mask` and `mtb_mask` in `support/device_config.yaml`, on `spacecraft_id`.
+Bit N selects actuator index N.
+Defaults retain the existing ownership of wheel indices 0–3 and magnetorquer indices 0–2 on spacecraft 0.
+The three-axis controller operates wheel indices 0–2, while shutdown also zeros an owned wheel at index 3.
+Set a mask to zero when the simulator owns no actuators of that type.
+Invalid masks or a negative spacecraft ID prevent simulator initialization.
+When assigning outputs to independent component simulators, their masks must not overlap.
+Actuator output is generated only during ACTUATE, after EPS power transitions and service completion.
+Power loss clears this simulator's private state and writes zero to its owned outputs, without removing another component's queued commands.
+The generic Simulith control trace records committed commands for all spacecraft. EPS stack acceptance checks FSW mode and device transactions, without a separate actuator trace.
+
 The interface to the ADCS is a UART that is speak when spoken to.
 Each command that is successfully interpreted is echoed back.
 If additional telemetry is to be generated, it will follow.
@@ -24,8 +35,14 @@ The specific command format is as follows:
   * (1) get housekeeping
   * (2) set mode
     * 0, disabled
-    * 1, de-tumble
-    * 2, sun point
+    * 1, de-tumble (B-dot: commands the magnetorquer dipole M = +k (w x B),
+      where w is the body rate and B the magnetic field in the body frame in
+      tesla, so the torque M x B always opposes the part of w that is
+      perpendicular to B; it cannot remove spin about B)
+    * 2, sun point (holds body +X on the sun vector; also executes a mild
+      rotisserie roll about that boresight for thermal management, at the
+      rate set by the boot-loaded gains table's RotisserieRateRadS -- see
+      "set control-law gains" below. Suspended during eclipse.)
     * 3, nadir point
     * 4, target track
     * 5, inertial point mode
@@ -43,6 +60,17 @@ The specific command format is as follows:
   * ...
   * (20) override MTB
   * (21) override RW
+  * (22) set control-law gains: payload is 7 big-endian float32s (SunPointKp,
+    SunPointKd, WheelMaxTorqueNm, MtbMaxDipoleAm2, DetumbleGainBase,
+    DetumbleGainHigh, RotisserieRateRadS), pushed down from the cFE app's
+    boot-loaded gains table (comp/adcs/src/adcs_tbl.c) instead of the usual
+    uint16 payload. The two detumble gains are B-dot gains in A*m^2 per
+    (rad/s * T), which are large numbers because the field is in tesla: the
+    defaults are 2e5 at low rates and 1e6 at high rates, which saturate the
+    1.42 A*m^2 magnetorquers above roughly 0.14 rad/s in a 25 microtesla field
+  * (23) set target vector: payload is 3 big-endian float32s (X, Y, Z), an
+    arbitrary inertial direction for modes 4/5 to point at. Normalized on
+    receipt; rejected (previous target kept) if the magnitude is ~0
 * uint16, trailer, 0x5CDA
 
 Note that all frames are reference are the inertial frame
@@ -78,8 +106,15 @@ Two message IDs exist for commands and requests:
   * (1) Reset counters
   * (2) Enable
   * (3) Disable
-  * (4) Set mode
-  * (5) Set target
+  * (4) Config: re-push the currently loaded boot-time gains table
+    (comp/adcs/src/adcs_tbl.c) to the device. No-op error if the device
+    isn't enabled yet.
+  * (5) Set mode
+  * (6) Set target: canned +X/-X inertial selector (see wire command (3) below)
+  * (7) Set target vector: an arbitrary inertial direction (float X,Y,Z),
+    for modes 4 (target-track) and 5 (inertial-point). Normalized on
+    receipt; a zero-magnitude vector is rejected and the previous target
+    is left unchanged.
 * 0x18D5 - Requests
   * (0) Request housekeeping
   * (1) Request CSS data

@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+"""
+Orchestrator for SHIRE configuration.
+Loads global, mission, and scenario YAMLs, merges them, and writes to active.yaml.
+"""
+import argparse
+import sys
+import os
+import re
+import uuid
+from jinja2 import Environment, FileSystemLoader
+import yaml
+
+from shire_provenance import ROOT, git_head_sha
+from shire_eps_config import normalize_eps, merge_component_config
+from shire_radio_config import normalize_radio
+from shire_runner_lib import resolve_component_configs
+from shire_eps_stacks import write_stacks, write_xtce
+from shire_limits_config import LimitError, mdb_sources, resolve_limits, write_limited_mdb
+from shire_board_config import DEFAULT_PROFILE
+
+CFG_DIR = str(ROOT / "cfg")
+BUILD_DIR = str(ROOT / "build")
+ACTIVE_PATH = os.path.join(BUILD_DIR, "active.yaml")
+BUILD_PATH = os.path.join(BUILD_DIR, "build.yaml")
+GLOBAL_CONFIG = os.path.join(CFG_DIR, "shire-config.yaml")
+DEFAULT_FSW_DIR = "cfs"
+DEFAULT_GSW_DIR = "yamcs"
+
+
+def fail(msg):
+    print(f"[orchestrator] ERROR: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def load_yaml(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def retain_runtime_events(platform_config):
+    """Raise runtime limits while preserving EVS unit-test squelch boundaries.
+
+    cFE compiles both coverage subjects and test runners with _UNIT_TEST_.
+    Its squelch tests require a burst below the 8-bit counter's saturation
+    value; runtime scenarios retain the larger limits to archive all events.
+    """
+    def override(match):
+        definition, baseline = match.groups()
+        return (f"#if defined(_UNIT_TEST_)\n{definition} {baseline}\n"
+                f"#else\n{definition} 1000000\n#endif")
+
+    return re.sub(
+        r"(#define CFE_PLATFORM_EVS_(?:MAX_APP_EVENT_BURST|APP_EVENTS_PER_SEC))\s+(\d+)",
+        override, platform_config)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cli-debug", action="store_true", help="Force debug=True for the active CLI component")
+    parser.add_argument("--compose-only", action="store_true",
+                        help="Only (re-)render cli-compose.yaml/shire-compose.yaml; skip device_cfg.h, "
+                             "42_config, the scenario snapshot, and the FSW startup script edit. Used by "
+                             "Monte Carlo campaign trials that already built their image and "
+                             "only need a per-instance compose file rendered.")
+    args = parser.parse_args()
+
+    # Ensure build directory exists
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    
+    # A board command may have saved only its selection before the first cfg.
+    # Fill normal mission defaults while retaining that explicit board choice.
+    active = load_yaml(ACTIVE_PATH)
+    global_cfg = load_yaml(GLOBAL_CONFIG)
+    if active is None or (isinstance(active, dict) and set(active) <= {'board'}):
+        board = (active or {}).get('board', DEFAULT_PROFILE)
+        # Use first mission and scenario as defaults
+        missions = global_cfg["build"]["missions"]
+        if not missions:
+            fail("No missions defined in global config.")
+        mission = missions[0]["name"]
+        mission_cfg_path = os.path.join(CFG_DIR, missions[0]["config_file"])
+        mission_cfg = load_yaml(mission_cfg_path)
+        scenarios = mission_cfg.get("scenarios", [])
+        # The default is "nominal" by name, so the order of the mission's scenario list (which is alphabetical) does not matter.
+        names = [entry["name"] for entry in scenarios]
+        scenario = "nominal" if "nominal" in names or not names else names[0]
+        
+        # Default spacecraft selection from global or mission config
+        if "spacecraft" in global_cfg["build"] and global_cfg["build"]["spacecraft"]:
+            spacecraft_list = global_cfg["build"]["spacecraft"]
+        else:
+            spacecraft_list = mission_cfg.get("spacecraft", [])
+        spacecraft = spacecraft_list[0]["name"] if spacecraft_list else None
+
+        # Get the fsw directory
+        if "fsw" in global_cfg["build"] and global_cfg["build"]["fsw"]:
+            fsw_dir = global_cfg["build"]["fsw"]
+        else:
+            fsw_dir = mission_cfg.get("fsw", DEFAULT_FSW_DIR)
+
+        # Get the gsw directory
+        if "gsw" in global_cfg["build"] and global_cfg["build"]["gsw"]:
+            gsw_dir = global_cfg["build"]["gsw"]
+        else:
+            gsw_dir = mission_cfg.get("gsw", DEFAULT_GSW_DIR)
+        
+        active = {"mission": mission, "spacecraft": spacecraft, "scenario": scenario, "cli": "demo", "log_mode": "none", "fsw_dir": fsw_dir, "gsw_dir": gsw_dir, "board": board}
+        with open(ACTIVE_PATH, "w") as f:
+            yaml.safe_dump(active, f)
+        print(f"[orchestrator] Created {ACTIVE_PATH} with defaults: mission={mission}, spacecraft={spacecraft}, scenario={scenario}")
+
+    mission = active.get("mission", "drm")
+    spacecraft = active.get("spacecraft", "sat-1")
+    scenario = active.get("scenario", "nominal")
+    cli_component = active.get("cli", "demo")
+    log_mode = active.get("log_mode", active.get("log", "none"))
+    fsw_dir = active.get("fsw_dir", DEFAULT_FSW_DIR)
+    gsw_dir = active.get("gsw_dir", DEFAULT_GSW_DIR)
+
+    # Monte Carlo campaign instance-scoping fields. All optional
+    # and unset for a plain `make scenario`/`make start` run, in which case
+    # every use below defaults away to today's behavior exactly.
+    instance = active.get("instance")
+    port_offset = active.get("port_offset", 0)
+    image_tag = active.get("image_tag")
+    initial_conditions_file = active.get("initial_conditions_file")
+
+    # Find mission config file
+    mission_entry = next((m for m in global_cfg["build"]["missions"] if m["name"] == mission), None)
+    if not mission_entry:
+        fail(f"Mission '{mission}' not found in global config.")
+    mission_cfg_path = os.path.join(CFG_DIR, mission_entry["config_file"])
+    mission_cfg = load_yaml(mission_cfg_path)
+
+    # Find scenario config file
+    scenario_entry = next((s for s in mission_cfg["scenarios"] if s["name"] == scenario), None)
+    if not scenario_entry:
+        fail(f"Scenario '{scenario}' not found in mission config.")
+    scenario_cfg_path = os.path.join(CFG_DIR, scenario_entry["config_file"])
+    scenario_cfg = load_yaml(scenario_cfg_path)
+
+    # Load the Initial Condition (IC) bin this scenario references (orbit,
+    # epoch, attitude, and optional per-component state). Scenarios that
+    # don't set `initial_conditions:` get "nominal-baseline", which
+    # reproduces today's hardcoded values exactly, so existing scenarios
+    # (drm-nominal, drm-debug) render unchanged.
+    # A campaign trial's generated, perturbed IC (initial_conditions_file,
+    # an absolute path written by tools/shire-campaign.py) takes priority
+    # over the scenario's named IC bin -- this is the only hook a per-trial
+    # IC needs into the orchestrator.
+    if initial_conditions_file:
+        ic_name = f"file:{initial_conditions_file}"
+        ic_cfg = load_yaml(initial_conditions_file)
+        if ic_cfg is None:
+            fail(f"Initial condition file '{initial_conditions_file}' not found.")
+    else:
+        ic_name = scenario_cfg.get("initial_conditions", "nominal-baseline")
+        ic_cfg_path = os.path.join(CFG_DIR, "drm", "initial_conditions", f"{ic_name}.yaml")
+        ic_cfg = load_yaml(ic_cfg_path)
+        if ic_cfg is None:
+            fail(f"Initial condition bin '{ic_name}' not found at {ic_cfg_path}.")
+
+    ground_stations_cfg = load_yaml(os.path.join(CFG_DIR, "drm", "ground_stations.yaml"))
+    ground_stations = (ground_stations_cfg or {}).get("ground_stations", [])
+
+    # Load spacecraft config if specified
+    spacecraft_cfg = {}
+    if spacecraft:
+        spacecraft_list = mission_cfg.get("spacecraft", [])
+        spacecraft_entry = next((sc for sc in spacecraft_list if sc["name"] == spacecraft), None)
+        if not spacecraft_entry:
+            fail(f"Spacecraft '{spacecraft}' not found in mission config.")
+        spacecraft_cfg_path = os.path.join(CFG_DIR, spacecraft_entry["config_file"])
+        spacecraft_cfg = load_yaml(spacecraft_cfg_path)
+        if not spacecraft_cfg:
+            spacecraft_cfg = {}
+
+    # Merge configs (minimal: just collect for now)
+    merged = {
+        "mission": mission,
+        "spacecraft": spacecraft,
+        "scenario": scenario,
+        "global": global_cfg,
+        "mission_cfg": mission_cfg,
+        "spacecraft_cfg": spacecraft_cfg,
+        "scenario_cfg": scenario_cfg,
+        "image_tag": image_tag or spacecraft,
+    }
+    
+    # Override global.build.cli with the active CLI component from active.yaml
+    if "global" in merged and "build" in merged["global"]:
+        merged["global"]["build"]["cli"] = [{"name": cli_component}]
+
+    # Write merged config to build.yaml
+    with open(BUILD_PATH, "w") as f:
+        yaml.safe_dump(merged, f)
+    print(f"[orchestrator] Merged config written to {BUILD_PATH}")
+
+    # The ground-side settings the compose file needs (such as radio link security) come from the resolved
+    # component configs. Under --compose-only the component loop below does not run, so resolve them without
+    # rendering anything; the result matches the loop's, which test_shire_orchestrator.py asserts.
+    resolved_components = {}
+    if args.compose_only and spacecraft and merged["spacecraft_cfg"]:
+        resolved_components = resolve_component_configs(
+            merged["global"], merged["mission_cfg"], merged["spacecraft_cfg"], merged["scenario_cfg"], ic_cfg,
+            cli_debug=args.cli_debug, cli_component=cli_component)
+
+    # Render config files for components. Skipped under --compose-only:
+    # this writes comp/<name>/shared/device_cfg.h, which a Monte Carlo
+    # campaign trial reusing an already-built image must NOT touch (that
+    # file is what got baked into the image; re-rendering it here would
+    # race a concurrently-building trial with different content).
+    if not args.compose_only:
+        # Determine which components to process based on spacecraft or fallback to mission components
+        if spacecraft and merged["spacecraft_cfg"]:
+            components = merged["spacecraft_cfg"].get("components", [])
+        else:
+            # Fallback to mission-level components for backward compatibility
+            components = merged["mission_cfg"].get("components", [])
+
+        resolved_components = {}
+        for comp in components:
+            comp_name = comp.get("name")
+            if not comp_name:
+                continue
+
+            # Full cascading merge: fallback -> global -> mission -> spacecraft -> IC bin -> scenario -> scenario overrides
+            # 1. Fallback config
+            fallback_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support/device_config.yaml'))
+            fallback_data = load_yaml(fallback_path)
+            comp_cfg = dict(fallback_data.get(comp_name, {})) if fallback_data and fallback_data.get(comp_name) else {}
+
+            # 2. Global config
+            global_cfg_comp = merged["global"].get(comp_name, {})
+            merge_component_config(comp_name, comp_cfg, global_cfg_comp)
+
+            # 3. Mission config
+            mission_cfg_comp = merged["mission_cfg"].get(comp_name, {})
+            merge_component_config(comp_name, comp_cfg, mission_cfg_comp)
+
+            # 4. Spacecraft config (NEW LAYER)
+            if merged["spacecraft_cfg"]:
+                spacecraft_cfg_comp = merged["spacecraft_cfg"].get(comp_name, {})
+                merge_component_config(comp_name, comp_cfg, spacecraft_cfg_comp)
+
+            # 5. Initial condition bin's per-component state (NEW LAYER: EPS SOC,
+            #    ADCS starting mode, fault-injection flags, etc.) — applied
+            #    before the scenario's own component config so a scenario can
+            #    still override an IC's component state if it needs to.
+            ic_comp_overrides = (ic_cfg.get("component_overrides") or {}).get(comp_name, {})
+            merge_component_config(comp_name, comp_cfg, ic_comp_overrides)
+
+            # 6. Scenario config
+            scenario_cfg_comp = merged["scenario_cfg"].get(comp_name, {})
+            merge_component_config(comp_name, comp_cfg, scenario_cfg_comp)
+
+            # 7. Scenario-level 'overrides' dict
+            overrides = merged["scenario_cfg"].get("overrides", {})
+            if overrides is None:
+                overrides = {}
+            merge_component_config(comp_name, comp_cfg, overrides)
+
+            # 8. CLI debug override (highest priority)
+            if args.cli_debug and comp_name == cli_component:
+                comp_cfg["debug"] = True
+
+            if comp_name == "eps":
+                try:
+                    comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
+                except ValueError as exc:
+                    fail(str(exc))
+
+            if comp_name == "radio":
+                try:
+                    comp_cfg = normalize_radio(comp_cfg, ground_stations)
+                except ValueError as exc:
+                    fail(str(exc))
+
+            resolved_components[comp_name] = comp_cfg
+
+            # Try to find a template for this component
+            template_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support'))
+            template_file = f'device_config.j2'
+            template_full_path = os.path.join(template_path, template_file)
+            if os.path.exists(template_full_path) and comp_cfg:
+                env = Environment(loader=FileSystemLoader(template_path))
+                template = env.get_template(template_file)
+                output = template.render(config=comp_cfg)
+
+                # Output path for the generated config (e.g., comp/<name>/shared/<name>_cfg.h)
+                output_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/shared/device_cfg.h'))
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, 'w') as f:
+                    f.write(output)
+                print(f"[orchestrator] device_cfg.h written to {output_path}")
+            else:
+                print(f"[orchestrator] No config or template found for component '{comp_name}', skipping.")
+
+    # Render cli-compose.yaml from Jinja2 template using cli_component
+    cli_template_path = os.path.abspath(os.path.join(CFG_DIR))
+    cli_template_file = "cli-compose.j2"
+    cli_template_full_path = os.path.join(cli_template_path, cli_template_file)
+    build_mission_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}'))
+    os.makedirs(build_mission_dir, exist_ok=True)
+    cli_compose_output_path = os.path.join(build_mission_dir, "cli-compose.yaml")
+    if os.path.exists(cli_template_full_path):
+        env = Environment(loader=FileSystemLoader(cli_template_path))
+        template = env.get_template(cli_template_file)
+        output = template.render(cli_component=cli_component, spacecraft=spacecraft, mission=mission, fsw_dir=fsw_dir, gsw_dir=gsw_dir)
+        with open(cli_compose_output_path, "w") as f:
+            f.write(output)
+        print(f"[orchestrator] cli-compose.yaml written to {cli_compose_output_path} (cli_component={cli_component})")
+    else:
+        print(f"[orchestrator] cli-compose.j2 template not found, skipping cli-compose.yaml generation.")
+
+    # Render shire-compose.yaml from Jinja2 template using log_mode and
+    # spacecraft. A campaign trial's compose file lives under its own
+    # build/<mission>/<instance>/ subdirectory rather than the shared
+    # build/<mission>/ path, since multiple trials' compose files must
+    # coexist on disk while their stacks run concurrently; a plain
+    # `make scenario`/`make start` run (instance unset) is unaffected.
+    lab_template_path = os.path.abspath(os.path.join(CFG_DIR))
+    lab_template_file = "shire-compose.j2"
+    lab_template_full_path = os.path.join(lab_template_path, lab_template_file)
+    lab_compose_dir = os.path.join(build_mission_dir, instance) if instance else build_mission_dir
+    os.makedirs(lab_compose_dir, exist_ok=True)
+    trace_dir = os.path.join(lab_compose_dir, "traces", spacecraft,
+                             uuid.uuid4().hex)
+    os.makedirs(trace_dir, exist_ok=True)
+    lab_compose_output_path = os.path.join(lab_compose_dir, "shire-compose.yaml")
+    if os.path.exists(lab_template_full_path):
+        env = Environment(loader=FileSystemLoader(lab_template_path))
+        template = env.get_template(lab_template_file)
+        output = template.render(log_mode=log_mode, spacecraft=spacecraft, mission=mission, fsw_dir=fsw_dir,
+                                 gsw_dir=gsw_dir, instance=instance, port_offset=port_offset,
+                                 image_tag=merged["image_tag"], trace_dir=trace_dir,
+                                 radio_cfg=resolved_components.get("radio", {}))
+        with open(lab_compose_output_path, "w") as f:
+            f.write(output)
+        print(f"[orchestrator] shire-compose.yaml written to {lab_compose_output_path} "
+              f"(log_mode={log_mode}, spacecraft={spacecraft}, instance={instance}, port_offset={port_offset})")
+    else:
+        print(f"[orchestrator] shire-compose.j2 template not found, skipping shire-compose.yaml generation.")
+
+    # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt, snapshot the
+    # scenario, and adjust the FSW startup script. All of these write to
+    # fixed, non-instance-scoped paths that get baked into images at build
+    # time -- skipped under --compose-only, since a campaign trial reusing
+    # an already-built image must not race a concurrently-building trial
+    # with different content over these same paths.
+    if not args.compose_only:
+        # Render 42's Inp_Sim.txt / Orb_SHIRE.txt / SC_SHIRE.txt from Jinja2
+        # templates using the scenario's resolved IC.
+        sim_template_path = os.path.abspath(os.path.join(CFG_DIR, '42_shire_config'))
+        build_42_config_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/42_config'))
+        os.makedirs(build_42_config_dir, exist_ok=True)
+
+        for template_file, output_name, extra_context in (
+            ("Inp_Sim.j2", "Inp_Sim.txt", {"ground_stations": ground_stations}),
+            ("Orb_SHIRE.j2", "Orb_SHIRE.txt", {}),
+            ("SC_SHIRE.j2", "SC_SHIRE.txt", {}),
+        ):
+            template_full_path = os.path.join(sim_template_path, template_file)
+            output_path = os.path.join(build_42_config_dir, output_name)
+            if os.path.exists(template_full_path):
+                env = Environment(loader=FileSystemLoader(sim_template_path))
+                template = env.get_template(template_file)
+                output = template.render(ic=ic_cfg, **extra_context)
+                with open(output_path, "w") as f:
+                    f.write(output)
+                print(f"[orchestrator] {output_name} written to {output_path} (initial_conditions={ic_name})")
+            else:
+                print(f"[orchestrator] {template_file} template not found, skipping {output_name} generation.")
+
+        if scenario_cfg.get('retain_all_events'):
+            resolved_components['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
+
+        if 'eps' in resolved_components:
+            write_stacks(resolved_components['eps'], os.path.join(BUILD_DIR, mission, 'scenario', 'eps-stacks'))
+            write_xtce(resolved_components['eps'], os.path.join(ROOT, 'comp', 'eps', 'gsw', 'eps.xtce'), os.path.join(BUILD_DIR, mission, 'scenario', 'eps.xtce'))
+
+        # Yellow and red telemetry limits cascade like component config. They are applied to the ground MDB as XTCE
+        # alarm ranges, in a copy the ground image build overlays on the checked in definitions.
+        try:
+            limits = resolve_limits(merged["global"].get("limits"), merged["mission_cfg"].get("limits"),
+                                    (merged["spacecraft_cfg"] or {}).get("limits"), merged["scenario_cfg"].get("limits"))
+            scenario_dir = ROOT / 'build' / mission / 'scenario'
+            write_limited_mdb(limits, mdb_sources(ROOT, mission, scenario_dir / 'eps.xtce'), scenario_dir / 'mdb')
+        except LimitError as exc:
+            fail(str(exc))
+        if limits:
+            resolved_components['__limits'] = limits
+            print(f"[orchestrator] {len(limits)} telemetry limit(s) applied to the ground MDB")
+
+        # Snapshot the scenario + resolved IC selection for this build, so a
+        # specific run's exact starting state stays traceable even after
+        # build/active.yaml later points at something else. Cheap git SHA only
+        # (not the full submodule/dirty walk shire-perf.py's git_metadata() does)
+        # since this runs on every `make cfg`, including trivial edits.
+        scenario_build_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/scenario'))
+        os.makedirs(scenario_build_dir, exist_ok=True)
+        snapshot_path = os.path.join(scenario_build_dir, f"{scenario}.snapshot.yaml")
+        snapshot = {
+            "scenario_name": scenario,
+            "initial_conditions": ic_name,
+            "resolved_ic": ic_cfg,
+            "resolved_components": resolved_components,
+            "git_sha": git_head_sha(),
+        }
+        with open(snapshot_path, "w") as f:
+            yaml.safe_dump(snapshot, f, sort_keys=False)
+        print(f"[orchestrator] Scenario snapshot written to {snapshot_path}")
+
+    # Copy and manipulate spacecraft-specific FSW config files
+    if spacecraft and not args.compose_only:
+        build_cfg_dir = os.path.abspath(os.path.join(CFG_DIR, f'../build/{mission}/{spacecraft}/shire_defs'))
+        baseline_cfg_dir = os.path.abspath(os.path.join(CFG_DIR, 'shire_defs'))
+        os.makedirs(build_cfg_dir, exist_ok=True)
+
+        # Copy all baseline config files to build/<mission>/<spacecraft>/cfg
+        import shutil
+        for item in os.listdir(baseline_cfg_dir):
+            s = os.path.join(baseline_cfg_dir, item)
+            d = os.path.join(build_cfg_dir, item)
+            if os.path.isdir(s):
+                if os.path.exists(d):
+                    shutil.rmtree(d)
+                shutil.copytree(s, d)
+            else:
+                shutil.copy2(s, d)
+        print(f"[orchestrator] Baseline FSW config files copied to {build_cfg_dir}")
+        if scenario_cfg.get('retain_all_events'):
+            for cpu in (1,2):
+                path = os.path.join(build_cfg_dir, f'cpu{cpu}_platform_cfg.h')
+                with open(path) as stream: text=stream.read()
+                text = retain_runtime_events(text)
+                with open(path,'w') as stream: stream.write(text)
+            print('[orchestrator] Runtime event limits raised; unit tests retain baseline squelch limits')
+
+        # Manipulate cpu1_cfe_es_startup.scr to remove lines for components not enabled for the spacecraft
+        startup_scr_path = os.path.join(build_cfg_dir, "cpu1_cfe_es_startup.scr")
+        enabled_components = set()
+        # Get enabled components from spacecraft_cfg (preferred) or mission_cfg
+        if merged["spacecraft_cfg"] and "components" in merged["spacecraft_cfg"]:
+            enabled_components = set(comp["name"] for comp in merged["spacecraft_cfg"]["components"] if "name" in comp)
+        elif "components" in merged["mission_cfg"]:
+            enabled_components = set(comp["name"] for comp in merged["mission_cfg"]["components"] if "name" in comp)
+
+        if os.path.exists(startup_scr_path):
+            with open(startup_scr_path, "r") as f:
+                lines = f.readlines()
+            new_lines = []
+            # Only modify lines for spacecraft-specific components (adcs, demo, eps, radio)
+            spacecraft_apps = {"adcs", "demo", "eps", "radio"}
+            for line in lines:
+                # Only process non-comment, non-blank lines before '!'
+                if line.strip().startswith("!") or not line.strip():
+                    new_lines.append(line)
+                    continue
+                # Check for CFE_APP lines for spacecraft-specific components
+                if line.startswith("CFE_APP"):
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) > 1:
+                        comp_name = parts[1]
+                        if comp_name in spacecraft_apps:
+                            # Only keep if enabled for this spacecraft
+                            if comp_name in enabled_components:
+                                new_lines.append(line)
+                            else:
+                                print(f"[orchestrator] Removing {comp_name} from startup script (not enabled for {spacecraft})")
+                        else:
+                            new_lines.append(line)
+                    else:
+                        new_lines.append(line)
+                else:
+                    new_lines.append(line)
+            with open(startup_scr_path, "w") as f:
+                f.writelines(new_lines)
+            print(f"[orchestrator] Updated {startup_scr_path} to only include enabled spacecraft components: {sorted(enabled_components)}")
+        else:
+            print(f"[orchestrator] {startup_scr_path} not found, skipping manipulation.")
+
+if __name__ == "__main__":
+    main()

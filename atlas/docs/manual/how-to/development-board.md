@@ -1,7 +1,13 @@
 # Development Board
 
-SHIRE contains cross compilation scaffolding for a 32 bit ARM Zybo 7020 target, but the target is disabled and is not part of the automated test path.
-Treat this page as a target enablement plan rather than evidence of a validated hardware deployment.
+SHIRE currently supports an ARM32 processor PIL path on a physical Zybo 7020 with host-driven time and simulated devices.
+See [Configurable Linux Board PIL](board-pil.md) for the profile contract and [Zybo Linux PIL](zybo-pil.md) for the validated setup.
+The generic CPU2 physical bus scaffold described on this page remains disabled.
+Treat this page as a physical interface enablement plan rather than evidence of peripheral qualification.
+
+An independent ARM32 simulation target is available through [Zynq QEMU PIL](qemu-pil.md).
+It retains SHIRE's host-driven time and simulated-device interfaces.
+The disabled CPU2 scaffold described below remains the physical Linux interface reference.
 
 ## Establish the target before component development
 
@@ -23,10 +29,10 @@ See [Development Workflow](../core-concepts/development-workflow.md) for that pr
 | cFS target | `cfg/shire_defs/targets.cmake` enables only `cpu1`, while the `cpu2` declarations remain commented out. |
 | CPU2 mission files | CPU2 platform configuration and startup files exist under `cfg/shire_defs/`. |
 | ARM toolchain | `cfg/shire_defs/toolchain-armv7l-linux.cmake` selects the `arm-linux-gnueabihf` compiler family and `/usr/arm-linux-gnueabihf` sysroot. |
-| Build image | `cfg/Dockerfile.base` does not install the ARM compiler, ARM sysroot, or target versions of required libraries. |
+| Build image | `tools/Dockerfile.base` does not install the ARM compiler, ARM sysroot, or target versions of required libraries. |
 | cFS abstractions | The ARM toolchain currently selects the generic cFS `pc-linux` PSP and POSIX OSAL rather than board specific support. |
 | Component CLI | Each reference CLI has a `cpu2` branch that selects Linux HWLIB sources for its bus. |
-| CLI toolchain | The current CLI Makefiles pass `TGTNAME=cpu2` but do not select the ARM CMake toolchain or provide packaging and deployment. |
+| CLI toolchain | The current CLI Makefiles default to `TGTNAME=cpu1` and take the CPU2 branch only when `TGTNAME=cpu2` is set, and they do not select the ARM CMake toolchain or provide packaging and deployment. |
 | Device configuration | The orchestrator renders one `device_cfg.h` per selected component and does not produce separate host and board settings. |
 | Startup selection | The orchestrator currently prunes the CPU1 startup script for the selected spacecraft but does not perform the same operation for CPU2. |
 | Automation | Current CI builds and tests host targets only. |
@@ -144,4 +150,4 @@ Record the exact toolchain, sysroot, SHIRE revision, generated configuration, bo
 Keep host simulation regression results with the board evidence so later hardware changes can be compared with a repeatable baseline.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261027

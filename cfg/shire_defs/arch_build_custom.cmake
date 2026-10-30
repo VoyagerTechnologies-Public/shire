@@ -36,6 +36,7 @@ add_compile_options(
     -Wno-error=strict-overflow  # GCC 14 warns in upstream OSAL inline time helpers
     -Wno-format-truncation      # Inhibit printf-style format truncation warnings
     -Wno-stringop-truncation    # Inhibit string operation truncation warnings
+    -Wno-packed-bitfield-compat # CryptoLib's packed SecurityAssociation_t names the GCC 4.4 bit-field layout change; the layout is what the library and its tests expect
 )
 
 # Instrument every source target in host unit-test builds, and in the separate

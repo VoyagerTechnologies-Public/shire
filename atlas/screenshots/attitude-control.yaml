@@ -1,0 +1,165 @@
+# Screenshots for atlas/docs/scenarios/attitude-control.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=attitude-control
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. Everything happens in the first 21 simulated minutes, at 1x apart from the 16x de-tumble,
+# because the spacecraft enters eclipse at 23:21:42 and Sun pointing does not converge there.
+scenario: attitude-control
+doc: scenarios/attitude-control.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Look at the tumble --------------------------------------------------------------------------------
+  - goto: /telemetry/parameters?system=%2FSIM_42_TRUTH
+  - wait: {text: SVB_1}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: WN_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 01-truth-rates, settle_ms: 1000}
+
+  # ---- Enable the ADCS and give it its gains -------------------------------------------------------------
+  - command:
+      name: /ADCS/ADCS_ENABLE_CC
+      send: true
+  - wait_param: {name: /ADCS/DEVICE_ENABLED, equals: 1, fresh: true, timeout_s: 120}
+  - command:
+      name: /ADCS/ADCS_CONFIG_CC
+      send: true
+  - goto: /telemetry/parameters?system=%2FADCS
+  - wait: {text: ANGRATE_X}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: ANGRATE}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 02-adcs-rates-passive, settle_ms: 1000}
+
+  # ---- De-tumble with the magnetic torquers -------------------------------------------------------------
+  - command:
+      name: /ADCS/ADCS_SET_MODE_CC
+      args: {MODE: BDOT}
+  - shot: {name: 03-set-bdot-command}
+  - send: true
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 16}
+      send: true
+  # B-dot takes about six simulated minutes to bring the rates down, which is about 25 seconds at 16x.
+  - wait_param: {name: /SHIRE_VISUAL/SIM_TIME, min: 480, timeout_s: 180}
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 1}
+      send: true
+  - wait: {ms: 6000}
+  - goto: /telemetry/parameters?system=%2FSIM_42_TRUTH
+  - wait: {text: SVB_1}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: WN_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 04-bdot-rates, settle_ms: 1000}
+
+  # ---- Point at the Sun ----------------------------------------------------------------------------------
+  - command:
+      name: /ADCS/ADCS_SET_MODE_CC
+      args: {MODE: SUNSAFE}
+  - shot: {name: 05-set-sunsafe-command}
+  - send: true
+  - wait_param: {name: /ADCS/SUN_X, min: 0.99, fresh: true, timeout_s: 180}
+  - wait: {ms: 12000}
+  - wait_param: {name: /ADCS/SUN_X, min: 0.99, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FADCS
+  - wait: {text: ANGRATE_X}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SUN_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 06-sun-vector-adcs, settle_ms: 1000}
+  - goto: /telemetry/parameters?system=%2FSIM_42_TRUTH
+  - wait: {text: SVB_1}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SVB_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 07-sun-vector-truth, settle_ms: 1000}
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 6000}
+  - shot: {name: 08-viewer-sun-aligned}
+
+  # ---- Point at the Earth --------------------------------------------------------------------------------
+  - command:
+      name: /ADCS/ADCS_SET_MODE_CC
+      args: {MODE: NADIR}
+  - shot: {name: 09-set-nadir-command}
+  - send: true
+  - wait_param: {name: /ADCS/POINT_VEC_BODY_X, min: 0.99, fresh: true, timeout_s: 180}
+  - wait: {ms: 8000}
+  - wait_param: {name: /ADCS/POINT_VEC_BODY_X, min: 0.99, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FADCS
+  - wait: {text: ANGRATE_X}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: POINT_VEC}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 10-nadir-pointing, settle_ms: 1000}
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 6000}
+  - shot: {name: 11-viewer-nadir}
+  - wait_param: {name: /EPS/SOLAR_VOLTAGE, max: 0.5, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SOLAR_VOLTAGE}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 12-solar-lost, settle_ms: 1000}
+
+  # ---- Point at a fixed direction ------------------------------------------------------------------------
+  - command:
+      name: /ADCS/ADCS_SET_TARGET_VECTOR_CC
+      args: {TARGET_X: 0, TARGET_Y: 0, TARGET_Z: 1}
+  - shot: {name: 13-set-target-vector-command}
+  - send: true
+  - command:
+      name: /ADCS/ADCS_SET_MODE_CC
+      args: {MODE: TARGET}
+      send: true
+  - wait: {ms: 45000}
+  - wait_param: {name: /ADCS/POINT_VEC_BODY_X, min: 0.99, fresh: true, timeout_s: 180}
+  - goto: /telemetry/parameters?system=%2FADCS
+  - wait: {text: ANGRATE_X}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: POINT_VEC}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 14-target-pointing, settle_ms: 1000}
+
+  # ---- Return to the Sun ---------------------------------------------------------------------------------
+  - command:
+      name: /ADCS/ADCS_SET_MODE_CC
+      args: {MODE: SUNSAFE}
+      send: true
+  - wait_param: {name: /ADCS/SUN_X, min: 0.99, fresh: true, timeout_s: 180}
+  - wait_param: {name: /EPS/SOLAR_VOLTAGE, min: 4.0, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SOLAR_VOLTAGE}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 15-solar-restored, settle_ms: 1000}
+
+  # ---- On the timeline -----------------------------------------------------------------------------------
+  - goto: /timeline
+  - wait: {selector: 'ya-page-button[icon="view_timeline"]'}
+  - click: {selector: 'ya-page-button[icon="view_timeline"]'}
+  - click: {text: Attitude, exact: true}
+  - wait: {ms: 2000}
+  - click: {text: "Jump to..."}
+  - fill: {selector: 'mat-dialog-container input[placeholder="YYYY-MM-DD"]', value: "2023-09-16"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="hh"]', value: "23"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="mm"]', value: "06"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="ss"]', value: "00"}
+  - click: {selector: 'mat-dialog-container button:has-text("OK")'}
+  - wait: {ms: 1500}
+  - click: {text: "10 min", exact: true}
+  - wait: {ms: 2500}
+  - click: {selector: 'button:has(mat-icon:text-is("remove"))'}
+  - wait: {ms: 2500}
+  - shot: {name: 16-attitude-timeline, settle_ms: 1500}

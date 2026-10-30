@@ -206,6 +206,8 @@ static void test_lifecycle_callbacks_handle_null_state(void)
                           g_iface->on_tick(NULL, 0ULL, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->service(NULL, 0, NULL));
     TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
+                          g_iface->wait_for_service(NULL, -1));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR,
                           g_iface->actuate(NULL, 0ULL, NULL));
     g_iface->destroy(NULL);
     g_iface->backdoor(NULL, DEMO_BD_SET_CONFIG, NULL, 0);
@@ -342,6 +344,46 @@ static void test_backdoor_unknown_cmd_is_noop(void)
     g_iface->destroy(state);
 }
 
+static void test_backdoor_set_config_short_payload_leaves_prior_value(void)
+{
+    /* test_backdoor_short_payloads_use_documented_defaults only proves the
+     * short-payload guard leaves DeviceConfig at its already-zero initial
+     * value, which would also pass if the guard were broken and it just
+     * fell through to a zeroed default. Seed a nonzero value first so a
+     * regression that stops honoring the guard is actually caught. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t seed[2] = {0x12, 0x34};
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, seed, sizeof(seed));
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    uint8_t one_byte = 0xAB;
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, &one_byte, 1);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, NULL, 2);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, ds->hk.DeviceConfig);
+
+    g_iface->destroy(state);
+}
+
+static void test_backdoor_set_config_ignores_extra_payload_bytes(void)
+{
+    /* A payload longer than the documented 2 bytes is not an error: only
+     * payload[0..1] are read and any trailing bytes are ignored. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+
+    uint8_t payload[4] = {0x56, 0x78, 0xFF, 0xFF};
+    g_iface->backdoor(state, DEMO_BD_SET_CONFIG, payload, sizeof(payload));
+    TEST_ASSERT_EQUAL_HEX16(0x5678, ds->hk.DeviceConfig);
+
+    g_iface->destroy(state);
+}
+
 static void test_backdoor_short_payloads_use_documented_defaults(void)
 {
     component_state_t *state = NULL;
@@ -441,6 +483,34 @@ static void test_tick_with_42_svb_scales_channels(void)
     TEST_ASSERT_EQUAL_UINT16(37768, ds->data.Chan1);
     TEST_ASSERT_EQUAL_UINT16(30268, ds->data.Chan2);
     TEST_ASSERT_EQUAL_UINT16(32768, ds->data.Chan3);
+
+    g_iface->destroy(state);
+}
+
+static void test_tick_with_invalid_42_context_uses_counter_fallback(void)
+{
+    /* Covers the (rand_data_enabled == 0) && context_42 && context_42->valid
+     * condition in on_tick when context_42 is non-NULL but marked invalid:
+     * the SVB branch must not be taken, and with rand_data_enabled at its
+     * default of 0 the channels fall back to the DeviceCounter-derived
+     * values rather than the SVB or random ones. */
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+
+    demo_sim_state_t *ds = (demo_sim_state_t *)state;
+    ds->hk.DeviceCounter = 7;
+
+    simulith_42_context_t ctx = {0};
+    ctx.valid              = 0;
+    ctx.sun_vector_body[0] = 0.5;
+    ctx.sun_vector_body[1] = 0.5;
+    ctx.sun_vector_body[2] = 0.5;
+
+    g_iface->on_tick(state, 200000000ULL, &ctx);
+
+    TEST_ASSERT_EQUAL_UINT16(7, ds->data.Chan1);
+    TEST_ASSERT_EQUAL_UINT16(14, ds->data.Chan2);
+    TEST_ASSERT_EQUAL_UINT16(21, ds->data.Chan3);
 
     g_iface->destroy(state);
 }
@@ -964,6 +1034,103 @@ static void test_get_demo_sim_component_interface_alias(void)
 /* -------------------------------------------------------------------------
  * main
  * -------------------------------------------------------------------------*/
+static void test_powered_off_and_booting_requests_complete_without_payload(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *device = (demo_sim_state_t *)state;
+    simulith_power_load_config_t config = {0};
+    config.scale = 1; config.boot_delay_s = 2; config.boot_w = 1;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_configure(state, &config));
+    transport_port_t client;
+    TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, open_client_port(&client,"power_test_client"));
+    uint8_t command[DEMO_DEVICE_CMD_SIZE], response[128];
+    encode_command(command, DEMO_DEVICE_REQ_HK_CMD, 0);
+    const uint64_t times[] = {0,1000000000ULL,3000000000ULL,4000000000ULL,5000000000ULL,7000000000ULL};
+    for (unsigned i=0; i<6; i++) {
+        if (i==1 || i==4) TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state,1,times[i]));
+        if (i==3) TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state,0,times[i]));
+        TEST_ASSERT_EQUAL_INT((int)sizeof(command),simulith_transport_send(&client,command,sizeof(command)));
+        usleep(2000);
+        TEST_ASSERT_EQUAL_INT(COMPONENT_WORK,g_iface->service(state,times[i],NULL));
+        size_t count=drain_all(&client,response,sizeof(response));
+        TEST_ASSERT_EQUAL_size_t((i==2 || i==5) ? DEMO_DEVICE_CMD_SIZE + DEMO_DEVICE_HK_SIZE : 0,count);
+    }
+    TEST_ASSERT_EQUAL_UINT64(2,device->power.successful_requests);
+    TEST_ASSERT_EQUAL_UINT64(4,device->power.rejected_requests);
+    TEST_ASSERT_EQUAL_UINT64(2,device->power.cycles);
+    simulith_transport_close(&client);
+    g_iface->destroy(state);
+}
+
+static void test_power_callback_contract_and_off_prepare(void)
+{
+    simulith_power_load_config_t cfg = {0};
+    simulith_power_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(NULL, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_reset(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(NULL, 1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(NULL, 0, &snapshot));
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_configure(state, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_snapshot(state, 0, NULL));
+    cfg.boot_delay_s = 1; cfg.boot_w = 4; cfg.mode_w[0] = 2; cfg.scale = 1;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, -1, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_ERROR, g_iface->power_set(state, 2, 0));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->on_tick(state, 0, NULL));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 0, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_FALSE(snapshot.ready);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_reset(state, 100));
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->power_snapshot(state, 100, &snapshot));
+    TEST_ASSERT_FALSE(snapshot.supplied);
+    TEST_ASSERT_EQUAL_UINT64(0, snapshot.cycles);
+    g_iface->destroy(state);
+}
+
+static void test_eps_power_cycle_boot_and_mode_demand(void)
+{
+    component_state_t *state = NULL;
+    TEST_ASSERT_EQUAL_INT(COMPONENT_SUCCESS, g_iface->create(&state));
+    demo_sim_state_t *s = (demo_sim_state_t *)state;
+    simulith_power_load_config_t cfg = {0};
+    cfg.scale = 0.5; cfg.boot_delay_s = 2; cfg.boot_w = 10;
+    for (unsigned int m = 0; m < SIMULITH_POWER_MODES; m++) cfg.mode_w[m] = 1 + m;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_configure(state, &cfg));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 1000000000ULL));
+    simulith_power_snapshot_t snap;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 2000000000ULL, &snap));
+    TEST_ASSERT_EQUAL_UINT8(0, snap.ready);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 5, snap.watts);
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 2000000000ULL));
+    TEST_ASSERT_EQUAL_UINT64(1, s->power.cycles);
+    for (int mode = 0; mode < 1; mode++) {
+        (void)mode;
+        TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 3000000000ULL, &snap));
+        TEST_ASSERT_EQUAL_UINT8(1, snap.ready);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6, (1 + mode) * 0.5, snap.watts);
+    }
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 0, 3000000000ULL));
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_snapshot(state, 4000000000ULL, &snap));
+    TEST_ASSERT_EQUAL_UINT8(0, snap.ready);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0, snap.watts);
+    TEST_ASSERT_EQUAL_UINT16(0, s->hk.DeviceConfig);
+    s->hk.DeviceConfig = 123; s->rand_hk_enabled = 1;
+    s->uart_port.rx_buf_len = 4;
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_reset(state, 3500000000ULL));
+    TEST_ASSERT_EQUAL_UINT16(0, s->hk.DeviceConfig);
+    TEST_ASSERT_EQUAL_UINT8(0, s->rand_hk_enabled);
+    TEST_ASSERT_EQUAL_size_t(0, s->uart_port.rx_buf_len);
+    TEST_ASSERT_EQUAL_UINT64(1, s->power.cycles);
+    TEST_ASSERT_EQUAL_UINT64(3500000000ULL, s->next_update_time_ns);
+    TEST_ASSERT_EQUAL_INT(0, g_iface->power_set(state, 1, 4000000000ULL));
+    TEST_ASSERT_EQUAL_UINT64(2, s->power.cycles);
+    g_iface->destroy(state);
+}
+
 int main(void)
 {
     g_handle = dlopen(DEMO_SIM_SO_PATH, RTLD_NOW);
@@ -995,6 +1162,9 @@ int main(void)
     UNITY_BEGIN();
 
     /* Lifecycle / loader */
+    RUN_TEST(test_powered_off_and_booting_requests_complete_without_payload);
+    RUN_TEST(test_power_callback_contract_and_off_prepare);
+    RUN_TEST(test_eps_power_cycle_boot_and_mode_demand);
     RUN_TEST(test_dlopen_demo_sim_so);
     RUN_TEST(test_get_component_interface_symbol);
     RUN_TEST(test_create_returns_success_and_state);
@@ -1010,11 +1180,14 @@ int main(void)
     RUN_TEST(test_backdoor_rand_data_toggles_flag);
     RUN_TEST(test_backdoor_unknown_cmd_is_noop);
     RUN_TEST(test_backdoor_short_payloads_use_documented_defaults);
+    RUN_TEST(test_backdoor_set_config_short_payload_leaves_prior_value);
+    RUN_TEST(test_backdoor_set_config_ignores_extra_payload_bytes);
 
     /* on_tick paths */
     RUN_TEST(test_tick_with_rand_data_writes_8bit_random_channels);
     RUN_TEST(test_tick_with_rand_hk_writes_high_byte_only_hk);
     RUN_TEST(test_tick_with_42_svb_scales_channels);
+    RUN_TEST(test_tick_with_invalid_42_context_uses_counter_fallback);
     RUN_TEST(test_seeded_random_sequence_restarts_deterministically);
     RUN_TEST(test_tick_uses_an_absolute_sampling_deadline);
 

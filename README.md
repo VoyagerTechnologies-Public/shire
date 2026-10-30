@@ -43,14 +43,22 @@ Once they are installed, you can:
 * Use
   * Open GSW
     * `firefox localhost:8090`
-  * Open 42
-    * `firefox localhost:5801/vnc_auto.html`
+  * Open the live Earth-orbit visualization
+    * `firefox localhost:8090/visualization/`
   * Attach to containers to pause / play time
     * `docker attach shire-server-drm`
+* Replay a retained run
+  * `make replay-list`
+  * `make replay RUN=<run-id>`
+  * `make replay-delete RUN=<run-id>` removes one archive; `make clean-cache` deletes all labeled SHIRE replay archives.
 * Stop
   * CTRL+C
   * Inspect volumes and logs as desired
   * `make stop`
+* Automate
+  * Confirm one scenario completes cleanly, no GUI: `make scenario SCENARIO=<name>`
+  * Run many trials of a scenario against varied initial conditions and aggregate the results: `make campaign CAMPAIGN=<name>`
+  * See [Scenarios and initial conditions](atlas/docs/manual/how-to/scenarios.md) and [Monte Carlo campaigns](atlas/docs/manual/how-to/monte-carlo-campaigns.md)
 
 ## Documentation
 

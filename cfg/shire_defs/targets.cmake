@@ -67,14 +67,22 @@ SET(FT_INSTALL_SUBDIR "host/functional-test")
 # Each target board can have its own HW arch selection and set of included apps
 SET(MISSION_CPUNAMES cpu1) # cpu2
 
-# SHIRE Host Processor (amd64)
+# SHIRE synchronized Linux processor (native host, ARM32, or AArch64 PIL)
 SET(cpu1_PROCESSORID 1)
 SET(cpu1_APPLIST) # Note: Using all ${MISSION_GLOBAL_APPLIST} automatically
-SET(cpu1_FILELIST cfe_es_startup.scr)
+SET(cpu1_FILELIST cfe_es_startup.scr adcs_time.dat)
 if (ENABLE_UNIT_TESTS)
     SET(cpu1_SYSTEM amd64-linux)
 else() 
-    SET(cpu1_SYSTEM amd64-shire)
+    if("$ENV{SHIRE_FSW_SYSTEM}" STREQUAL "armv7l-shire")
+        SET(cpu1_SYSTEM armv7l-shire)
+    elseif("$ENV{SHIRE_FSW_SYSTEM}" STREQUAL "aarch64-shire")
+        SET(cpu1_SYSTEM aarch64-shire)
+    elseif("$ENV{SHIRE_FSW_SYSTEM}" STREQUAL "" OR "$ENV{SHIRE_FSW_SYSTEM}" STREQUAL "amd64-shire")
+        SET(cpu1_SYSTEM amd64-shire)
+    else()
+        message(FATAL_ERROR "Unsupported SHIRE_FSW_SYSTEM: $ENV{SHIRE_FSW_SYSTEM}")
+    endif()
 endif()
 
 # Flight Processor (Zybo7020 - armv7l)

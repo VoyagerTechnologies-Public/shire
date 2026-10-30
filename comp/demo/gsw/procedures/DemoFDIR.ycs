@@ -6,6 +6,40 @@
       "text": "Fault Detection, Isolation, and Recovery (FDIR).\n* Enable the device\n* Confirm valid telemetry, compare to truth\n* Use backdoor to randomize telemetry\n* Confirm error\n* Confirm automated spacecraft RTS11 response\n* Restore functionality\n* Confirm valid telemetry"
     },
     {
+      "type": "text",
+      "text": "Arm LC action point 11. LC makes an action point passive after it trips, so a repeat run needs it armed again."
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SET_AP_STATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APNUMBER",
+          "value": "11"
+        },
+        {
+          "name": "NEWAPSTATE",
+          "value": "LC_APSTATE_ACTIVE"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_RESET_AP_STATS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APNUMBER",
+          "value": "11"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
       "type": "command",
       "name": "/DEMO/DEMO_RST_COUNTERS_CC",
       "extraOptions": [],
@@ -120,7 +154,7 @@
       "type": "verify",
       "condition": [
         {
-          "parameter": "/CFS/SC_HKTLM/RTSEXECUTINGSTATUS_1",
+          "parameter": "/SC/SC_HKTLM/RTSEXECUTINGSTATUS_1",
           "operator": "gte",
           "value": "1024"
         }
@@ -180,6 +214,40 @@
         }
       ],
       "comment": "Confirm device operating nominally."
+    },
+    {
+      "type": "text",
+      "text": "Restore: the action point went passive when it tripped, so arm it again and leave the spacecraft in its boot state."
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SET_AP_STATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APNUMBER",
+          "value": "11"
+        },
+        {
+          "name": "NEWAPSTATE",
+          "value": "LC_APSTATE_ACTIVE"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_RESET_AP_STATS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APNUMBER",
+          "value": "11"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
     }
   ],
   "advancement": {

@@ -51,6 +51,19 @@ and build tools are inventoried in [SBOM.md](SBOM.md) and
 [sbom.cdx.json](sbom.cdx.json). Their inclusion here does not imply that their
 licenses apply to independent Voyager-authored SHIRE material.
 
+## Viewer assets copied from the 42 submodule
+
+The default source files are part of the `42` submodule inventory above, not
+additional third-party source in the SHIRE root repository. The GSW image build
+copies or converts them into the viewer, so its distributed image contains
+separate asset copies. The configured source paths can change between builds;
+check the selected assets and their notices for each distributed image.
+
+| GSW image artifact | Default source in `42` | Build transformation | Source credit and notice |
+|---|---|---|---|
+| `/app/shire-static/visualization/earth-imagery.png` | `42/World/BlueMarbleNG4096.ppm` | PPM converted to PNG | `42/License/Credits.txt` credits NASA's Blue Marble imagery; the viewer displays a NASA Blue Marble credit. |
+| `/app/shire-static/visualization/model.glb` | `42/Model/stf1_red.obj` | OBJ geometry converted to GLB | `42/License/` and any applicable model-specific notices. |
+
 ## Distribution requirements
 
 A source release must be produced from a recursive checkout. A plain

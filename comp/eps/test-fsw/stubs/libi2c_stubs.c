@@ -32,6 +32,7 @@ int32_t i2c_read_transaction(i2c_bus_info_t *device, uint8_t addr, void *rxbuf, 
     UT_GenStub_AddParam(i2c_read_transaction, uint8_t, rxlen);
     UT_GenStub_AddParam(i2c_read_transaction, uint8_t, timeout);
     UT_GenStub_Execute(i2c_read_transaction, Basic, NULL);
+    UT_Stub_CopyToLocal(UT_KEY(i2c_read_transaction), rxbuf, rxlen);
     return UT_GenStub_GetReturnValue(i2c_read_transaction, int32_t);
 }
 

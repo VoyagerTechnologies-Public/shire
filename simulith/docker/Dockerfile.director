@@ -1,13 +1,7 @@
-FROM ghcr.io/voyagertechnologies-public/shire-base:0.0.0
-
-# Copy built simulith, director, and components
-# NOTE: 42 now runs in separate container, not included here
-COPY ./build/libsimulith.so /app/libsimulith.so
-COPY ./build/simulith_director_standalone /app/simulith_director_standalone
-COPY ./build/components /app/components
-
-# Set working directory
+# Simulith builds in the SHIRE development image; the shared runtime supplies ZeroMQ.
+FROM ghcr.io/voyagertechnologies-public/shire-native-runtime:0.0.0
+COPY build/libsimulith.so /app/libsimulith.so
+COPY build/simulith_director_standalone /app/simulith_director_standalone
+COPY build/components/ /app/components/
 WORKDIR /app
-
-# Set default command
 CMD ["/app/simulith_director_standalone"]

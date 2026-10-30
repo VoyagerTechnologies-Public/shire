@@ -16,13 +16,13 @@ docker compose -f build/drm/shire-compose.yaml logs --tail 200
 
 | Symptom | First place to look |
 | --- | --- |
-| Build cannot pull an image | Docker login, network access, proxy settings, and the image named by `BUILD_IMAGE`. |
+| An image build fails to download a base image or package | Network access and proxy settings for Docker Hub, the Debian mirrors, Maven Central, and the npm registry, and whether `make container` completed. |
 | Simulation time does not advance | Server, Director, and FSW logs for missing Simulith registration. |
-| 42 VNC does not open | The `shire-42` service state and host port 5801. |
+| Visualization does not open | The `shire-gsw` service state and host port 8090. |
 | YAMCS opens without telemetry | YAMCS link state and FSW, Director, CryptoLib, and GSW logs. |
 | A component is absent | Active spacecraft selection, merged configuration, and Director image contents. |
 | A procedure change does not appear | The persistent YAMCS stacks bucket. |
-| A command uses the debug path unexpectedly | The state of the preferred `radio-out` link. |
+| A command uses an unexpected path | Which command links are enabled on the YAMCS **Links** page. |
 | Generated files have the wrong owner | The UID and GID used by build containers. |
 
 ## A generated file is missing
@@ -90,18 +90,16 @@ make perf-smoke
 make perf
 ```
 
-The complete performance run includes active ADCS and radio transactions and
-compares terminal state and exact counts across 1x, 25x, and three unbounded
-trials.
+The complete performance run includes active ADCS and radio transactions,
+a full-output reference, paced 1x, 25x, and 50x trials, and three unbounded
+trials that must exceed 50x.
+It compares complete control traces and verifies advancing Yamcs truth.
 Its report path is printed at completion and defaults to a timestamped directory
 under `build/performance/`.
 
 Inspect the report before changing priorities or disabling outputs.
-Check phase percentiles, participant registration-to-dispatch and
-dispatch-to-return latency, per-device transaction latency, Docker samples,
-scheduling policy, protocol errors, and queue overflows.
-The report records `perf`, `pidstat`, or `strace` as unavailable when the host
-does not provide them.
+Check phase and device latency, resource samples, protocol errors, and queue
+overflows.
 
 After accepting a report for this workstation, test a candidate with:
 
@@ -112,24 +110,25 @@ make perf-compare BASELINE=/path/to/accepted-report.json
 Do not relax the phase barrier, remove device transactions, or disable flight
 application work to obtain a faster result.
 
-## The 42 browser interface does not open
+## Visualization does not open
 
-Confirm that the service is running and inspect its published port:
+Confirm Yamcs is running and inspect its viewer route:
 
 ```bash
-docker compose -f build/drm/shire-compose.yaml ps shire-42
-docker compose -f build/drm/shire-compose.yaml port shire-42 80
-docker compose -f build/drm/shire-compose.yaml logs --tail 200 shire-42
+docker compose -f build/drm/shire-compose.yaml ps shire-gsw
+curl -f http://localhost:8090/visualization/
+docker compose -f build/drm/shire-compose.yaml logs --tail 200 shire-gsw
 ```
 
-The default host mapping is port 5801.
-If the service is healthy but the port is unavailable, check for another local process using that port.
+Check `make replay-list` if the simulation has already stopped.
+Replay a selected
+run with `make replay RUN=<run-id>`.
 
 ## YAMCS has no telemetry
 
-1. Open YAMCS **Links** and identify whether `debug-in`, `radio-in`, or `truth42-in` is unavailable.
+1. Open YAMCS **Links** and identify whether `debug-in`, `radio-in`, `truth42-in`, or `visual-in` is unavailable.
 2. Inspect the FSW, Director, CryptoLib, and GSW logs.
-3. Confirm UDP ports 1235, 12346, and 50042 match `yamcs/src/main/yamcs/etc/yamcs.shire.yaml` and the corresponding source configuration.
+3. Confirm UDP ports 1235, 12346, 50042, and 50044 match `yamcs/src/main/yamcs/etc/yamcs.shire.yaml` and the corresponding source configuration.
 4. Confirm the radio mode permits the intended direction when testing the radio link.
 
 ## A component simulator is missing
@@ -153,16 +152,19 @@ This protects changes made through YAMCS, but it also means rebuilding the image
 Export any work that must be preserved before resetting storage.
 Inspect the generated mission volume and the cleanup behavior in [Docker](../how-to/docker.md) before deleting it.
 
-## A command uses the debug path unexpectedly
+## A command uses an unexpected path
 
-YAMCS prefers `radio-out` and falls back to `debug-out` when the preferred interface is unavailable.
+Both `debug-out` and `radio-out` are enabled at startup, and while both are enabled YAMCS sends each command by `radio-out` alone.
+`debug-out` carries commands only while `radio-out` is disabled, and there is no fallback.
 
-Check the `radio-out` state and service logs to determine why YAMCS selected the fallback.
+Send `/SHIRE_GROUND/USE_DEBUG_UPLINK` to use only `debug-out`.
+See [Choosing a command path](../core-concepts/ground-software.md#choosing-a-command-path) for the radio selection.
 Command history shows submission and acknowledgements, while link counters and service logs establish the transport path.
 
-## Port 8090 or 5801 is already in use
+## Port 8090 is already in use
 
 Stop the conflicting process or change the host mapping in `cfg/shire-compose.j2`, then rerun `make cfg`.
+For standalone replay, use `make replay RUN=<run-id> PORT=<free-port>`.
 Editing only the generated compose file is temporary and will be overwritten.
 
 ## Build artifacts have the wrong owner
@@ -180,10 +182,11 @@ docker system df --verbose
 docker volume ls
 ```
 
-`make clean-cache` prunes the Docker builder cache and attempts to remove volumes named exactly `gsw-data` and `simulith_ipc`.
-The generated Compose files use suffixed volume keys, so inspect `docker volume ls` rather than assuming this target removed every SHIRE volume.
-`make clean` and `make uninstall` remove broader sets of SHIRE artifacts and volumes.
-These targets are destructive, so preserve needed YAMCS data first.
+`make clean-cache` deletes all labeled SHIRE Yamcs run archives, their stored replay data, and their pinned image tags before pruning the Docker builder cache.
+It refuses to proceed while any archive is mounted by a running container, and it removes stopped containers still attached to those archives.
+It keeps older unlabeled `gsw-data` volumes and attempts to remove the legacy `simulith_ipc` volume.
+`make clean` retains labeled Yamcs archives, while `make uninstall` calls `clean-cache` and therefore deletes them.
+Use `make replay-list` to inspect retained runs and `make replay-delete RUN=<run-id>` to remove just one.
 
 ## Reporting an issue
 
@@ -200,4 +203,4 @@ Include:
 Remove credentials, keys, proprietary mission data, and other secrets before attaching files.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261027

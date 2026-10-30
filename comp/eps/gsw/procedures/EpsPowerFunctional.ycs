@@ -1,0 +1,3968 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Before running in Yamcs Links: enable debug-in and sim-backdoor. Keep the simulation playing. This stack selects debug-out and disables radio-out automatically for normal EPS and device commands. This stack automatically selects radio-out for each marked RF probe and restores the prior command-link states before requesting housekeeping.",
+      "comment": "Before running in Yamcs Links: enable debug-in and sim-backdoor. Keep the simulation playing. This stack selects debug-out and disables radio-out automatically for normal EPS and device commands. This stack automatically selects radio-out for each marked RF probe and restores the prior command-link states before requesting housekeeping."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "text",
+      "text": "EPS functional: resolved wiring; switch effects use flight commands",
+      "comment": "EPS functional: resolved wiring; switch effects use flight commands"
+    },
+    {
+      "type": "text",
+      "text": "OUTAGE_BEGIN",
+      "comment": "OUTAGE_BEGIN"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_ENABLE_CC",
+      "arguments": [],
+      "extraOptions": [],
+      "comment": "Enable if disabled: /DEMO/DEVICE_ENABLED"
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_ENABLE_CC",
+      "arguments": [],
+      "extraOptions": [],
+      "comment": "Enable if disabled: /ADCS/DEVICE_ENABLED"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "DRM radio startup enabled",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceEnabled",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Duplex Mode"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_RST_COUNTERS_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "EPS counters for RF probe",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed.",
+      "comment": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_NOOP_CC",
+      "arguments": [],
+      "extraOptions": [],
+      "comment": "EPS RF probe via radio-out"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio uplink and downlink observed",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_BytesReceived",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_BytesSent",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "OUTAGE_END",
+      "comment": "OUTAGE_END"
+    },
+    {
+      "type": "text",
+      "text": "OUTAGE_BEGIN",
+      "comment": "OUTAGE_BEGIN"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ERR_COUNT",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 1 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 1 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 1 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 2 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 2 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 2 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 3 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 3 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 3 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ERR_COUNT",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 5 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 5 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 5 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_RST_COUNTERS_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio outage EPS baseline",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed.",
+      "comment": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_NOOP_CC",
+      "arguments": [],
+      "extraOptions": [],
+      "comment": "EPS RF probe via radio-out"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio outage rejects RF uplink",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 7 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 7 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 7 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ERR_COUNT",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 1 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 2 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 3 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ERR_COUNT",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 5 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_RST_COUNTERS_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio outage EPS baseline",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed.",
+      "comment": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_NOOP_CC",
+      "arguments": [],
+      "extraOptions": [],
+      "comment": "EPS RF probe via radio-out"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio outage rejects RF uplink",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 7 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "encoded rail readings off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 1 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 2 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 3 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 5 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 7 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "encoded rail readings on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "gte",
+          "value": "3.1745097039215686"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "lte",
+          "value": "3.425490296078431"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "gte",
+          "value": "0.20320845614973265"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "lte",
+          "value": "0.28164002869875226"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "gte",
+          "value": "3.1745097039215686"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "lte",
+          "value": "3.425490296078431"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "gte",
+          "value": "4.874509703921569"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "lte",
+          "value": "5.125490296078431"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "gte",
+          "value": "4.874509703921569"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "lte",
+          "value": "5.125490296078431"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "gte",
+          "value": "11.87450970392157"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "lte",
+          "value": "12.12549029607843"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.002450880392156861"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.08088245294117646"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "gte",
+          "value": "11.87450970392157"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "lte",
+          "value": "12.12549029607843"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "gte",
+          "value": "1.6274508803921568"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "lte",
+          "value": "1.7058824529411767"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "gte",
+          "value": "23.874509703921568"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "lte",
+          "value": "24.125490296078432"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0.1482842137254902"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.2267157862745098"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "gte",
+          "value": "23.874509703921568"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "lte",
+          "value": "24.125490296078432"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "OUTAGE_END",
+      "comment": "OUTAGE_END"
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "PASSIVE"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "ADCS demand PASSIVE",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.002450880392156861"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.08088245294117646"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "BDOT"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "ADCS demand BDOT",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.16911754705882354"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.24754911960784315"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "SUNSAFE"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "ADCS demand SUNSAFE",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.16911754705882354"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.24754911960784315"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "NADIR"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "ADCS demand NADIR",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.16911754705882354"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.24754911960784315"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "TARGET"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "ADCS demand TARGET",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "4"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.16911754705882354"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.24754911960784315"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "INERTIAL"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "ADCS demand INERTIAL",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "5"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.16911754705882354"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.24754911960784315"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Sleep Mode"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio demand Sleep Mode",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.04754911960784314"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Transmit Only Mode"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio demand Transmit Only Mode",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0.12745088039215685"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.20588245294117646"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Receive Only Mode"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio demand Receive Only Mode",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0.023284213725490197"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.1017157862745098"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Duplex Mode"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio demand Duplex Mode",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0.1482842137254902"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.2267157862745098"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "RECOVERY_BEGIN",
+      "comment": "RECOVERY_BEGIN"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ERR_COUNT",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 1 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "2"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 2 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "3"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 3 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ERR_COUNT",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 5 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "FSW device requests fail while rail is off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_RST_COUNTERS_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio outage EPS baseline",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed.",
+      "comment": "RF probe: Yamcs ground commands select radio-out exclusively for the following EPS flight NOOP, then restore the previous uplink states. Keep the simulation playing; no manual link changes are needed."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_NOOP_CC",
+      "arguments": [],
+      "extraOptions": [],
+      "comment": "EPS RF probe via radio-out"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "radio outage rejects RF uplink",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 7 off",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 0 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "4"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 4 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "6"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "rail 6 on",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "fresh device transactions",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gt",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "startup restored",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_STATE",
+          "operator": "eq",
+          "value": "ON"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_STATE",
+          "operator": "eq",
+          "value": "ON"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_STATE",
+          "operator": "eq",
+          "value": "ON"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        },
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "startup electrical readings",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "gte",
+          "value": "3.1745097039215686"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "lte",
+          "value": "3.425490296078431"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "gte",
+          "value": "0.20320845614973265"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "lte",
+          "value": "0.28164002869875226"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "gte",
+          "value": "11.87450970392157"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "lte",
+          "value": "12.12549029607843"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0.002450880392156861"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "lte",
+          "value": "0.08088245294117646"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "gte",
+          "value": "23.874509703921568"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "lte",
+          "value": "24.125490296078432"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0.1482842137254902"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "lte",
+          "value": "0.2267157862745098"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "lte",
+          "value": "0.12549029607843137"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "lte",
+          "value": "0.039215786274509806"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "RECOVERY_END",
+      "comment": "RECOVERY_END"
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "acceptance metrics",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SOLAR_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/DEVICE_COUNT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/DEVICE_ERR_COUNT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/DEMO/DEVICE_COUNT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/DEMO/DEVICE_ERR_COUNT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_COUNT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_ERR_COUNT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceCount",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/RADIO/RADIO_HK_DeviceErrorCount",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_0_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_1_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_2_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_3_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_4_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_6_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_VOLTAGE",
+          "operator": "gte",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_CURRENT",
+          "operator": "gte",
+          "value": "0"
+        }
+      ]
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

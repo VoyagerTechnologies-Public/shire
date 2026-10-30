@@ -23,7 +23,7 @@ make list
 make
 ```
 
-The first run pulls or builds several container images and compiles cFS, YAMCS, Simulith, 42, CryptoLib, and the selected component simulators.
+The first run builds several container images and compiles cFS, YAMCS, Simulith, 42, CryptoLib, and the selected component simulators.
 It can take substantial time and disk space.
 
 `make cfg` creates `build/active.yaml`.
@@ -44,7 +44,7 @@ The Compose output should show the automatic SC, LC, TO_LAB, Radio, and cFE star
 Then open:
 
 * YAMCS: [http://localhost:8090](http://localhost:8090)
-* 42 VNC: [http://localhost:5801/vnc_auto.html](http://localhost:5801/vnc_auto.html)
+* Visualization: [http://localhost:8090/visualization/](http://localhost:8090/visualization/)
 
 YAMCS opens on the Instances page.
 Select the running `shire` instance.
@@ -58,14 +58,8 @@ The YAMCS Home page should begin showing recently received packets.
 Select **Links** in the left navigation.
 Confirm telemetry is arriving before sending commands.
 
-The 42 page can initially show the noVNC connection screen.
-Select **Connect** to open the dynamics display.
-
-![noVNC connection screen for the 42 dynamics display](../../assets/manual/getting-started/42-novnc-connect.png)
-
-Confirm that the spacecraft view and map appear and that simulation time advances.
-
-![Connected 42 dynamics display showing the spacecraft and ground track](../../assets/manual/getting-started/42-dynamics-display.png)
+The visualization page shows the spacecraft and its Earth orbit from Yamcs truth telemetry.
+Select **Live** to follow the run.
 
 The default Server container is named `shire-server-drm`.
 Attach to its console to control simulation time:
@@ -74,8 +68,9 @@ Attach to its console to control simulation time:
 docker attach shire-server-drm
 ```
 
-Use `p` to pause or resume, `speed 25` to request an exact rate, `speed max` for
-unbounded execution, and `+` or `-` to double or halve the requested rate.
+Use `p` to toggle pause, or `pause` and `resume` to set the state explicitly.
+Use `step` to pause and advance a single 10 ms tick, `speed 25` to request an exact rate, `speed max` for unbounded execution, and `+` or `-` to double or halve the requested rate.
+`quit` makes the Server exit, so use it only to end the run.
 Detach without stopping the container with `Ctrl+P`, then `Ctrl+Q`.
 To start at 25x, use `SIMULITH_SPEED=25 make start`.
 
@@ -88,17 +83,29 @@ Then ensure all services are stopped:
 make stop
 ```
 
-YAMCS data is stored in a named volume and normally survives `make stop`.
-A later `make start` reuses the generated configuration and images.
-Run `make` again after source or configuration changes.
+Every `make start` runs `tools/shire-archives.py start`, which allocates a new labeled Docker volume named `shire-yamcs-archive-<run-id>` for that run and passes it to Compose as `SHIRE_YAMCS_VOLUME`.
+YAMCS data from the earlier run therefore stays in its own volume as a retained run, and the next `make start` begins with an empty archive.
+A later `make start` reuses the generated configuration and images, so run `make` again after source or configuration changes.
+
+To review a retained run after the stack has stopped:
+
+```bash
+make replay-list
+make replay RUN=<run-id>
+```
+
+`make replay` serves the selected archive from a standalone YAMCS container on port 8090, or on `PORT=<free-port>`.
+`make replay-delete RUN=<run-id>` removes one retained run.
 
 Use cleanup targets deliberately:
 
 * `make clean` removes the active mission build artifacts and stops the stack.
-* `make clean-cache` prunes the Docker builder cache and attempts to remove the legacy unsuffixed `gsw-data` and `simulith_ipc` volumes.
-* `make uninstall` removes SHIRE build artifacts, containers, images, volumes, and networks.
+* `make clean-cache` deletes all labeled SHIRE replay archives and pinned run images, then prunes Docker builder cache.
+  It keeps older unlabeled GSW volumes.
+* `make uninstall` removes SHIRE build artifacts, containers, images, labeled replay archives, and networks through its `clean-cache` dependency.
+  It removes only images whose names begin with `shire-`, so the `ghcr.io/voyagertechnologies-public/...` dependency images from `make container` remain.
 
 Continue with the [Commissioning scenario](../../scenarios/commissioning.md), or see [Troubleshooting](faq.md) if startup fails.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261027

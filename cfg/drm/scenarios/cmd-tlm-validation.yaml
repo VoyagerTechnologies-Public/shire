@@ -1,0 +1,33 @@
+# Cmd/Tlm Operational Validation (issue #26): proves commanding, telemetry limits, stored command (RTS) upload, and
+# flight software table patches from YAMCS procedures, headlessly.
+#
+# Manual (GUI + YAMCS):  set scenario: cmd-tlm-validation in build/active.yaml, `make`, `make start`, then run the
+#                        three stacks below by hand from Procedures / Stacks. Atlas's Cmd/Tlm Validation scenario
+#                        page walks through them and shows the YAMCS alarms.
+# Autonomous (no GUI):   make scenario SCENARIO=cmd-tlm-validation
+#
+# The automated run proves the commands and the numeric telemetry checks pass from the YAMCS procedures. It does not
+# assert on YAMCS alarm state, which the manual scenario shows in the web interface.
+scenario_name: "cmd-tlm-validation"
+description: >
+  Runs the three Cmd/Tlm validation stacks in order on the nominal-baseline reference orbit. CmdTlmLimits.ycs checks
+  command acceptance and rejection and drives the EPS battery through its yellow and red limits with the EPS
+  backdoor. CmdTlmStoredCommands.ycs uploads an RTS table by CFDP, loads, validates, activates, enables and runs it, then
+  restores the boot table. CmdTlmPatches.ycs uploads an LC watchpoint table patch that adds the onboard twin of the
+  battery's yellow limit, then uploads a patched EPS application and reloads it so that the load bank switch is refused,
+  restoring each boot file afterward, and shows that a corrupt RTS table fails validation and that a reload from a file
+  that was never uploaded is refused. Each stack leaves the spacecraft in its
+  boot configuration, so the stacks can run again on a running spacecraft.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+# The three stacks take about three minutes of wall time at 1x. The budget covers the slowest observed run several times
+# over, since a verify step polls up to a minute for the EPS housekeeping that follows each battery change.
+run_duration_s: 480
+verify_stacks:
+  - stack: "cfg/drm/gsw/procedures/CmdTlmLimits.ycs"
+    at_s: 0
+  - stack: "cfg/drm/gsw/procedures/CmdTlmStoredCommands.ycs"
+    at_s: 0
+  - stack: "cfg/drm/gsw/procedures/CmdTlmPatches.ycs"
+    at_s: 0

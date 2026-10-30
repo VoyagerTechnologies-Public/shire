@@ -42,6 +42,9 @@ typedef struct {
 } simulith_gpio_state_t;
 
 int simulith_transport_init(transport_port_t *port);
+/* Map a logical device endpoint to IPC (default) or a configured TCP peer. */
+int simulith_transport_resolve_address(const char *logical_address, int is_server,
+                                      char *address, size_t capacity);
 int simulith_transport_send(transport_port_t *port, const uint8_t *data, size_t len);
 /*
  * Send a device request and wait until the simulator reports that the request

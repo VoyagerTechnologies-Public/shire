@@ -1,0 +1,25 @@
+# Confirms mild rotisserie during sun-point mode (issue #8 item 2): a
+# sustained roll rate about the sun-pointing boresight (body +X) while sun
+# pointing itself stays converged, via AdcsSunpointRotisserie.ycs's
+# verify_stacks steps.
+#
+# Manual (GUI + YAMCS):  set scenario: adcs-sunpoint-rotisserie in
+#                        build/active.yaml, `make`, `make start`, then run
+#                        comp/adcs/gsw/procedures/AdcsSunpointRotisserie.ycs
+#                        by hand.
+# Autonomous (no GUI):   make scenario SCENARIO=adcs-sunpoint-rotisserie
+scenario_name: "adcs-sunpoint-rotisserie"
+description: >
+  Enables ADCS on the nominal-baseline reference orbit, commands SUNSAFE,
+  waits for sun-pointing convergence (SUN_X/Y/Z within the same bounds
+  AdcsComponent.ycs/CheckoutTest.ycs already use), then verifies ANGRATE_X
+  holds near the boot-loaded gains table's default RotisserieRateRadS
+  (0.005 rad/s) and that pointing is still converged afterward -- proving
+  the roll doesn't perturb Y/Z pointing control.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+run_duration_s: 180
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsSunpointRotisserie.ycs"
+    at_s: 0

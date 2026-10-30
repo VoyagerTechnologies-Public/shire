@@ -1,0 +1,1320 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Cmd/Tlm validation, part 4. Patch the flight software from the ground: an LC table patch, an EPS application patch, and two bad patches that are caught. The patches are built with the flight software and staged in the upload bucket as up_*. Every patch is undone at the end so the stack can run again. Keep the simulation playing.",
+      "comment": "Cmd/Tlm validation, part 4. Patch the flight software from the ground: an LC table patch, an EPS application patch, and two bad patches that are caught. The patches are built with the flight software and staged in the upload bucket as up_*. Every patch is undone at the end so the stack can run again. Keep the simulation playing."
+    },
+    {
+      "type": "text",
+      "text": "Table patch: LC watches 3 things at boot. An uploaded LC table adds watchpoint 12, EPS battery voltage below 20 V, the same yellow limit the ground uses",
+      "comment": "Table patch: LC watches 3 things at boot. An uploaded LC table adds watchpoint 12, EPS battery voltage below 20 V, the same yellow limit the ground uses"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "800000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gt",
+          "value": "22"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "start from a full battery"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/LC/LC_HKPACKET/WPSINUSE",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/LC/LC_HKPACKET/WPRESULTS_12",
+          "operator": "eq",
+          "value": "STALE"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "before: three watchpoints in use, and watchpoint 12 is not one of them"
+    },
+    {
+      "type": "command",
+      "name": "/CCSDS/CFDP_UPLOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "OBJECT_NAME",
+          "value": "up_lc_wdt.tbl"
+        },
+        {
+          "name": "REMOTE_PATH",
+          "value": "/d/up_lc_wdt.tbl"
+        }
+      ],
+      "stream": "checkout_control"
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CF/CF_EOTPACKET/DIRECTION",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/TRANSACTION_STATUS",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/SOURCE_ENTITY_ID",
+          "operator": "eq",
+          "value": "23"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/DESTINATION_FILENAME",
+          "operator": "eq",
+          "value": "/d/up_lc_wdt.tbl"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/FILE_SIZE",
+          "operator": "eq",
+          "value": "5044"
+        }
+      ],
+      "timeout": 240000,
+      "comment": "the spacecraft received all 5044 bytes of up_lc_wdt.tbl"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_LOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "LOADFILENAME",
+          "value": "/d/up_lc_wdt.tbl"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_VALIDATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ACTIVETBLFLAG",
+          "value": "0"
+        },
+        {
+          "name": "TABLENAME",
+          "value": "LC.LC_WDT"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/LASTVALSTATUS",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the LC table loaded and validated"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_ACTIVATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TABLENAME",
+          "value": "LC.LC_WDT"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "load, validate, and activate were all accepted"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/LC/LC_HKPACKET/WPSINUSE",
+          "operator": "eq",
+          "value": "4"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "after: LC watches four things"
+    },
+    {
+      "type": "text",
+      "text": "With a full battery the new watchpoint is false. Draining the battery below 20 V makes it true",
+      "comment": "With a full battery the new watchpoint is false. Draining the battery below 20 V makes it true"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/LC/LC_HKPACKET/WPRESULTS_12",
+          "operator": "eq",
+          "value": "FALSE"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "battery above 20 V, so the watchpoint is false"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "400000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "lt",
+          "value": "20"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "battery below the 20 V yellow limit"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/LC/LC_HKPACKET/WPRESULTS_12",
+          "operator": "eq",
+          "value": "TRUE"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the onboard watchpoint agrees with the ground limit"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/BACKDOOR_EPS_SET_SOC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SOC_PPM",
+          "value": "800000"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gt",
+          "value": "22"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "battery restored"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/LC/LC_HKPACKET/WPRESULTS_12",
+          "operator": "eq",
+          "value": "FALSE"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the watchpoint is false again"
+    },
+    {
+      "type": "text",
+      "text": "Restore: load the boot LC table from /cf so LC watches three things again",
+      "comment": "Restore: load the boot LC table from /cf so LC watches three things again"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_LOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "LOADFILENAME",
+          "value": "/cf/lc_def_wdt.tbl"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_VALIDATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ACTIVETBLFLAG",
+          "value": "0"
+        },
+        {
+          "name": "TABLENAME",
+          "value": "LC.LC_WDT"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/LASTVALSTATUS",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the boot LC table loaded and validated"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_ACTIVATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TABLENAME",
+          "value": "LC.LC_WDT"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "load, validate, and activate were all accepted"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/LC/LC_HKPACKET/WPSINUSE",
+          "operator": "eq",
+          "value": "3"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "back to three watchpoints"
+    },
+    {
+      "type": "text",
+      "text": "Application patch: the EPS application switches any of its eight rails on command. A patched build refuses to switch ON switch 5, the 20 W load bank that can run the battery down. Show the original behavior first",
+      "comment": "Application patch: the EPS application switches any of its eight rails on command. A patched build refuses to switch ON switch 5, the 20 W load bank that can run the battery down. Show the original behavior first"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_RST_COUNTERS_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "clean EPS counters"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "before the patch: the load bank switches on"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "and off again"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_QUERY_ONE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APPLICATION",
+          "value": "EPS_APP"
+        }
+      ]
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_NAME"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_FILENAME"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_ENTRYPOINT"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Upload the patched module and reload the application from it. The application restarts, so its counters start again from zero",
+      "comment": "Upload the patched module and reload the application from it. The application restarts, so its counters start again from zero"
+    },
+    {
+      "type": "command",
+      "name": "/CCSDS/CFDP_UPLOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "OBJECT_NAME",
+          "value": "up_eps.so"
+        },
+        {
+          "name": "REMOTE_PATH",
+          "value": "/d/up_eps.so"
+        }
+      ],
+      "stream": "checkout_control"
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CF/CF_EOTPACKET/DIRECTION",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/TRANSACTION_STATUS",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/SOURCE_ENTITY_ID",
+          "operator": "eq",
+          "value": "23"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/DESTINATION_FILENAME",
+          "operator": "eq",
+          "value": "/d/up_eps.so"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/FILE_SIZE",
+          "operator": "eq",
+          "value": "17208"
+        }
+      ],
+      "timeout": 300000,
+      "comment": "the spacecraft received all 17208 bytes of up_eps.so"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RELOAD_APP",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APPLICATION",
+          "value": "EPS_APP"
+        },
+        {
+          "name": "APPFILENAME",
+          "value": "/d/up_eps.so"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 120000,
+      "comment": "the application restarted from the patched module"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_QUERY_ONE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APPLICATION",
+          "value": "EPS_APP"
+        }
+      ]
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_NAME"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_FILENAME"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_ENTRYPOINT"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "After the patch: switch 5 is refused and counted as an error, and it stays off. The other switches still work",
+      "comment": "After the patch: switch 5 is refused and counted as an error, and it stays off. The other switches still work"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "after the patch: the load bank is refused, counted as an error, and stays off"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "another switch still switches on"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "7"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/EPS/SWITCH_7_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "and off"
+    },
+    {
+      "type": "text",
+      "text": "Restore: reload the application from its boot module in /cf. The original behavior returns, so switch 5 works again",
+      "comment": "Restore: reload the application from its boot module in /cf. The original behavior returns, so switch 5 works again"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RELOAD_APP",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APPLICATION",
+          "value": "EPS_APP"
+        },
+        {
+          "name": "APPFILENAME",
+          "value": "/cf/eps.so"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 120000,
+      "comment": "the application restarted from the boot module"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_QUERY_ONE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APPLICATION",
+          "value": "EPS_APP"
+        }
+      ]
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_NAME"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_FILENAME"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_ONEAPPTLM/APPINFO_ENTRYPOINT"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_ON_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/EPS/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "ON"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the original module switches the load bank on again"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_SWITCH_OFF_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SWITCH_NUMBER",
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/EPS/CMD_COUNT",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/EPS/SWITCH_5_STATE",
+          "operator": "eq",
+          "value": "OFF"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "and off, leaving the spacecraft as it started"
+    },
+    {
+      "type": "text",
+      "text": "Bad patch 1: a corrupt RTS 13 table fails validation. Aborting the load leaves RTS 13 as it was",
+      "comment": "Bad patch 1: a corrupt RTS 13 table fails validation. Aborting the load leaves RTS 13 as it was"
+    },
+    {
+      "type": "command",
+      "name": "/CCSDS/CFDP_UPLOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "OBJECT_NAME",
+          "value": "up_sc_rts13bad.tbl"
+        },
+        {
+          "name": "REMOTE_PATH",
+          "value": "/d/up_sc_rts13bad.tbl"
+        }
+      ],
+      "stream": "checkout_control"
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CF/CF_EOTPACKET/DIRECTION",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/TRANSACTION_STATUS",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/SOURCE_ENTITY_ID",
+          "operator": "eq",
+          "value": "23"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/DESTINATION_FILENAME",
+          "operator": "eq",
+          "value": "/d/up_sc_rts13bad.tbl"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/FILE_SIZE",
+          "operator": "eq",
+          "value": "416"
+        }
+      ],
+      "timeout": 240000,
+      "comment": "the spacecraft received all 416 bytes of up_sc_rts13bad.tbl"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_LOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "LOADFILENAME",
+          "value": "/d/up_sc_rts13bad.tbl"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_VALIDATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ACTIVETBLFLAG",
+          "value": "0"
+        },
+        {
+          "name": "TABLENAME",
+          "value": "SC.RTS_TBL013"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/LASTVALSTATUS",
+          "operator": "ne",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "SC rejected the corrupt table"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_ABORT_LOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TABLENAME",
+          "value": "SC.RTS_TBL013"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/NUMLOADPENDING",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "the load was aborted and nothing is pending"
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_RESET_COUNTERS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_ENABLE_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "13"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_START_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "13"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/RTSCMDCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "RTS 13 never took the corrupt table, so it is still empty"
+    },
+    {
+      "type": "text",
+      "text": "Bad patch 2: reloading an application from a file that was never uploaded is refused before ES touches the application",
+      "comment": "Bad patch 2: reloading an application from a file that was never uploaded is refused before ES touches the application"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RELOAD_APP",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "APPLICATION",
+          "value": "EPS_APP"
+        },
+        {
+          "name": "APPFILENAME",
+          "value": "/d/up_missing.so"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "1"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "ES refused the reload"
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "the refused reload did not count as a successful command"
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

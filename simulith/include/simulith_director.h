@@ -96,6 +96,7 @@ typedef struct
     uint64_t          execute_epoch;
     int               threads_exit;     /* set to 1 under tick_mutex to stop workers */
     int               execute_active;   /* service device I/O until COMMIT */
+    size_t            pending_service_callbacks;
     size_t            active_service_callbacks;
     int               threads_spawned;  /* number of live worker threads */
     int               worker_sync_initialized;
@@ -107,6 +108,7 @@ typedef struct
 } director_config_t;
 
 // Function declarations
+int director_configure_trace_duration(void);
 
 /**
  * Parse command line arguments
@@ -130,6 +132,8 @@ int load_components(director_config_t* config);
  * @return 0 on success, -1 on error
  */
 int initialize_components(director_config_t* config);
+int director_commit_power(director_config_t *config, uint64_t ns);
+int director_dispatch_backdoor(director_config_t *config, const uint8_t *packet, size_t length);
 
 /**
  * Cleanup all components and close libraries

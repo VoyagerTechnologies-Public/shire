@@ -1,0 +1,25 @@
+# Confirms ADCS's boot-time gains table (issue #8 item 4) loads cleanly on
+# a normal boot and the device accepts a re-push via ADCS_CONFIG_CC, via
+# AdcsComponent.ycs's verify_stacks step.
+#
+# Manual (GUI + YAMCS):  set scenario: adcs-boot-config in build/active.yaml,
+#                        `make`, `make start`, then run
+#                        comp/adcs/gsw/procedures/AdcsComponent.ycs by hand.
+# Autonomous (no GUI):   make scenario SCENARIO=adcs-boot-config
+scenario_name: "adcs-boot-config"
+description: >
+  Boots sat-1 on the nominal-baseline reference orbit with no special
+  initial conditions, then runs AdcsComponent.ycs's ADCS_CONFIG_CC step:
+  enable, verify the boot-loaded default gains table pushed to the device
+  without error (no regression from pre-table behavior, since only
+  RotisserieRateRadS differs from the pre-table macro values), then
+  re-push via ADCS_CONFIG_CC and verify the command counter incremented.
+initial_conditions: "nominal-baseline"
+overrides:
+  debug: false
+# AdcsComponent.ycs also exercises SUNSAFE convergence (120s budget); 300s
+# covers a worst-case run of the whole stack with margin.
+run_duration_s: 300
+verify_stacks:
+  - stack: "comp/adcs/gsw/procedures/AdcsComponent.ycs"
+    at_s: 0

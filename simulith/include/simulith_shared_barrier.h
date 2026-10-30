@@ -33,6 +33,12 @@ typedef struct
     int interrupted;
     uint64_t last_generation;
     simulith_shared_barrier_state_t *state;
+    int fast_receive_safe; /* caller participates in every published phase */
+    int profile_enabled;
+    uint64_t profile_lock_count[4];
+    uint64_t profile_lock_wait_ns[4];
+    uint64_t profile_fast_receive;
+    uint64_t profile_fast_wait;
 } simulith_shared_barrier_t;
 
 int simulith_shared_barrier_create(simulith_shared_barrier_t *barrier);

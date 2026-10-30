@@ -4,6 +4,22 @@
 #include <string.h>
 #include <stdarg.h>
 
+static const char *endpoint_setting(const char *name, const char *fallback)
+{
+    const char *value = getenv(name);
+    return value && value[0] ? value : fallback;
+}
+
+const char *simulith_pub_address(int bind)
+{
+    return endpoint_setting(bind ? "SIMULITH_PUB_BIND" : "SIMULITH_PUB_ADDR", LOCAL_PUB_ADDR);
+}
+
+const char *simulith_rep_address(int bind)
+{
+    return endpoint_setting(bind ? "SIMULITH_REP_BIND" : "SIMULITH_REP_ADDR", LOCAL_REP_ADDR);
+}
+
 typedef enum {
     LOG_MODE_STDOUT,
     LOG_MODE_FILE,

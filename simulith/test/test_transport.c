@@ -33,6 +33,58 @@ typedef struct
     int send_stale_ack;
 } exact_sender_args_t;
 
+/* A send fails until the peer's connection is up, and a failed send is not queued, so retry for a bounded
+ * time instead of assuming a fixed delay was long enough. */
+static void send_when_peer_is_connected(transport_port_t *port, const uint8_t *data, size_t length)
+{
+    for (int attempt = 0; attempt < 5000; ++attempt)
+    {
+        if (simulith_transport_send(port, data, length) == (int)length)
+            return;
+        test_sleep_us(1000);
+    }
+}
+
+/* The bind side of a PAIR socket is writable only once its peer has connected. */
+static void wait_for_peer(transport_port_t *bind_side)
+{
+    for (int attempt = 0; attempt < 10000; ++attempt)
+    {
+        int events = 0;
+        size_t size = sizeof(events);
+        if (zmq_getsockopt(bind_side->zmq_sock, ZMQ_EVENTS, &events, &size) == 0 && (events & ZMQ_POLLOUT))
+            return;
+        test_sleep_us(500);
+    }
+}
+
+/* receive_request() returns 0 until a frame has arrived; poll until it reports something else. */
+static int receive_request_when_arrived(transport_port_t *port, uint8_t *buffer, size_t capacity,
+                                        uint64_t *transaction_id)
+{
+    int result = 0;
+    for (int attempt = 0; attempt < 10000 && result == 0; ++attempt)
+    {
+        result = simulith_transport_receive_request(port, buffer, capacity, transaction_id);
+        if (result == 0)
+            test_sleep_us(500);
+    }
+    return result;
+}
+
+/* Waits (bounded) for a sent message to reach the port; returns the final simulith_transport_available(). */
+static int wait_for_available(transport_port_t *port)
+{
+    int available = 0;
+    for (int attempt = 0; attempt < 10000 && !available; ++attempt)
+    {
+        available = simulith_transport_available(port);
+        if (!available)
+            test_sleep_us(500);
+    }
+    return available;
+}
+
 static void *send_exact_parts_thread(void *argument)
 {
     exact_sender_args_t *sender = argument;
@@ -40,9 +92,9 @@ static void *send_exact_parts_thread(void *argument)
     if (sender->send_stale_ack)
         (void)simulith_transport_complete_request(
             sender->port, 99, SIMULITH_TRANSPORT_SUCCESS);
-    (void)simulith_transport_send(sender->port, sender->first, sender->first_len);
+    send_when_peer_is_connected(sender->port, sender->first, sender->first_len);
     test_sleep_us(2000);
-    (void)simulith_transport_send(sender->port, sender->second, sender->second_len);
+    send_when_peer_is_connected(sender->port, sender->second, sender->second_len);
     return NULL;
 }
 
@@ -52,7 +104,7 @@ static void *complete_request_thread(void *arg)
     uint8_t received[8];
     uint64_t transaction_id = 0;
 
-    for (int attempt = 0; attempt < 1000; ++attempt)
+    for (int attempt = 0; attempt < 20000; ++attempt)
     {
         server->receive_result = simulith_transport_receive_request(
             server->port, received, sizeof(received), &transaction_id);
@@ -168,7 +220,7 @@ static void test_transport_receive_exact_partial_timeout_and_stale_ack(void)
                                             send_exact_parts_thread, &sender));
     uint8_t received[5] = {0};
     TEST_ASSERT_EQUAL_INT(5, simulith_transport_receive_exact(
-                                 &client, received, sizeof(received), 1000));
+                                 &client, received, sizeof(received), 20000));
     static const uint8_t expected[] = {1, 2, 3, 4, 5};
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, received, sizeof(expected));
     TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
@@ -289,16 +341,15 @@ static void test_transport_send_receive(void)
     result = simulith_transport_init(&transport_b_ports[0]);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
 
-    /* Allow ZMQ to establish connection */
-    test_sleep_us(1000);
+    /* Wait for ZMQ to establish the connection; a send from the bind side fails before that. */
+    wait_for_peer(&transport_a_ports[0]);
 
     /* Send from A to B */
     result = simulith_transport_send(&transport_a_ports[0], test_data, sizeof(test_data));
     TEST_ASSERT_EQUAL(sizeof(test_data), result);
-    test_sleep_us(1000);
 
     /* Confirm available on B */
-    result = simulith_transport_available(&transport_b_ports[0]);
+    result = wait_for_available(&transport_b_ports[0]);
     TEST_ASSERT_TRUE(result == 1);
 
     /* Receive on B */
@@ -309,9 +360,8 @@ static void test_transport_send_receive(void)
     /* Send back from B to A */
     result = simulith_transport_send(&transport_b_ports[0], rx_data, sizeof(rx_data));
     TEST_ASSERT_EQUAL(sizeof(rx_data), result);
-    test_sleep_us(1000);
 
-    result = simulith_transport_available(&transport_a_ports[0]);
+    result = wait_for_available(&transport_a_ports[0]);
     TEST_ASSERT_TRUE(result == 1);
 
     result = simulith_transport_receive(&transport_a_ports[0], rx_data, sizeof(rx_data));
@@ -349,7 +399,7 @@ static void test_transport_request_completion(void)
     test_sleep_us(1000);
     TEST_ASSERT_EQUAL_INT((int)sizeof(request),
                           simulith_transport_request(&transport_b_ports[1], request,
-                                                     sizeof(request), 1000));
+                                                     sizeof(request), 20000));
     TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
     TEST_ASSERT_EQUAL_INT((int)sizeof(request), server.receive_result);
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, server.complete_result);
@@ -411,7 +461,7 @@ static void test_transport_request_ack_edge_cases(void)
     test_sleep_us(1000);
     TEST_ASSERT_EQUAL_INT((int)sizeof(request),
                           simulith_transport_request(&client, request,
-                                                     sizeof(request), 1000));
+                                                     sizeof(request), 20000));
     TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
 
     request_server_args_t rejected = {
@@ -424,7 +474,7 @@ static void test_transport_request_ack_edge_cases(void)
                                             complete_request_thread, &rejected));
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
                           simulith_transport_request(&client, request,
-                                                     sizeof(request), 1000));
+                                                     sizeof(request), 20000));
     TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_SUCCESS, rejected.complete_result);
     simulith_transport_close(&server);
@@ -444,7 +494,7 @@ static void test_transport_receive_request_rejects_malformed_frames(void)
     strcpy(client.address, server.address);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS,
                       simulith_transport_init(&client));
-    test_sleep_us(1000);
+    wait_for_peer(&server);
 
     uint8_t malformed[20] = {
         0x53, 0x52, 0x51, 0x54, 1, 1, 0, 0,
@@ -454,11 +504,10 @@ static void test_transport_receive_request_rejects_malformed_frames(void)
     TEST_ASSERT_EQUAL_INT((int)sizeof(malformed),
                           zmq_send(client.zmq_sock, malformed,
                                    sizeof(malformed), 0));
-    test_sleep_us(1000);
     uint8_t received[8] = {0};
     uint64_t transaction_id = UINT64_MAX;
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
-                          simulith_transport_receive_request(
+                          receive_request_when_arrived(
                               &server, received, sizeof(received),
                               &transaction_id));
 
@@ -470,9 +519,8 @@ static void test_transport_receive_request_rejects_malformed_frames(void)
                           zmq_send(client.zmq_sock, oversized,
                                    oversized_length, 0));
     free(oversized);
-    test_sleep_us(1000);
     TEST_ASSERT_EQUAL_INT(SIMULITH_TRANSPORT_ERROR,
-                          simulith_transport_receive_request(
+                          receive_request_when_arrived(
                               &server, received, sizeof(received),
                               &transaction_id));
     simulith_transport_close(&server);

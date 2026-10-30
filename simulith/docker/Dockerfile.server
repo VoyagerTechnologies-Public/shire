@@ -1,10 +1,6 @@
-FROM ghcr.io/voyagertechnologies-public/shire-base:0.0.0
-
-# Copy built FSW files into the image
-COPY build /app
-
-# Set working directory
+# The shared native runtime supplies ZeroMQ without 42 models or build tools.
+FROM ghcr.io/voyagertechnologies-public/shire-native-runtime:0.0.0
+COPY build/libsimulith.so /app/libsimulith.so
+COPY build/simulith_server_standalone /app/simulith_server_standalone
 WORKDIR /app
-
-# Set command to run with default number of clients (can be overridden)
 CMD ["/app/simulith_server_standalone", "1"]

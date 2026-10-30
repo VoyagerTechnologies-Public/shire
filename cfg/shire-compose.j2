@@ -1,48 +1,67 @@
 # lab-compose.j2
 # Jinja2 template for shire-compose.yaml with spacecraft-specific images
+#
+# instance/port_offset/image_tag support Monte Carlo Campaigns
+# running many trials' stacks concurrently on one host: each is optional
+# and defaults away to reproduce a plain `make scenario` run's compose
+# file byte-for-byte when unset.
+{% set inst = ('-' + instance | string) if instance else '' %}
+{% set voff = (port_offset | default(0) | int) %}
+{% set tag = image_tag | default(spacecraft) | default('0.0.0') %}
 services:
   shire-42:
-    image: shire-42-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-42-{{ spacecraft | default('default') }}
+    image: shire-42-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-42-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     attach: false
-    ports:
-      - "5801:80"  # VNC web interface for 42 graphics visualization
     cpus: "2.0"
     mem_limit: 2g
     environment:
-      - MESA_NO_SHM=1
-      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
-      - FORTYTWO_GRAPHICS_HZ=${FORTYTWO_GRAPHICS_HZ:-1}
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
+      - SHIRE_42_PROFILE=${SHIRE_42_PROFILE:-0}
+      - SHIRE_42_REPORT_MODE=${SHIRE_42_REPORT_MODE:-control}
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     shm_size: '2gb'
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-gsw:
-    image: shire-gsw-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-gsw-{{ mission | default('default') }}
+    image: shire-gsw-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-gsw-{{ mission | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     attach: false
     ports:
-      - "8090:8090"
+      - "{{ 8090 + voff }}:8090"
+    environment:
+      - SHIRE_RUN_ID=${SHIRE_RUN_ID:-}
+      - SHIRE_MISSION={{ mission | default('default') }}
+      - SHIRE_SPACECRAFT={{ spacecraft | default('default') }}
+      - SHIRE_VISUAL_HZ=${SHIRE_VISUAL_HZ:-20}
     volumes:
-      - gsw-data_{{ mission | default('default') }}:/app/yamcs-data
+      - shire_yamcs_archive:/app/yamcs-data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8090"]
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/"]
       interval: 30s
       timeout: 5s
       retries: 10
       start_period: 60s
     cpus: "2.0"
     mem_limit: 1g
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-server:
-    image: shire-server-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-server-{{ mission | default('default') }}
+    image: shire-server-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-server-{{ mission | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     environment:
@@ -52,62 +71,92 @@ services:
       - SIMULITH_DURATION=${SIMULITH_DURATION:-}
       - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
       - SIMULITH_WATCHDOG_SECONDS=${SIMULITH_WATCHDOG_SECONDS:-5}
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
     command: ["/bin/sh", "-c", "/app/simulith_server_standalone $${NUM_CLIENTS}"]
     cpus: "4.0"
     mem_limit: 2g
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     tmpfs:
       - /dev/shm:noexec,nosuid,size=1g
     privileged: false
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-director:
-    image: shire-director-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-director-{{ spacecraft | default('default') }}
+    image: shire-director-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-director-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     depends_on:
-      - shire-42
-      - shire-cryptolib
-      - shire-gsw
-      - shire-server
+      shire-42:
+        condition: service_started
+      shire-cryptolib:
+        condition: service_started
+      shire-gsw:
+        condition: service_healthy
+      shire-server:
+        condition: service_started
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SIMULITH_EPS_DEBUG=${SIMULITH_EPS_DEBUG:-}
+      - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
+      - SIMULITH_DURATION=${SIMULITH_DURATION:-}
+      - SHIRE_CONTROL_TRACE_DIR=/run/shire-traces
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
       - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
-      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-binary}
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
+      - SIMULITH_42_RECONNECT_ATTEMPTS=${SIMULITH_42_RECONNECT_ATTEMPTS:-90}
       - SIMULITH_SCENARIO_ENABLED=${SIMULITH_SCENARIO_ENABLED:-0}
+      - SHIRE_RUN_ID=${SHIRE_RUN_ID:-}
+      - SHIRE_VISUAL_HZ=${SHIRE_VISUAL_HZ:-20}
     command: ["/bin/sh", "-c", "if [ \"$${SIMULITH_SCENARIO_ENABLED}\" = 1 ]; then exec /app/simulith_director_standalone --scenario /run/shire-scenario.json; else exec /app/simulith_director_standalone; fi"]
     cpus: "4.0"
     mem_limit: 512m
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
       - ${SIMULITH_SCENARIO_FILE:-/dev/null}:/run/shire-scenario.json:ro
+      - ${SHIRE_CONTROL_TRACE_DIR:-{{ trace_dir }}}:/run/shire-traces
     tmpfs:
       - /dev/shm:noexec,nosuid,size=100m
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-cryptolib:
-    image: shire-cryptolib-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-cryptolib-{{ spacecraft | default('default') }}
+    image: shire-cryptolib-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-cryptolib-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     depends_on:
       - shire-gsw
+    environment:
+      # SDLS link security; must match the flight radio app (radio uplink_encryption / downlink_encryption).
+      - SHIRE_UPLINK_ENCRYPTION={{ 0 if (radio_cfg | default({})).get('uplink_encryption', true) == false else 1 }}
+      - SHIRE_DOWNLINK_ENCRYPTION={{ 0 if (radio_cfg | default({})).get('downlink_encryption', true) == false else 1 }}
     cpus: "1.0"
     mem_limit: 512m
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     tmpfs:
       - /dev/shm:noexec,nosuid,size=100m
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
   shire-fsw:
-    image: shire-fsw-{{ mission | default('default') }}:{{ spacecraft | default('0.0.0') }}
-    container_name: shire-fsw-{{ spacecraft | default('default') }}
+    image: shire-fsw-{{ mission | default('default') }}:{{ tag }}
+    container_name: shire-fsw-{{ spacecraft | default('default') }}{{ inst }}
     networks:
-      - shire-net-{{ spacecraft | default('default') }}
+      - shire-net-{{ spacecraft | default('default') }}{{ inst }}
     stdin_open: true
     tty: true
     depends_on:
@@ -117,6 +166,8 @@ services:
     environment:
       - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
       - SHIRE_GROUND_OUTPUT_HZ=${SHIRE_GROUND_OUTPUT_HZ:-20}
+      - SHIRE_SYNCHRONIZE_GROUND_OUTPUT=${SHIRE_SYNCHRONIZE_GROUND_OUTPUT:-0}
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
     sysctls:
       - fs.mqueue.msg_max=10000
     ulimits:
@@ -126,17 +177,30 @@ services:
     cpus: "4.0"
     mem_limit: 2g
     volumes:
-      - simulith_ipc_{{ spacecraft | default('default') }}:/tmp
+      - simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:/tmp
     tmpfs:
       - /dev/shm:noexec,nosuid,size=1g
     privileged: false
+{%- if instance %}
+    labels:
+      - "shire.instance={{ instance }}"
+{%- endif %}
 
 networks:
-  shire-net-{{ spacecraft | default('default') }}:
+  shire-net-{{ spacecraft | default('default') }}{{ inst }}:
     driver: bridge
+{%- if instance %}
+    labels:
+      shire.instance: "{{ instance }}"
+{%- endif %}
 
 volumes:
-  simulith_ipc_{{ spacecraft | default('default') }}:
+  simulith_ipc_{{ spacecraft | default('default') }}{{ inst }}:
     driver: local
-  gsw-data_{{ mission | default('default') }}:
-    driver: local
+{%- if instance %}
+    labels:
+      shire.instance: "{{ instance }}"
+{%- endif %}
+  shire_yamcs_archive:
+    external: true
+    name: ${SHIRE_YAMCS_VOLUME:-shire-unallocated-archive}

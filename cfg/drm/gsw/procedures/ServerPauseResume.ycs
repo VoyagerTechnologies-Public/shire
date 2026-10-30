@@ -1,0 +1,133 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Shire Server: a long pause.\n* Set a known speed of 2x and confirm the clock is running\n* Pause the simulation\n* Hold the pause longer than the 5 second watchdog that 42 and the Director use between ticks\n* Confirm the clock did not move\n* Resume the simulation\n* Confirm the clock moves again and the speed is unchanged\n\nThis stack uses the unchanged and advances conditions, which only the headless commander evaluates, so run it with make scenario SCENARIO=checkout and not in the YAMCS web UI."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED",
+      "comment": "Establish a known speed first, so this stack does not depend on what ran before it.",
+      "stream": "tc_server_backdoor",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "SPEED",
+          "value": "2.0"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_SERVER/SPEED",
+          "operator": "gt",
+          "value": "1.99"
+        },
+        {
+          "parameter": "/SHIRE_SERVER/SPEED",
+          "operator": "lt",
+          "value": "2.01"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_VISUAL/SIM_TIME",
+          "operator": "advances",
+          "value": ""
+        }
+      ],
+      "timeout": 60000,
+      "comment": "The clock is running before the pause."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_SERVER/BACKDOOR_SERVER_PAUSE",
+      "comment": "Pause the Simulith Server simulation clock via backdoor.",
+      "stream": "tc_server_backdoor",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_SERVER/PAUSED",
+          "operator": "eq",
+          "value": "PAUSED"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_VISUAL/SIM_TIME",
+          "operator": "unchanged",
+          "value": "12000"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "Hold the pause for 12 seconds, which is longer than the 5 second watchdog, and fail if the clock moves."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_SERVER/BACKDOOR_SERVER_PLAY",
+      "comment": "Resume the Simulith Server simulation clock via backdoor.",
+      "stream": "tc_server_backdoor",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_SERVER/PAUSED",
+          "operator": "eq",
+          "value": "RUNNING"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_VISUAL/SIM_TIME",
+          "operator": "advances",
+          "value": ""
+        }
+      ],
+      "timeout": 60000,
+      "comment": "The clock moves again, which shows the Director and 42 survived the pause."
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SHIRE_SERVER/SPEED",
+          "operator": "gt",
+          "value": "1.99"
+        },
+        {
+          "parameter": "/SHIRE_SERVER/SPEED",
+          "operator": "lt",
+          "value": "2.01"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "Pausing and resuming leave the requested speed at 2x."
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "simulith_power.h"
 #include "simulith_42_context.h"
 #include "simulith_42_commands.h"
 
@@ -27,7 +28,7 @@ extern "C" {
  * the director to reject an interface it cannot safely call. Every component
  * library must be rebuilt when this version changes.
  */
-#define SIMULITH_COMPONENT_API_VERSION 2U
+#define SIMULITH_COMPONENT_API_VERSION 4U
 #define SIMULITH_COMPONENT_ENTRY_POINT "get_component_interface"
 
 // Forward declaration of component state
@@ -43,6 +44,12 @@ typedef struct component_state component_state_t;
  * PREPARE until every component has finished actuate() and the resulting 42
  * command batch has been committed. Simulated time is fixed throughout this
  * sequence.
+ *
+ * Only actuate() may enqueue 42 commands. The director applies completed EPS
+ * transactions and simulator backdoors, then power transitions, before this
+ * callback. PREPARE, service, backdoor, and power callbacks may update private
+ * pending state but must not enqueue outputs. The director rejects an early
+ * or carried-over command instead of silently discarding it.
  *
  * The Simulith client validates time before invoking the director: time is
  * identical across phases of one sequence and increases by the configured
@@ -91,8 +98,11 @@ typedef struct {
                    const simulith_42_context_t* context_42);
 
     /* Publish this tick's complete actuator output set. This runs after FSW
-     * and all current-tick device transactions have finished, but before the
-     * director commits the shared command batch to 42. Never wait or poll.
+     * and all current-tick device transactions and power transitions have
+     * finished, but before the director commits the shared command batch to
+     * 42. Emit only this component's owned actuator indices. A power cut must
+     * explicitly overwrite its previous physical output, even while off.
+     * Never wait or poll.
      * Return COMPONENT_SUCCESS or COMPONENT_ERROR; failure withholds COMMIT. */
     int (*actuate)(component_state_t* state, uint64_t tick_time_ns,
                    const simulith_42_context_t* context_42);
@@ -103,6 +113,37 @@ typedef struct {
 
     /* Optional simulation-only control/fault-injection path. */
     void (*backdoor)(component_state_t* state, uint16_t cmd_id, const uint8_t* payload, uint16_t payload_len);
+
+    /* Supply access and consumer callbacks run only with service workers
+     * quiescent. power_set must preserve transport resources and reset model
+     * state on an edge. A modeled outage is never COMPONENT_ERROR. */
+
+    /* Provider only (EPS): return its owned, persistent topology/transition
+     * structure. The director resolves loads by interface name and fills the
+     * consumer snapshots. Current topology supports one provider. Consumers
+     * leave this NULL; a mapped consumer must implement all four callbacks below. */
+    simulith_power_supply_t *(*power_supply)(component_state_t *state);
+
+    /* Copy resolved settings at startup and every COMMIT. Reconfiguration must
+     * preserve device state, current supply, boot deadline and diagnostic history.
+     * Return COMPONENT_SUCCESS/ERROR, not a power-helper edge flag. */
+    int (*power_configure)(component_state_t *state, const simulith_power_load_config_t *config);
+
+    /* Apply effective supply state (on = 0/1), with time in simulated ns.
+     * Reset volatile state only on an edge. An ON edge begins boot; repeated
+     * ON does not reboot. Keep endpoints open to service modeled rejections. */
+    int (*power_set)(component_state_t *state, int on, uint64_t tick_time_ns);
+
+    /* Explicitly reset volatile device state even without a supply edge.
+     * Preserve component resources and power-runtime history. A reset alone
+     * does not change supply or start boot; EPS RESET also queues supply edges. */
+    int (*power_reset)(component_state_t *state, uint64_t tick_time_ns);
+
+    /* Query readiness, mode, counters and watts at startup, PREPARE, and after
+     * COMMIT transitions. Do not advance the model or publish outputs here.
+     * This internal snapshot is for power accounting, not a telemetry stream. */
+    int (*power_snapshot)(component_state_t *state, uint64_t tick_time_ns,
+                          simulith_power_snapshot_t *snapshot);
 } component_interface_t;
 
 // Component registration function type

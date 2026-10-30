@@ -1,0 +1,22 @@
+# Example scenario demonstrating the initial_conditions reference (issue
+# #21) and usable as-is for ADCS eclipse-transition investigation (#8):
+# starts the spacecraft exactly at eclipse entry on the DRM reference orbit
+# instead of the default nominal-baseline launch state.
+#
+# Try it two ways:
+#   Manual (GUI + YAMCS):  set scenario: eclipse-entry-adcs in
+#                          build/active.yaml, `make`, `make start`.
+#   Autonomous (no GUI):   make scenario SCENARIO=eclipse-entry-adcs
+scenario_name: "eclipse-entry-adcs"
+description: >
+  Starts sat-1 already at eclipse entry (see
+  cfg/drm/initial_conditions/eclipse-entry.yaml for how that epoch/orbit
+  state was derived) for investigating ADCS behavior across the sunlit ->
+  eclipse transition, without waiting through a full orbit to reach it.
+initial_conditions: "eclipse-entry"
+overrides:
+  debug: false
+run_duration_s: 900
+# Only affects `make scenario` (not `make start`); safe here since there's
+# no verify_stacks to race. See drm-nominal.yaml for the full rationale.
+simulith_speed: "max"

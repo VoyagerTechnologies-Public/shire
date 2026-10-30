@@ -955,6 +955,7 @@ static void TM_SDLP_InitChannel_Handler(void *UserObj, UT_EntryKey_t FuncKey, co
         fi->isReady = 1;
         fi->isInitialized = 1;
         fi->freeOctets = 1024;
+        fi->dataFieldLength = 1024;
         fi->frame = (TMTF_PriHdr_t *)frame_buffer;
     }
     {
@@ -992,10 +993,13 @@ void Test_RADIO_ServiceDownlink_Success(void)
     /* Call the function under test */
     RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
     RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
+    size_t pktSize = 16;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &pktSize, sizeof(pktSize), false);
+    uint32 count_before = RADIO_AppData.HkTelemetryPkt.DeviceCount;
     RADIO_ServiceDownlink();
 
     UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 1);
-    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceCount, count_before + 1);
 
     /* Cleanup handlers */
     UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
@@ -1344,6 +1348,40 @@ void Test_RADIO_ServiceUplink_CryptoFailures(void)
     UT_ResetState(0);
 }
 
+void Test_RADIO_AppInit_LinkSecurity(void)
+{
+    extern SecurityAssociation_t UT_CRYPTO_Stub_Sas[];
+    UT_CheckEvent_t              EventTest;
+
+    /* Configured SAs: encryption (or clear) selected per direction by the radio settings.
+     * SPI 4/1 are the uplink secure/clear SAs, SPI 6/5 the downlink secure/clear SAs. */
+    memset(UT_CRYPTO_Stub_Sas, 0, sizeof(SecurityAssociation_t) * 16);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Link security configuration failed, status=%d");
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 0, "RADIO: no link security failure event (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True((UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TC_SECURE_SPI].sa_state == SA_OPERATIONAL) ==
+                      (RADIO_CFG_UPLINK_ENCRYPTION != 0),
+                  "RADIO: uplink secure SA follows uplink_encryption");
+    UtAssert_True((UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TC_CLEAR_SPI].sa_state == SA_OPERATIONAL) ==
+                      (RADIO_CFG_UPLINK_ENCRYPTION == 0),
+                  "RADIO: uplink clear SA follows uplink_encryption");
+    UtAssert_True((UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TM_SECURE_SPI].sa_state == SA_OPERATIONAL) ==
+                      (RADIO_CFG_DOWNLINK_ENCRYPTION != 0),
+                  "RADIO: downlink secure SA follows downlink_encryption");
+    UtAssert_True(UT_CRYPTO_Stub_Sas[CRYPTO_SHIRE_TM_SECURE_SPI].gvcid_blk.vcid == CRYPTO_SHIRE_TM_VCID,
+                  "RADIO: downlink secure SA is on the TM virtual channel");
+
+    /* Without an SA database the failure is reported but is not fatal. */
+    extern bool UT_CRYPTO_Enable_Stubs;
+    UT_CRYPTO_Enable_Stubs = false;
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Link security configuration failed, status=%d");
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_True(EventTest.MatchCount == 1, "RADIO: link security failure event generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UT_CRYPTO_Enable_Stubs = true;
+}
+
 void Test_RADIO_ServiceDownlink_NoSA(void)
 {
     /* Simulate missing SecurityAssociation lookup for TM frame */
@@ -1483,6 +1521,482 @@ void Test_RADIO_ServiceDownlink_SecuritySuccess(void)
     UT_ResetState(0);
 }
 
+/* ---- Additional coverage: init failures, enable/configure failures, uplink limits, downlink edge cases ---- */
+
+static void TM_SDLP_InitChannel_NotReady_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    TM_SDLP_FrameInfo_t *fi = UT_Hook_GetArgValueByName(Context, "frame_info", TM_SDLP_FrameInfo_t *);
+    static uint8         frame_buffer[2048];
+    int32                ret = TM_SDLP_SUCCESS;
+
+    (void)UserObj;
+    if (fi)
+    {
+        memset(frame_buffer, 0, sizeof(frame_buffer));
+        fi->isReady         = 0; /* the frame still has to be started */
+        fi->isInitialized   = 1;
+        fi->freeOctets      = 1024;
+        fi->dataFieldLength = 1024;
+        fi->frame           = (TMTF_PriHdr_t *)frame_buffer;
+    }
+    UT_Stub_CopyToReturnValue(FuncKey, &ret, sizeof(ret));
+}
+
+/* Free octets a started frame offers: successive starts use these in turn, then the full data field. */
+static uint16 UT_Frame_StartFree[2];
+static int    UT_Frame_StartCount;
+static uint16 UT_Frame_PacketSize;
+
+static void TM_SDLP_StartFrame_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    TM_SDLP_FrameInfo_t *fi = UT_Hook_GetArgValueByName(Context, "frame_info", TM_SDLP_FrameInfo_t *);
+    int32                ret = TM_SDLP_SUCCESS;
+
+    (void)UserObj;
+    fi->isReady    = 1;
+    fi->freeOctets = (UT_Frame_StartCount < 2) ? UT_Frame_StartFree[UT_Frame_StartCount] : fi->dataFieldLength;
+    UT_Frame_StartCount++;
+    UT_Stub_CopyToReturnValue(FuncKey, &ret, sizeof(ret));
+}
+
+static void TM_SDLP_CompleteFrame_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    TM_SDLP_FrameInfo_t *fi = UT_Hook_GetArgValueByName(Context, "frame_info", TM_SDLP_FrameInfo_t *);
+    int32                ret = TM_SDLP_SUCCESS;
+
+    (void)UserObj;
+    fi->isReady = 0;
+    UT_Stub_CopyToReturnValue(FuncKey, &ret, sizeof(ret));
+}
+
+static void TM_SDLP_AddPacket_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    TM_SDLP_FrameInfo_t *fi = UT_Hook_GetArgValueByName(Context, "frame_info", TM_SDLP_FrameInfo_t *);
+    int32                ret = TM_SDLP_SUCCESS;
+
+    (void)UserObj;
+    fi->freeOctets = (uint16)((fi->freeOctets > UT_Frame_PacketSize) ? (fi->freeOctets - UT_Frame_PacketSize) : 0);
+    UT_Stub_CopyToReturnValue(FuncKey, &ret, sizeof(ret));
+}
+
+static void SetupDownlinkStubs(void)
+{
+    UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_SUCCESS);
+    UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
+    UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_SUCCESS);
+    UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
+    UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
+    RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
+}
+
+/* Leaves the app's TM frame not ready so the next service call initializes it again, whatever earlier tests did. */
+static void PrepareFreshFrame(void)
+{
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_CompleteFrame_Handler, NULL);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    SetupDownlinkStubs();
+    RADIO_ServiceDownlink();
+    UT_ResetState(0);
+}
+
+void Test_RADIO_AppInit_TableAndPipeEdgeCases(void)
+{
+    static RADIO_Subs_t full_table;
+    RADIO_Subs_t       *table_ptr = &full_table;
+    UT_CheckEvent_t     EventTest;
+
+    /* A table with no terminating entry is walked to RADIO_CFG_MAX_SUBSCRIPTIONS, all subscribed. */
+    memset(&full_table, 0, sizeof(full_table));
+    for (int i = 0; i < RADIO_CFG_MAX_SUBSCRIPTIONS; i++)
+    {
+        full_table.Subs[i].Stream   = CFE_SB_ValueToMsgId(RADIO_HK_TLM_MID);
+        full_table.Subs[i].BufLimit = 2;
+    }
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_IsValidMsgId), true);
+    UT_CheckEvent_Setup(&EventTest, RADIO_PIPE_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 0);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_SubscribeEx)), RADIO_CFG_MAX_SUBSCRIPTIONS + 1);
+    RADIO_SubsTblPtr = NULL;
+    UT_ResetState(0);
+
+    /* An updated-but-valid table address is not an error. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SUCCESS);
+    UT_ResetState(0);
+
+    /* The command pipe is the second pipe created; the downlink pipe is the first. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_CreatePipe), 1, CFE_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_CreatePipe), 1, CFE_SB_BAD_ARGUMENT);
+    UT_CheckEvent_Setup(&EventTest, RADIO_PIPE_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SB_BAD_ARGUMENT);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* With no table loaded, the first subscription is the ground command subscription. */
+    RADIO_SubsTblPtr = NULL;
+    UT_SetDeferredRetcode(UT_KEY(CFE_SB_SubscribeEx), 1, CFE_SB_BAD_ARGUMENT);
+    UT_CheckEvent_Setup(&EventTest, RADIO_SUB_CMD_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(RADIO_AppInit(), CFE_SB_BAD_ARGUMENT);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_Enable_PowerOnFailure(void)
+{
+    UT_CheckEvent_t EventTest;
+
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled    = RADIO_DEVICE_DISABLED;
+    RADIO_AppData.HkTelemetryPkt.DeviceErrorCount = 0;
+    UT_SetDeferredRetcode(UT_KEY(RADIO_InitDevice), 1, OS_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(RADIO_PowerOn), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, RADIO_ENABLE_ERR_EID, NULL);
+    RADIO_Enable();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceEnabled, RADIO_DEVICE_DISABLED);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_Configure_DeviceFailure(void)
+{
+    RADIO_Config_cmd_t command;
+    UT_CheckEvent_t    EventTest;
+
+    memset(&command, 0, sizeof(command));
+    RADIO_AppData.MsgPtr                       = (CFE_MSG_Message_t *)&command;
+    command.DeviceCfg.Mode                     = RADIO_MODE_DUPLEX;
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
+    UT_SetDefaultReturnValue(UT_KEY(RADIO_SetConfiguration), OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, RADIO_CMD_CONFIG_DEV_ERR_EID, NULL);
+
+    uint32 errors_before = RADIO_AppData.HkTelemetryPkt.DeviceErrorCount;
+    RADIO_Configure();
+
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount, errors_before + 1);
+    UT_ResetState(0);
+}
+
+static void RADIO_ReceiveData_Always_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    /* Every poll yields one complete, minimal (5 byte) transfer frame. */
+    uint8_t   *dst     = UT_Hook_GetArgValueByName(Context, "data", uint8_t *);
+    uint16_t  *actualp = UT_Hook_GetArgValueByName(Context, "actual_length", uint16_t *);
+    static const uint8_t frame[5] = {0x00, 0x00, 0x00, 0x04, 0x00};
+
+    (void)UserObj;
+    memcpy(dst, frame, sizeof(frame));
+    *actualp = (uint16_t)sizeof(frame);
+    int32 ret = OS_SUCCESS;
+    UT_Stub_CopyToReturnValue(FuncKey, &ret, sizeof(ret));
+}
+
+void Test_RADIO_ServiceUplink_StopsAtPerPollLimit(void)
+{
+    /* A device that always has another frame is drained only RADIO_CFG_MAX_RX_MSGS_PER_POLL times per poll.
+     * The 5 byte frames also have no segment header, so no map id is parsed from them. */
+    UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), RADIO_ReceiveData_Always_Handler, NULL);
+    RADIO_AppData.ReceiveBuffLength = 0;
+    RADIO_AppData.RadioSpi.isOpen   = SPI_DEVICE_OPEN;
+
+    RADIO_ServiceUplink();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_ReceiveData)), RADIO_CFG_MAX_RX_MSGS_PER_POLL);
+    UtAssert_UINT32_EQ(RADIO_AppData.ReceiveBuffLength, 0);
+
+    UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), NULL, NULL);
+    UT_ResetState(0);
+}
+
+static void RunUplinkScan(uint8_t packet_len_hi, uint8_t packet_len_lo, uint32 expected_forwards)
+{
+    /* The crypto stub hands the frame back as the PDU, so a space packet header at offset 5 is scanned. */
+    uint8_t tf[33];
+    memset(tf, 0, sizeof(tf));
+    tf[3]  = 32; /* frame length 33; 0x20 in the header cannot be mistaken for a command packet id */
+    RADIO_ReceiveData_HandlerCalls = 0;
+    tf[5]  = 0x10; /* version 0, command packet */
+    tf[9]  = packet_len_hi; /* the space packet header is id(2) sequence(2) length(2) from offset 5 */
+    tf[10] = packet_len_lo;
+
+    UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), RADIO_ReceiveData_Handler, tf);
+    UT_RADIO_Receive_len = sizeof(tf);
+    RADIO_AppData.ReceiveBuffLength = 0;
+    RADIO_AppData.RadioSpi.isOpen   = SPI_DEVICE_OPEN;
+
+    RADIO_ServiceUplink();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)), expected_forwards);
+    UT_SetHandlerFunction(UT_KEY(RADIO_ReceiveData), NULL, NULL);
+    UT_RADIO_Receive_len = 0;
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceUplink_RejectsMalformedPacketLengths(void)
+{
+    /* A packet claiming more bytes than the frame holds is not forwarded. */
+    RunUplinkScan(0x00, 0xFF, 0);
+    /* A length of 0xFFFF wraps the 16 bit packet size below the minimum and is not forwarded either. */
+    RunUplinkScan(0xFF, 0xFF, 0);
+    /* A packet that exactly fits is forwarded. */
+    RunUplinkScan(0x00, 0x00, 1);
+}
+
+void Test_RADIO_ServiceDownlink_NullBufferFromSB(void)
+{
+    static CFE_SB_Buffer_t *null_buffer = NULL;
+
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
+    SetupDownlinkStubs();
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &null_buffer, sizeof(null_buffer), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SUCCESS);
+
+    RADIO_ServiceDownlink();
+
+    /* A "successful" receive with no buffer is treated as an empty pipe: an idle frame still goes out. */
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(TM_SDLP_AddPacket)), 0);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 1);
+
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceDownlink_StartFrameFailsForPacket(void)
+{
+    UT_CheckEvent_t EventTest;
+
+    PrepareFreshFrame();
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_NotReady_Handler, NULL);
+    SetupSingleSBPacket();
+    SetupDownlinkStubs();
+    /* The first start (after init) works; starting the frame again for the packet fails. */
+    UT_SetDeferredRetcode(UT_KEY(TM_SDLP_StartFrame), 2, TM_SDLP_INVALID_POINTER);
+    size_t pktSize = 16;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &pktSize, sizeof(pktSize), false);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: TM frame start failed for packet, status=%d");
+
+    uint32 errors_before = RADIO_AppData.HkTelemetryPkt.DeviceErrorCount;
+    RADIO_ServiceDownlink();
+
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount, errors_before + 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 0);
+
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceDownlink_DropsPacketLargerThanAnyFrame(void)
+{
+    UT_CheckEvent_t EventTest;
+
+    PrepareFreshFrame();
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
+    SetupSingleSBPacket();
+    SetupDownlinkStubs();
+    extern void UT_CRYPTO_Use_OperationalSa(void);
+    extern void UT_CRYPTO_Clear_SaHook(void);
+    UT_CRYPTO_Use_OperationalSa();
+    size_t pktSize = 5000; /* the data field holds 1024 */
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &pktSize, sizeof(pktSize), false);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Dropping %u byte packet that cannot fit a %u byte TM frame data field");
+
+    uint32 errors_before = RADIO_AppData.HkTelemetryPkt.DeviceErrorCount;
+    RADIO_ServiceDownlink(); /* must return rather than retry the packet forever */
+
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount, errors_before + 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(TM_SDLP_AddPacket)), 0);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 1);
+
+    UT_CRYPTO_Clear_SaHook();
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceDownlink_PacketWaitsForNextFrame(void)
+{
+    /* The data field holds 1024 bytes and the first frame has only 100 free, so a 200 byte packet does not fit
+     * it, goes out at the start of the next frame, and two frames are transmitted. */
+    PrepareFreshFrame();
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_NotReady_Handler, NULL);
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_StartFrame), TM_SDLP_StartFrame_Handler, NULL);
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_CompleteFrame), TM_SDLP_CompleteFrame_Handler, NULL);
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_AddPacket), TM_SDLP_AddPacket_Handler, NULL);
+    UT_Frame_StartFree[0] = 100;
+    UT_Frame_StartFree[1] = 1024;
+    UT_Frame_StartCount   = 0;
+    UT_Frame_PacketSize   = 200;
+    SetupSingleSBPacket();
+    UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_AddIdlePacket), TM_SDLP_SUCCESS);
+    UT_SetDefaultReturnValue(UT_KEY(TM_SYNC_Synchronize), 128);
+    UT_SetDefaultReturnValue(UT_KEY(RADIO_SendData), OS_SUCCESS);
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
+    RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = RADIO_MODE_TX;
+    size_t pktSizes[2] = {200, 200}; /* the packet is sized once per attempt to place it */
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), pktSizes, sizeof(pktSizes), false);
+
+    RADIO_ServiceDownlink();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(TM_SDLP_AddPacket)), 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 2);
+
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceDownlink_SecurityFailsWithOperationalSA(void)
+{
+    extern void UT_CRYPTO_Use_OperationalSa(void);
+    extern void UT_CRYPTO_Use_NullSa(void);
+    extern void UT_CRYPTO_Clear_SaHook(void);
+    UT_CheckEvent_t EventTest;
+
+    /* An operational SA is found but applying security to the frame fails: reported, and the frame is still sent. */
+    PrepareFreshFrame();
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
+    SetupSingleSBPacket();
+    SetupDownlinkStubs();
+    UT_CRYPTO_Use_OperationalSa();
+    UT_CRYPTO_TM_ApplySecurity_ReturnValue = -1;
+    size_t pktSize = 16;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &pktSize, sizeof(pktSize), false);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: TM_ApplySecurity failed, status=%d");
+    RADIO_ServiceDownlink();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 1);
+    UT_ResetState(0);
+    UT_CRYPTO_TM_ApplySecurity_ReturnValue = CRYPTO_LIB_SUCCESS;
+
+    /* A lookup that succeeds but yields no SA is treated as having no SA. */
+    SetupSingleSBPacket();
+    SetupDownlinkStubs();
+    UT_CRYPTO_Use_NullSa();
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &pktSize, sizeof(pktSize), false);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: Could not get SecurityAssociation for TM frame");
+    RADIO_ServiceDownlink();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+
+    UT_CRYPTO_Clear_SaHook();
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceDownlink_InitAndStartFailuresAtFrameSetup(void)
+{
+    UT_CheckEvent_t EventTest;
+
+    /* Channel initialization fails: reported, nothing is sent. */
+    PrepareFreshFrame();
+    SetupDownlinkStubs();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_INVALID_POINTER);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: TM frame init failed, status=%d");
+    uint32 errors_before = RADIO_AppData.HkTelemetryPkt.DeviceErrorCount;
+    RADIO_ServiceDownlink();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount, errors_before + 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 0);
+    UT_ResetState(0);
+
+    /* Init works but the first frame cannot be started. */
+    PrepareFreshFrame();
+    SetupDownlinkStubs();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    UT_SetDefaultReturnValue(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_SUCCESS);
+    UT_SetDeferredRetcode(UT_KEY(TM_SDLP_StartFrame), 1, TM_SDLP_INVALID_POINTER);
+    UT_CheckEvent_Setup(&EventTest, RADIO_REQ_DATA_ERR_EID, "RADIO: TM frame start failed, status=%d");
+    errors_before = RADIO_AppData.HkTelemetryPkt.DeviceErrorCount;
+    RADIO_ServiceDownlink();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(RADIO_AppData.HkTelemetryPkt.DeviceErrorCount, errors_before + 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 0);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ServiceDownlink_StopsAtPerPollPacketLimit(void)
+{
+    /* With more telemetry waiting than the per-poll limit, exactly the limit is packed, then the frame goes out. */
+    static CFE_SB_Buffer_t buffer;
+    CFE_SB_Buffer_t       *buffer_ptr = &buffer;
+    size_t                 sizes[RADIO_CFG_MAX_TX_MSGS_PER_POLL + 1];
+
+    PrepareFreshFrame();
+    memset(&buffer, 0, sizeof(buffer));
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) sizes[i] = 16;
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
+    SetupDownlinkStubs();
+    UT_SetDataBuffer(UT_KEY(CFE_SB_ReceiveBuffer), &buffer_ptr, sizeof(buffer_ptr), false);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SUCCESS); /* never runs dry */
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), sizes, sizeof(sizes), false);
+
+    RADIO_ServiceDownlink();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(TM_SDLP_AddPacket)), RADIO_CFG_MAX_TX_MSGS_PER_POLL);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), 1);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_ReportHousekeeping_DeviceDisabled(void)
+{
+    /* The device is not asked for housekeeping while it is disabled, but the app's own packet still goes out. */
+    CFE_SB_MsgId_t MsgId = CFE_SB_ValueToMsgId(RADIO_REQ_HK_TLM);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &MsgId, sizeof(MsgId), false);
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_DISABLED;
+
+    RADIO_ReportHousekeeping();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_RequestHK)), 0);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_SB_TransmitMsg)), 1);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_Disable_SpiAlreadyClosed(void)
+{
+    UT_CheckEvent_t EventTest;
+
+    UT_CheckEvent_Setup(&EventTest, RADIO_DISABLE_INF_EID, NULL);
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = RADIO_DEVICE_ENABLED;
+    RADIO_AppData.RadioSpi.isOpen              = SPI_DEVICE_CLOSED;
+    RADIO_AppData.RadioPowerGpio.isOpen        = GPIO_CLOSED;
+    RADIO_AppData.RadioInterruptGpio.isOpen    = GPIO_CLOSED;
+
+    RADIO_Disable();
+
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(spi_close_device)), 0);
+    UT_ResetState(0);
+}
+
+static void RunService(uint8 enabled, uint8 mode, uint32 expected_uplinks, uint32 expected_frames)
+{
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), TM_SDLP_InitChannel_Handler, NULL);
+    UT_SetDefaultReturnValue(UT_KEY(CFE_SB_ReceiveBuffer), CFE_SB_NO_MESSAGE);
+    SetupDownlinkStubs();
+    RADIO_AppData.HkTelemetryPkt.DeviceEnabled = enabled;
+    RADIO_AppData.HkTelemetryPkt.DeviceHK.Mode = mode;
+    RADIO_AppData.RadioSpi.isOpen              = SPI_DEVICE_OPEN;
+
+    RADIO_Service();
+
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_ReceiveData)), expected_uplinks);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(RADIO_SendData)), expected_frames);
+    UT_SetHandlerFunction(UT_KEY(TM_SDLP_InitChannel), NULL, NULL);
+    UT_ResetState(0);
+}
+
+void Test_RADIO_Service_ModeSelectsDirections(void)
+{
+    RunService(RADIO_DEVICE_ENABLED, RADIO_MODE_RX, 1, 0);     /* receive only: uplink, downlink pipe drained */
+    RunService(RADIO_DEVICE_ENABLED, RADIO_MODE_TX, 0, 1);     /* transmit only: downlink */
+    RunService(RADIO_DEVICE_ENABLED, RADIO_MODE_DUPLEX, 1, 1); /* both */
+    RunService(RADIO_DEVICE_ENABLED, RADIO_MODE_SLEEP, 0, 0);  /* asleep: neither */
+    RunService(RADIO_DEVICE_DISABLED, RADIO_MODE_DUPLEX, 0, 0); /* disabled: neither */
+}
+
 /*
  * Setup function prior to every test
  */
@@ -1510,6 +2024,23 @@ void UtTest_Setup(void)
     ADD_TEST(RADIO_AppMain);
     ADD_TEST(RADIO_AppInit);
     ADD_TEST(RADIO_AppInit_SubscriptionTable);
+    ADD_TEST(RADIO_AppInit_LinkSecurity);
+    ADD_TEST(RADIO_AppInit_TableAndPipeEdgeCases);
+    ADD_TEST(RADIO_Enable_PowerOnFailure);
+    ADD_TEST(RADIO_Configure_DeviceFailure);
+    ADD_TEST(RADIO_ServiceUplink_StopsAtPerPollLimit);
+    ADD_TEST(RADIO_ServiceUplink_RejectsMalformedPacketLengths);
+    ADD_TEST(RADIO_ServiceDownlink_NullBufferFromSB);
+    ADD_TEST(RADIO_ServiceDownlink_StartFrameFailsForPacket);
+    ADD_TEST(RADIO_ServiceDownlink_DropsPacketLargerThanAnyFrame);
+    ADD_TEST(RADIO_ServiceDownlink_PacketWaitsForNextFrame);
+    ADD_TEST(RADIO_ServiceDownlink_SecurityFailsWithOperationalSA);
+    ADD_TEST(RADIO_Service_ModeSelectsDirections);
+    ADD_TEST(RADIO_ServiceDownlink_InitAndStartFailuresAtFrameSetup);
+    ADD_TEST(RADIO_ServiceDownlink_StopsAtPerPollPacketLimit);
+    ADD_TEST(RADIO_ReportHousekeeping_DeviceDisabled);
+    ADD_TEST(RADIO_Disable_SpiAlreadyClosed);
+    ADD_TEST(RADIO_ServiceDownlink_Success);
     ADD_TEST(RADIO_ProcessCommandPacket);
     ADD_TEST(RADIO_ProcessGroundCommand);
     ADD_TEST(RADIO_ProcessGroundCommand_Service);

@@ -3,6 +3,8 @@
 The component mold copies an existing reference component and applies mechanical name and identifier substitutions.
 It creates a starting point, not a fully integrated or flight ready component.
 
+The [New Component Development](../../scenarios/new-component-development.md) lesson walks through this guide with one example.
+
 From the repository root:
 
 ```bash
@@ -15,7 +17,7 @@ If the target already exists, the script asks before deleting and replacing it.
 
 ## What the mold changes
 
-By default, `cfg/shire-comp-mold.py`:
+By default, `tools/shire-comp-mold.py`:
 
 * Copies `comp/demo/` to `comp/<name>/`
 * Omits Git metadata, build directories, generated `device_cfg.h`, and common temporary files
@@ -27,7 +29,7 @@ By default, `cfg/shire-comp-mold.py`:
 The alternate source option is:
 
 ```bash
-python3 cfg/shire-comp-mold.py new_sensor --source other_component
+python3 tools/shire-comp-mold.py new_sensor --source other_component
 ```
 
 The mechanical substitutions are tailored to Demo.
@@ -82,8 +84,11 @@ make test-fsw
 make
 ```
 
+`make cli` builds the CLI for the component named by `cli:` in `build/active.yaml`, so set `cli: <name>` there before running `make cfg` and `make cli`.
+See [Components](components.md) for the CLI workflow.
+
 Inspect `build/build.yaml`, the rendered `device_cfg.h`, the generated CPU1 startup script, and the YAMCS mission database before treating the component as integrated.
 Continue with the [Development Workflow](../core-concepts/development-workflow.md) to move through CLI simulation, cFS simulation, focused hardware checkout, simulator reconciliation, and board cFS integration.
 
 ***
-Last reviewed: 20260913
+Last reviewed: 20261027

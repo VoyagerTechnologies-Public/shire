@@ -91,6 +91,14 @@ int dequeue_command(simulith_42_command_t* cmd)
     return 0;
 }
 
+int simulith_42_pending_commands(void)
+{
+    pthread_mutex_lock(&g_command_queue_mutex);
+    int count = g_command_queue.count;
+    pthread_mutex_unlock(&g_command_queue_mutex);
+    return count;
+}
+
 void simulith_42_get_command_queue_stats(simulith_42_cmd_queue_stats_t *stats)
 {
     if (!stats)

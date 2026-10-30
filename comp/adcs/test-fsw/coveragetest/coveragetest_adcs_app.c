@@ -1,5 +1,7 @@
 #include "adcs_app_coveragetest_common.h"
 #include "ut_adcs_app.h"
+#include "adcs_time.h"
+#include <math.h>
 
 typedef struct
 {
@@ -82,6 +84,16 @@ static void UT_CheckEvent_Setup(UT_CheckEvent_t *Evt, uint16 ExpectedEvent, cons
     UT_SetVaHookFunction(UT_KEY(CFE_EVS_SendEvent), UT_CheckEvent_Hook, Evt);
 }
 
+static void UT_ProvideGainsTableAddress(void)
+{
+    static const ADCS_GainsTbl_t table = {
+        .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.005f, .MtbMaxDipoleAm2 = 1.42f,
+        .DetumbleGainBase = 0.01f, .DetumbleGainHigh = 0.02f, .RotisserieRateRadS = 0.005f,
+    };
+    static const ADCS_GainsTbl_t *address = &table;
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &address, sizeof(address), false);
+}
+
 /*
 **********************************************************************************
 **          TEST CASE FUNCTIONS
@@ -106,6 +118,7 @@ void Test_ADCS_AppMain(void)
      * First call it in "nominal" mode where all
      * dependent calls should be successful by default.
      */
+    UT_ProvideGainsTableAddress();
     ADCS_AppMain();
 
     /*
@@ -199,6 +212,7 @@ void Test_ADCS_AppInit(void)
      */
 
     /* nominal case should return CFE_SUCCESS */
+    UT_ProvideGainsTableAddress();
     UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_SUCCESS);
 
     /* trigger a failure for each of the sub-calls,
@@ -221,6 +235,98 @@ void Test_ADCS_AppInit(void)
 
     // UT_SetDeferredRetcode(UT_KEY(CFE_EVS_SendEvent), 1, CFE_SB_BAD_ARGUMENT);
     // UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_SB_BAD_ARGUMENT);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Register), 1, CFE_TBL_ERR_INVALID_SIZE);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_INVALID_SIZE);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Load), 1, CFE_TBL_ERR_NO_ACCESS);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_NO_ACCESS);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_ERR_LOAD_IN_PROGRESS);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_LOAD_IN_PROGRESS);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_INFO_UPDATED);
+    UT_ProvideGainsTableAddress();
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_SUCCESS);
+
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_ERR_UNREGISTERED);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_ERR_UNREGISTERED);
+
+    /* CFE_TBL_INFO_UPDATED is not CFE_SUCCESS but is still a non-error
+     * outcome (a fresh table load) -- must not be treated as a failure. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_ProvideGainsTableAddress();
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_SUCCESS);
+
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_TBL_BAD_ARGUMENT);
+}
+
+void Test_ADCS_ValidateGainsTbl(void)
+{
+    /*
+     * Test Case For:
+     * int32 ADCS_ValidateGainsTbl(void *TblData)
+     */
+    ADCS_GainsTbl_t tbl = {
+        .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.005f, .MtbMaxDipoleAm2 = 1.42f,
+        .DetumbleGainBase = 0.01f, .DetumbleGainHigh = 0.02f, .RotisserieRateRadS = 0.005f,
+    };
+
+    /* Nominal (default) table is valid */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&tbl), CFE_SUCCESS);
+
+    /* Each out-of-bounds field independently fails validation */
+    ADCS_GainsTbl_t bad;
+
+    bad = tbl; bad.SunPointKp = 0.0f;
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.SunPointKd = -1.0f;
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.WheelMaxTorqueNm = 1.0f; /* exceeds hardware ceiling */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.WheelMaxTorqueNm = 0.0f; /* at-or-below-zero side of the same check */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.MtbMaxDipoleAm2 = 100.0f; /* exceeds hardware ceiling */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.MtbMaxDipoleAm2 = -1.0f; /* at-or-below-zero side of the same check */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.DetumbleGainBase = 0.0f; /* base must be > 0 */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.DetumbleGainHigh = 0.0f; /* base must be <= high, high must be > 0 */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.DetumbleGainBase = 0.05f; bad.DetumbleGainHigh = 0.02f; /* both positive, high < base */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.RotisserieRateRadS = -0.001f; /* must be non-negative */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    bad = tbl; bad.RotisserieRateRadS = 1.0f; /* exceeds "mild" ceiling */
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+
+    /* Zero rotisserie rate (the default-off value) is explicitly allowed */
+    bad = tbl; bad.RotisserieRateRadS = 0.0f;
+    UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_SUCCESS);
+
+    float *fields[] = {&bad.SunPointKp, &bad.SunPointKd, &bad.WheelMaxTorqueNm,
+                       &bad.MtbMaxDipoleAm2, &bad.DetumbleGainBase,
+                       &bad.DetumbleGainHigh, &bad.RotisserieRateRadS};
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i)
+    {
+        bad = tbl;
+        *fields[i] = NAN;
+        UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+        bad = tbl;
+        *fields[i] = INFINITY;
+        UT_TEST_FUNCTION_RC(ADCS_ValidateGainsTbl(&bad), CFE_STATUS_VALIDATION_FAILURE);
+    }
 }
 
 void Test_ADCS_ProcessTelemetryRequest(void)
@@ -341,6 +447,7 @@ void Test_ADCS_ProcessGroundCommand(void)
         ADCS_NoArgs_cmd_t Enable;
         ADCS_NoArgs_cmd_t Disable;
         ADCS_SetMode_cmd_t Config;
+        ADCS_SetTargetVector_cmd_t TargetVector;
     } TestMsg;
     UT_CheckEvent_t EventTest;
 
@@ -481,6 +588,23 @@ void Test_ADCS_ProcessGroundCommand(void)
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_MODE (%u)", (unsigned int)EventTest.MatchCount);
 
+    /* test failure of command length for SET_MODE. ADCS_VerifyCmdLength()
+     * re-fetches MsgId/FcnCode itself to build the error event, so each is
+     * buffered twice: once for ADCS_ProcessGroundCommand()'s own dispatch
+     * fetch, once for that internal re-fetch (see the ENABLE/DISABLE
+     * wrong-length blocks above for the same pattern). */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_SET_MODE_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for SET_MODE (%u)", (unsigned int)EventTest.MatchCount);
+
     /* test dispatch of SET_TARGET (device enabled -> forward to device) */
     FcnCode = ADCS_SET_TARGET_CC;
     Size    = sizeof(ADCS_SetTarget_cmd_t);
@@ -515,6 +639,193 @@ void Test_ADCS_ProcessGroundCommand(void)
     UT_CheckEvent_Setup(&EventTest, ADCS_CMD_DISABLED_ERR_EID, NULL);
     ADCS_ProcessGroundCommand();
     UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test failure of command length for SET_TARGET (see SET_MODE's
+     * wrong-length block above for why MsgId/FcnCode are buffered twice) */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_SET_TARGET_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for SET_TARGET (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test dispatch of SET_TARGET_VECTOR (device enabled -> forward to device) */
+    FcnCode = ADCS_SET_TARGET_VECTOR_CC;
+    Size    = sizeof(ADCS_SetTargetVector_cmd_t);
+    TestMsg.TargetVector.X = 1.0f;
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    /* simulate successful device command */
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendTargetVectorCmd), 1, OS_SUCCESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SET_TARGET_VECTOR_INF_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SET_TARGET_VECTOR_INF_EID generated (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* simulate device command failure */
+    ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendTargetVectorCmd), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SET_TARGET_VECTOR_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SET_TARGET_VECTOR_ERR_EID generated (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* Reject invalid vectors locally, before sending anything to the device. */
+    float invalid_components[] = {0.0f, NAN, INFINITY, 1e-8f};
+    uint32 sends_before = UT_GetStubCount(UT_KEY(ADCS_SendTargetVectorCmd));
+    for (size_t i = 0; i < sizeof(invalid_components) / sizeof(invalid_components[0]); ++i)
+    {
+        TestMsg.TargetVector.X = invalid_components[i];
+        TestMsg.TargetVector.Y = 0.0f;
+        TestMsg.TargetVector.Z = 0.0f;
+        ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+        UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+        UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+        UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+        ADCS_ProcessGroundCommand();
+    }
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendTargetVectorCmd)) == sends_before,
+                  "Invalid vectors never sent to device");
+
+    /* A non-finite Y or Z is rejected even when X is a perfectly good component. */
+    for (int axis = 1; axis <= 2; ++axis)
+    {
+        for (size_t i = 1; i <= 2; ++i)
+        {
+            TestMsg.TargetVector.X = 1.0f;
+            TestMsg.TargetVector.Y = (axis == 1) ? invalid_components[i] : 0.0f;
+            TestMsg.TargetVector.Z = (axis == 2) ? invalid_components[i] : 0.0f;
+            ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+            UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+            UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+            UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+            ADCS_ProcessGroundCommand();
+        }
+    }
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendTargetVectorCmd)) == sends_before,
+                  "Vectors with a non-finite Y or Z never sent to device");
+    TestMsg.TargetVector.X = 1.0f;
+
+    /* test SET_TARGET_VECTOR when device disabled */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
+    ADCS_AppData.MsgPtr = (CFE_MSG_Message_t *)&TestMsg.TargetVector;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_CMD_DISABLED_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for SET_TARGET_VECTOR (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test failure of command length for SET_TARGET_VECTOR (see SET_MODE's
+     * wrong-length block above for why MsgId/FcnCode are buffered twice) */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_SET_TARGET_VECTOR_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for SET_TARGET_VECTOR (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test CONFIG_CC pushes gains only when enabled */
+    static ADCS_GainsTbl_t TestGainsTbl = {
+        .SunPointKp = 0.5f, .SunPointKd = 0.1f, .WheelMaxTorqueNm = 0.005f, .MtbMaxDipoleAm2 = 1.42f,
+        .DetumbleGainBase = 0.01f, .DetumbleGainHigh = 0.02f, .RotisserieRateRadS = 0.005f,
+    };
+    const ADCS_GainsTbl_t *TableAddress = &TestGainsTbl;
+    uint32 gains_sends_before_config = UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd));
+
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_CONFIG_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &TableAddress, sizeof(TableAddress), false);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendGainsCmd), 1, OS_SUCCESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SEND_GAINS_INF_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)) == gains_sends_before_config + 1,
+                  "ADCS_SendGainsCmd() called once while enabled");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SEND_GAINS_INF_EID generated (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True(ADCS_AppData.GainsTblPtr == &ADCS_AppData.GainsTblSnapshot,
+                  "CONFIG reads a detached snapshot of the active table");
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TBL_ReleaseAddress)) > 0,
+                  "CONFIG releases the table address after copying it");
+    UtAssert_True(ADCS_AppData.GainsTblSnapshot.SunPointKp == TestGainsTbl.SunPointKp,
+                  "CONFIG uses the current table contents");
+
+    /* A later ground load becomes visible on the next CONFIG. */
+    TestGainsTbl.SunPointKp = 0.7f;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &TableAddress, sizeof(TableAddress), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_INFO_UPDATED);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendGainsCmd), 1, OS_SUCCESS);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(ADCS_AppData.GainsTblSnapshot.SunPointKp == 0.7f,
+                  "CONFIG refreshes the table snapshot after an update");
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)) == gains_sends_before_config + 2,
+                  "Updated gains were sent to the device");
+
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_CMD_DISABLED_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)) == gains_sends_before_config + 2,
+                  "ADCS_SendGainsCmd() not called again while disabled");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_CMD_DISABLED_ERR_EID generated for CONFIG (%u)",
+                  (unsigned int)EventTest.MatchCount);
+
+    /* test failure of command length for CONFIG (see SET_MODE's
+     * wrong-length block above for why MsgId/FcnCode are buffered twice) */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_CONFIG_CC;
+    Size    = sizeof(TestMsg.Config);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_CheckEvent_Setup(&EventTest, ADCS_LEN_ERR_EID, NULL);
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_LEN_ERR_EID generated for CONFIG (%u)", (unsigned int)EventTest.MatchCount);
+
+    /* test CONFIG_CC reports failure when the device push itself fails */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    FcnCode = ADCS_CONFIG_CC;
+    Size    = sizeof(TestMsg.Noop);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &TableAddress, sizeof(TableAddress), false);
+    UT_SetDeferredRetcode(UT_KEY(ADCS_SendGainsCmd), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_SEND_GAINS_ERR_EID, NULL);
+    uint32 errors_before = ADCS_AppData.HkTelemetryPkt.CommandErrorCount;
+    uint32 successes_before = ADCS_AppData.HkTelemetryPkt.CommandCount;
+    ADCS_ProcessGroundCommand();
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_SEND_GAINS_ERR_EID generated when device push fails (%u)",
+                  (unsigned int)EventTest.MatchCount);
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.CommandErrorCount == errors_before + 1,
+                  "Failed CONFIG increments command errors");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.CommandCount == successes_before,
+                  "Failed CONFIG does not increment successful commands");
 
     /* test an invalid CC */
     FcnCode = 99;
@@ -673,10 +984,422 @@ void Test_ADCS_Disable(void)
 }
 
 /*
+ * Hook that populates the ADCS_RequestHK() output parameter with a
+ * test-controlled GpsSeconds value, mimicking the device HK read.
+ */
+static void UT_SetDeviceHkGpsSeconds_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    uint32                *GpsSecondsPtr = UserObj;
+    ADCS_Device_HK_tlm_t *data = UT_Hook_GetArgValueByName(Context, "data", ADCS_Device_HK_tlm_t *);
+
+    if (data != NULL)
+    {
+        memset(data, 0, sizeof(*data));
+        data->GpsSeconds = *GpsSecondsPtr;
+    }
+}
+
+static void UT_CaptureExternalGpsTime_Handler(void *UserObj, UT_EntryKey_t FuncKey, const UT_StubContext_t *Context)
+{
+    CFE_TIME_SysTime_t *Capture = UserObj;
+    *Capture                    = UT_Hook_GetArgValueByName(Context, "NewTime", CFE_TIME_SysTime_t);
+}
+
+void Test_ADCS_ProcessGpsTime(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_ProcessGpsTime()
+     */
+    uint32             GpsSeconds;
+    CFE_TIME_SysTime_t CapturedTime;
+    UT_CheckEvent_t    EventTest;
+
+    /* ADCS_AppData is a persistent global that Adcs_UT_Setup()'s
+     * UT_ResetState(0) does not clear -- other tests (e.g.
+     * ADCS_ReportHousekeeping, which calls ADCS_ProcessGpsTime() as of
+     * this change) may have already driven GpsTimeSynced to true as a
+     * side effect. Reset the fields this test owns so "first sync"
+     * below is actually first, regardless of test run order. */
+    ADCS_AppData.GpsTimeSynced                         = false;
+    ADCS_AppData.LastGpsSecondsSubmitted                = 0;
+    ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive = true;
+
+    UT_SetHandlerFunction(UT_KEY(ADCS_RequestHK), UT_SetDeviceHkGpsSeconds_Handler, &GpsSeconds);
+    UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+    UT_CheckEvent_Setup(&EventTest, ADCS_GPS_TIME_SYNC_INF_EID, NULL);
+
+    /* No-op while device is disabled, even with GPS data available */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_DISABLED;
+    GpsSeconds                                = 1000;
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() not called while device disabled");
+
+    /* First submission while enabled: pushes the correctly offset time */
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 1,
+                  "CFE_TIME_ExternalGPS() called once on first sync");
+    UtAssert_True(CapturedTime.Seconds == GpsSeconds + ADCS_GPS_TO_MISSION_EPOCH_OFFSET_SEC,
+                  "CFE_TIME_ExternalGPS() Seconds correctly offset (%u == %u)",
+                  (unsigned int)CapturedTime.Seconds,
+                  (unsigned int)(GpsSeconds + ADCS_GPS_TO_MISSION_EPOCH_OFFSET_SEC));
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == false,
+                  "TimeFileFallbackActive cleared once real GPS data has synced");
+
+    /* Unchanged GpsSeconds: no redundant submission */
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 1,
+                  "CFE_TIME_ExternalGPS() not called again for unchanged GpsSeconds");
+
+    /* Advancing GpsSeconds: submits again */
+    GpsSeconds                                      = 1005;
+    ADCS_AppData.HkTelemetryPkt.DeviceHK.GpsSeconds = GpsSeconds;
+    ADCS_ProcessGpsTime();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2,
+                  "CFE_TIME_ExternalGPS() called again once GpsSeconds advances");
+
+    /* The EVS event is only ever generated once, on the first sync -- not
+     * on every subsequent advancing-second submission, which would flood
+     * the event log with routine, expected traffic. */
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_GPS_TIME_SYNC_INF_EID generated exactly once (%u)",
+                  (unsigned int)EventTest.MatchCount);
+}
+
+void Test_ADCS_LoadTimeFromFile(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_LoadTimeFromFile()
+     */
+    CFE_TIME_SysTime_t  CapturedTime;
+    ADCS_TimeFileData_t FileData;
+    ADCS_TimeFileData_t CapturedWrite;
+    UT_CheckEvent_t     EventTest;
+
+    /* See Test_ADCS_ProcessGpsTime's comment above: ADCS_AppData is a
+     * persistent global that Adcs_UT_Setup() does not clear. */
+    ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive  = false;
+    ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount = 0;
+
+    UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+
+    /* No fallback file present (expected on a first-ever boot): clock left
+       untouched, no error -- just an informational note. UT_CheckEvent_Setup
+       attaches a single hook to CFE_EVS_SendEvent, so (like every other test
+       in this file) it's re-armed for a fresh EID right before each
+       sub-case that needs one, rather than once up front for both. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_LOAD_INF_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(OS_OpenCreate), 1, OS_ERROR);
+    ADCS_LoadTimeFromFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() not called with no fallback file");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_TIME_FILE_LOAD_INF_EID sent for missing file");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == false,
+                  "TimeFileFallbackActive stays false with no fallback file");
+
+    /* File present but short/corrupt: clock still left untouched, this
+       time as a real error. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_LOAD_ERR_EID, NULL);
+    UT_SetDeferredRetcode(UT_KEY(OS_read), 1, 4); /* not sizeof(ADCS_TimeFileData_t) */
+    ADCS_LoadTimeFromFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() still not called with a corrupt file");
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_TIME_FILE_LOAD_ERR_EID sent for corrupt file");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == false,
+                  "TimeFileFallbackActive stays false with a corrupt file");
+
+    /* Good file: applies the boot offset, arms it for resubmission (see
+       Test_ADCS_ResubmitTimeFallback -- ADCS_LoadTimeFromFile() no longer
+       calls CFE_TIME_ExternalGPS itself, see adcs_time.h for why a single
+       one-shot submission at boot isn't enough), and persists the
+       advanced BootOffsetCount back to the file. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_LOAD_INF_EID, NULL);
+    memset(&FileData, 0, sizeof(FileData));
+    FileData.Seconds         = 1000000;
+    FileData.BootOffsetCount = 2;
+    UT_SetDataBuffer(UT_KEY(OS_read), &FileData, sizeof(FileData), false);
+    UT_SetDataBuffer(UT_KEY(OS_write), &CapturedWrite, sizeof(CapturedWrite), false);
+    CFE_TIME_SysTime_t load_met = {.Seconds = 42, .Subseconds = 0};
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_GetMET), &load_met, sizeof(load_met), false);
+    ADCS_LoadTimeFromFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0,
+                  "CFE_TIME_ExternalGPS() not called directly by ADCS_LoadTimeFromFile()");
+    UtAssert_True(ADCS_AppData.TimeFileFallbackAvailable == true, "Fallback armed for resubmission");
+    UtAssert_True(ADCS_AppData.TimeFileFallbackMET.Seconds == load_met.Seconds,
+                  "Fallback records the MET at load time");
+    UtAssert_True(ADCS_AppData.TimeFileFallbackTime.Seconds == FileData.Seconds + 3 * ADCS_TIME_FILE_BOOT_OFFSET_SEC,
+                  "Boot offset applied correctly (%u == %u)",
+                  (unsigned int)ADCS_AppData.TimeFileFallbackTime.Seconds,
+                  (unsigned int)(FileData.Seconds + 3 * ADCS_TIME_FILE_BOOT_OFFSET_SEC));
+    UtAssert_True(EventTest.MatchCount == 1, "ADCS_TIME_FILE_LOAD_INF_EID sent for a good fallback load");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileFallbackActive == true,
+                  "TimeFileFallbackActive set true on a good fallback load");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount == 3,
+                  "TimeFileBootOffsetCount reflects the advanced offset (%u == 3)",
+                  (unsigned int)ADCS_AppData.HkTelemetryPkt.TimeFileBootOffsetCount);
+    UtAssert_True(CapturedWrite.BootOffsetCount == 3,
+                  "Advanced BootOffsetCount persisted back to the file (%u == 3)",
+                  (unsigned int)CapturedWrite.BootOffsetCount);
+    UtAssert_True(CapturedWrite.Seconds == FileData.Seconds, "Persisted Seconds unchanged from the loaded value");
+}
+
+void Test_ADCS_TimeFile_PersistFailures(void)
+{
+    ADCS_TimeFileData_t FileData;
+    ADCS_TimeFileData_t CapturedWrite;
+    UT_CheckEvent_t     EventTest;
+
+    memset(&FileData, 0, sizeof(FileData));
+    FileData.Seconds         = 1000000;
+    FileData.BootOffsetCount = 1;
+
+    /* The fallback loads, but the file cannot be reopened to persist the advanced boot offset. */
+    UT_SetDataBuffer(UT_KEY(OS_read), &FileData, sizeof(FileData), false);
+    UT_SetDeferredRetcode(UT_KEY(OS_OpenCreate), 2, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+    ADCS_LoadTimeFromFile();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_True(ADCS_AppData.TimeFileFallbackAvailable == true, "Fallback is still armed when persisting fails");
+    UT_ResetState(0);
+
+    /* The file reopens but the write is short. */
+    UT_SetDataBuffer(UT_KEY(OS_read), &FileData, sizeof(FileData), false);
+    UT_SetDeferredRetcode(UT_KEY(OS_write), 1, 1);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+    ADCS_LoadTimeFromFile();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* The periodic save cannot open the file. */
+    ADCS_AppData.TimeFileSaveCounter = ADCS_TIME_FILE_SAVE_PERIOD_CYCLES - 1;
+    UT_SetDeferredRetcode(UT_KEY(OS_OpenCreate), 1, OS_ERROR);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+    ADCS_SaveTimeToFile();
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(OS_write)), 0);
+    UT_ResetState(0);
+
+    /* A successful periodic save resets the cadence and records a zero boot offset. */
+    ADCS_AppData.TimeFileSaveCounter = ADCS_TIME_FILE_SAVE_PERIOD_CYCLES - 1;
+    UT_SetDataBuffer(UT_KEY(OS_write), &CapturedWrite, sizeof(CapturedWrite), false);
+    ADCS_SaveTimeToFile();
+    UtAssert_UINT32_EQ(ADCS_AppData.TimeFileSaveCounter, 0);
+    UtAssert_UINT32_EQ(CapturedWrite.BootOffsetCount, 0);
+    UT_ResetState(0);
+}
+
+void Test_ADCS_ResubmitTimeFallback(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_ResubmitTimeFallback()
+     */
+    CFE_TIME_SysTime_t CapturedTime;
+
+    /* See Test_ADCS_ProcessGpsTime's comment above: ADCS_AppData is a
+     * persistent global that Adcs_UT_Setup() does not clear. */
+    ADCS_AppData.TimeFileFallbackAvailable = false;
+    ADCS_AppData.GpsTimeSynced              = false;
+    memset(&ADCS_AppData.TimeFileFallbackTime, 0, sizeof(ADCS_AppData.TimeFileFallbackTime));
+    ADCS_AppData.TimeFileFallbackTime.Seconds = 946771260;
+
+    UT_SetHandlerFunction(UT_KEY(CFE_TIME_ExternalGPS), UT_CaptureExternalGpsTime_Handler, &CapturedTime);
+
+    /* No fallback armed: no-op */
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 0, "No-op with no fallback armed");
+
+    /* A later MET must advance the submitted absolute time. */
+    ADCS_AppData.TimeFileFallbackAvailable = true;
+    ADCS_AppData.TimeFileFallbackMET.Seconds = 40;
+    CFE_TIME_SysTime_t met = {.Seconds = 42, .Subseconds = 0};
+    CFE_TIME_SysTime_t delta = {.Seconds = 2, .Subseconds = 0};
+    CFE_TIME_SysTime_t advanced = {.Seconds = 946771262, .Subseconds = 0};
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_GetMET), &met, sizeof(met), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_Subtract), &delta, sizeof(delta), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_Add), &advanced, sizeof(advanced), false);
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(CapturedTime.Seconds == advanced.Seconds, "Fallback advances with MET");
+    met.Seconds = 45;
+    delta.Seconds = 5;
+    advanced.Seconds = 946771265;
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_GetMET), &met, sizeof(met), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_Subtract), &delta, sizeof(delta), false);
+    UT_SetDataBuffer(UT_KEY(CFE_TIME_Add), &advanced, sizeof(advanced), false);
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2, "Fallback re-asserted every call while armed");
+    UtAssert_True(CapturedTime.Seconds == advanced.Seconds,
+                  "Subsequent fallback submission advances instead of freezing");
+
+    /* Real GPS has since synced: stop resubmitting the stale fallback */
+    ADCS_AppData.GpsTimeSynced = true;
+    ADCS_ResubmitTimeFallback();
+    UtAssert_True(UT_GetStubCount(UT_KEY(CFE_TIME_ExternalGPS)) == 2,
+                  "No longer resubmitted once real GPS has synced");
+}
+
+void Test_ADCS_SaveTimeToFile(void)
+{
+    /*
+     * Test Case For:
+     * void ADCS_SaveTimeToFile()
+     */
+    ADCS_TimeFileData_t CapturedWrite;
+    UT_CheckEvent_t     SaveErrEvent;
+    uint32              i;
+
+    /* See Test_ADCS_ProcessGpsTime's comment above: ADCS_AppData is a
+     * persistent global that Adcs_UT_Setup() does not clear. */
+    ADCS_AppData.TimeFileSaveCounter              = 0;
+    ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount = 0;
+
+    UT_CheckEvent_Setup(&SaveErrEvent, ADCS_TIME_FILE_SAVE_ERR_EID, NULL);
+
+    /* Decimated: no save (and no OS_write call at all) until the period
+       elapses -- avoids needless flash wear on every HK cycle. */
+    for (i = 0; i < ADCS_TIME_FILE_SAVE_PERIOD_CYCLES - 1; i++)
+    {
+        ADCS_SaveTimeToFile();
+    }
+    UtAssert_True(UT_GetStubCount(UT_KEY(OS_write)) == 0, "No save before the period elapses");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount == 0, "TimeFileSaveCount unchanged before the period elapses");
+
+    /* Period elapses: writes the current time, resetting BootOffsetCount
+       to 0 since this is fresh real data. */
+    UT_SetDataBuffer(UT_KEY(OS_write), &CapturedWrite, sizeof(CapturedWrite), false);
+    ADCS_SaveTimeToFile();
+    UtAssert_True(UT_GetStubCount(UT_KEY(OS_write)) == 1, "Save fires once the period elapses");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount == 1, "TimeFileSaveCount incremented on a successful save");
+    UtAssert_True(CapturedWrite.BootOffsetCount == 0, "Saved BootOffsetCount reset to 0");
+    UtAssert_True(ADCS_AppData.TimeFileSaveCounter == 0, "Decimation counter reset after a save");
+
+    /* Write failure: error event, no HK increment */
+    UT_SetDeferredRetcode(UT_KEY(OS_write), 1, -1);
+    for (i = 0; i < ADCS_TIME_FILE_SAVE_PERIOD_CYCLES; i++)
+    {
+        ADCS_SaveTimeToFile();
+    }
+    UtAssert_True(SaveErrEvent.MatchCount == 1, "ADCS_TIME_FILE_SAVE_ERR_EID sent once on write failure");
+    UtAssert_True(ADCS_AppData.HkTelemetryPkt.TimeFileSaveCount == 1, "TimeFileSaveCount unchanged on write failure");
+}
+
+/*
  * Setup function prior to every test
  */
 void Adcs_UT_Setup(void)
 {
+    UT_ResetState(0);
+}
+
+void Test_ADCS_Config_RefreshFailureIsACommandError(void)
+{
+    CFE_SB_MsgId_t    TestMsgId = CFE_SB_ValueToMsgId(ADCS_CMD_MID);
+    CFE_MSG_FcnCode_t FcnCode   = ADCS_CONFIG_CC;
+    ADCS_NoArgs_cmd_t Command;
+    size_t            Size = sizeof(Command);
+
+    memset(&Command, 0, sizeof(Command));
+    ADCS_AppData.MsgPtr                       = (CFE_MSG_Message_t *)&Command;
+    ADCS_AppData.HkTelemetryPkt.DeviceEnabled = ADCS_DEVICE_ENABLED;
+    uint32 errors_before   = ADCS_AppData.HkTelemetryPkt.CommandErrorCount;
+    uint32 commands_before = ADCS_AppData.HkTelemetryPkt.CommandCount;
+    uint32 sends_before    = UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd));
+
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &Size, sizeof(Size), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_ERR_LOAD_IN_PROGRESS);
+
+    ADCS_ProcessGroundCommand();
+
+    /* The gains are not pushed to the device when the table could not be refreshed. */
+    UtAssert_UINT32_EQ(ADCS_AppData.HkTelemetryPkt.CommandErrorCount, errors_before + 1);
+    UtAssert_UINT32_EQ(ADCS_AppData.HkTelemetryPkt.CommandCount, commands_before);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(ADCS_SendGainsCmd)), sends_before);
+    UT_ResetState(0);
+}
+
+void Test_ADCS_AppInit_StartupEventFailure(void)
+{
+    /* Not being able to announce startup is logged to the system log and returned, not ignored. */
+    UT_ProvideGainsTableAddress();
+    UT_SetDefaultReturnValue(UT_KEY(CFE_EVS_SendEvent), CFE_EVS_INVALID_PARAMETER);
+    UT_TEST_FUNCTION_RC(ADCS_AppInit(), CFE_EVS_INVALID_PARAMETER);
+    UtAssert_UINT32_EQ(UT_GetStubCount(UT_KEY(CFE_ES_WriteToSysLog)), 1);
+    UT_ResetState(0);
+}
+
+void Test_ADCS_RefreshGainsTable_Paths(void)
+{
+    static ADCS_GainsTbl_t table;
+    ADCS_GainsTbl_t       *table_ptr = &table;
+    UT_CheckEvent_t        EventTest;
+
+    memset(&table, 0, sizeof(table));
+    table.SunPointKp = 0.25f;
+
+    /* The pending update cannot be applied. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_Manage), 1, CFE_TBL_ERR_LOAD_IN_PROGRESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_MANAGE_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_ERR_LOAD_IN_PROGRESS);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* The table address cannot be read: that status is returned. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_ERR_NEVER_LOADED);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_GETADDR_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_ERR_NEVER_LOADED);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* The address call succeeds but yields no table: reported as a bad argument rather than as success. */
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_GETADDR_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_BAD_ARGUMENT);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* An updated-flag status with no table is the same failure. */
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_GetAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_BAD_ARGUMENT);
+    UT_ResetState(0);
+
+    /* The table is read but cannot be released. */
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_ReleaseAddress), 1, CFE_TBL_ERR_NO_ACCESS);
+    UT_CheckEvent_Setup(&EventTest, ADCS_TBL_GETADDR_ERR_EID, NULL);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_TBL_ERR_NO_ACCESS);
+    UtAssert_UINT32_EQ(EventTest.MatchCount, 1);
+    UT_ResetState(0);
+
+    /* Success refreshes the snapshot and points the active table at it. */
+    ADCS_AppData.GainsTblPtr = NULL;
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_TEST_FUNCTION_RC(ADCS_RefreshGainsTable(), CFE_SUCCESS);
+    UtAssert_True(ADCS_AppData.GainsTblPtr == &ADCS_AppData.GainsTblSnapshot, "Active table is the refreshed snapshot");
+    UtAssert_True(ADCS_AppData.GainsTblSnapshot.SunPointKp == 0.25f, "Snapshot holds the table contents");
+    UT_ResetState(0);
+}
+
+void Test_ADCS_TableInit_ReleaseFailure(void)
+{
+    static ADCS_GainsTbl_t table;
+    ADCS_GainsTbl_t       *table_ptr = &table;
+
+    memset(&table, 0, sizeof(table));
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_ReleaseAddress), 1, CFE_TBL_ERR_NO_ACCESS);
+    UT_TEST_FUNCTION_RC(ADCS_TableInit(), CFE_TBL_ERR_NO_ACCESS);
+    UT_ResetState(0);
+
+    /* A release that reports the table was updated is still a success. */
+    UT_SetDataBuffer(UT_KEY(CFE_TBL_GetAddress), &table_ptr, sizeof(table_ptr), false);
+    UT_SetDeferredRetcode(UT_KEY(CFE_TBL_ReleaseAddress), 1, CFE_TBL_INFO_UPDATED);
+    UT_TEST_FUNCTION_RC(ADCS_TableInit(), CFE_SUCCESS);
     UT_ResetState(0);
 }
 
@@ -691,6 +1414,10 @@ void Adcs_UT_TearDown(void) {}
 void UtTest_Setup(void)
 {
     ADD_TEST(ADCS_AppMain);
+    ADD_TEST(ADCS_Config_RefreshFailureIsACommandError);
+    ADD_TEST(ADCS_AppInit_StartupEventFailure);
+    ADD_TEST(ADCS_RefreshGainsTable_Paths);
+    ADD_TEST(ADCS_TableInit_ReleaseFailure);
     ADD_TEST(ADCS_AppInit);
     ADD_TEST(ADCS_ProcessCommandPacket);
     ADD_TEST(ADCS_ProcessGroundCommand);
@@ -700,4 +1427,10 @@ void UtTest_Setup(void)
     ADD_TEST(ADCS_ProcessTelemetryRequest);
     ADD_TEST(ADCS_Enable);
     ADD_TEST(ADCS_Disable);
+    ADD_TEST(ADCS_ProcessGpsTime);
+    ADD_TEST(ADCS_LoadTimeFromFile);
+    ADD_TEST(ADCS_ResubmitTimeFallback);
+    ADD_TEST(ADCS_SaveTimeToFile);
+    ADD_TEST(ADCS_TimeFile_PersistFailures);
+    ADD_TEST(ADCS_ValidateGainsTbl);
 }

@@ -1,0 +1,11 @@
+# Runtime images need only the compiled Simulith programs and selected modules.
+*
+!docker/
+!docker/Dockerfile.director
+!docker/Dockerfile.server
+!build/
+!build/libsimulith.so
+!build/simulith_director_standalone
+!build/simulith_server_standalone
+!build/components/
+!build/components/*.so

@@ -237,6 +237,8 @@ void Test_EPS_ProcessTelemetryRequest(void)
     UT_CheckEvent_t   EventTest;
     CFE_MSG_FcnCode_t FcnCode;
     FcnCode = EPS_REQ_HK_TLM;
+    size_t size = sizeof(EPS_NoArgs_cmd_t);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &size, sizeof(size), false);
 
     TestMsgId = CFE_SB_ValueToMsgId(EPS_CMD_MID);
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
@@ -247,7 +249,21 @@ void Test_EPS_ProcessTelemetryRequest(void)
     UtAssert_True(EventTest.MatchCount == 0, "EPS_REQ_DATA_ERR_EID generated (%u)",
                   (unsigned int)EventTest.MatchCount);
 
+    /* A malformed HK request must not read hardware or transmit HK. */
+    uint32 previous_reads = UT_GetStubCount(UT_KEY(EPS_RequestHK));
+    CFE_SB_MsgId_t bad_ids[2] = {TestMsgId, TestMsgId};
+    CFE_MSG_FcnCode_t bad_codes[2] = {EPS_REQ_HK_TLM, EPS_REQ_HK_TLM};
+    size = sizeof(EPS_NoArgs_cmd_t) + 1;
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetSize), &size, sizeof(size), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), bad_ids, sizeof(bad_ids), false);
+    UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), bad_codes, sizeof(bad_codes), false);
+    UT_CheckEvent_Setup(&EventTest, EPS_LEN_ERR_EID, NULL);
+    EPS_ProcessTelemetryRequest();
+    UtAssert_True(EventTest.MatchCount == 1, "Malformed HK request rejected");
+    UtAssert_True(UT_GetStubCount(UT_KEY(EPS_RequestHK)) == previous_reads, "Malformed HK request does not read device");
+
     FcnCode = 99;
+    UT_CheckEvent_Setup(&EventTest, EPS_REQ_DATA_ERR_EID, NULL);
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetMsgId), &TestMsgId, sizeof(TestMsgId), false);
     UT_SetDataBuffer(UT_KEY(CFE_MSG_GetFcnCode), &FcnCode, sizeof(FcnCode), false);
     EPS_ProcessTelemetryRequest();
@@ -556,6 +572,15 @@ void Test_EPS_SetSwitchOn(void)
     UtAssert_True(EventTest.MatchCount == 1, "EPS_CMD_SWITCH_ON_ERR_EID generated for device error");
 }
 
+void Test_EPS_BuildIsNotTheUplinkPatch(void)
+{
+    /* The uplink patch is a separate build of this source, covered by coveragetest_eps_patch.c. */
+#ifdef EPS_PATCH_PROTECTED_SWITCH
+    UtAssert_Failed("the checked in build must not define EPS_PATCH_PROTECTED_SWITCH");
+#endif
+    UtAssert_True(EPS_REVISION == 0, "the checked in app reports revision 0");
+}
+
 void Test_EPS_ReportHousekeeping(void)
 {
     /*
@@ -660,6 +685,7 @@ void UtTest_Setup(void)
     ADD_TEST(EPS_ResetCounters);
     ADD_TEST(EPS_SetSwitchOff);
     ADD_TEST(EPS_SetSwitchOn);
+    ADD_TEST(EPS_BuildIsNotTheUplinkPatch);
     ADD_TEST(EPS_VerifyCmdLength);
     ADD_TEST(EPS_ProcessTelemetryRequest);
 }

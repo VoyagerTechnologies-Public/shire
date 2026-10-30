@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
     printf("Starting Simulith Server with %d client(s)...\n", num_clients);
     if (simulith_server_configure(speed, duration_ns, metrics_path) != 0 ||
         simulith_server_configure_warmup(warmup_ns) != 0 ||
-        simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, num_clients, INTERVAL_NS) != 0)
+        simulith_server_init(simulith_pub_address(1), simulith_rep_address(1), num_clients, INTERVAL_NS) != 0)
         return 1;
     simulith_server_run();
     simulith_server_shutdown();

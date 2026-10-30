@@ -1,0 +1,24 @@
+# Ground station catalog shared by:
+#   - cfg/42_shire_config/Inp_Sim.j2 (renders 42's "Ground Stations" block)
+#   - cfg/drm/initial_conditions/*.yaml (pass-acquisition/loss bins reference a
+#     station here by name for documentation/derivation purposes)
+#
+# Single source of truth so the two never drift apart.
+#
+# The radio simulator (comp/radio) also uses this catalog to decide when the
+# spacecraft is "in view" (link_mode: auto). Optional per-station fields, which
+# 42's Inp_Sim.j2 ignores:
+#   min_elev_deg: elevation mask in degrees (default 5)
+#   enabled:      false to start with the station disabled (default true)
+# The radio's `ground_stations: [names]` setting selects a subset; the station
+# index used by the SET_STATION_ENABLED backdoor is its position in that list
+# (or in this file when no subset is given). All stations share one downlink.
+ground_stations:
+  - name: "VOYG San Diego, CA"
+    world: EARTH
+    lon_deg: -117.0784
+    lat_deg: 33.0249
+  - name: "VOYG Denver, CO"
+    world: EARTH
+    lon_deg: -104.995
+    lat_deg: 39.751

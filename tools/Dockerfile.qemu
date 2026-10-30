@@ -1,0 +1,9 @@
+# Open-source Zynq build and emulator tools. The guest is built from Buildroot;
+# no PetaLinux installation, vendor QEMU fork, or private boot image is used.
+FROM ghcr.io/voyagertechnologies-public/shire-base:0.0.0
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bc bison bzip2 cpio file flex gawk libncurses-dev libssl-dev patch \
+    openssh-client qemu-system-arm qemu-utils rsync unzip wget xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+ENV FORCE_UNSAFE_CONFIGURE=1

@@ -1,0 +1,21 @@
+# Test/example campaign: a small continuous orbit-inclination sweep
+# against the fast "nominal" scenario. Every trial samples a distinct
+# inclination, so (per the campaign design's own finding) each trial
+# needs its own image rebuild -- this campaign exercises the "no dedup"
+# path, not the build-key-collision path (see test-soc-choice.yaml for
+# that).
+name: "test-orbit-sweep"
+description: >
+  Small orbit-inclination dispersion around nominal-baseline, run against
+  the fast "nominal" scenario. Exists to exercise the Monte Carlo campaign
+  pipeline end to end, not to model a specific mission question.
+scenario: "nominal"
+base_initial_conditions: "nominal-baseline"
+trial_count: 4
+seed: 20260921
+max_parallel: 2
+
+parameters:
+  - path: "orbit.inclination_deg"
+    distribution: {type: "normal", mean: 0.0, stdev: 1.0}
+    mode: "additive"

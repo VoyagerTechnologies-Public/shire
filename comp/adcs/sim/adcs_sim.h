@@ -14,6 +14,17 @@
 // Configuration parameters
 #define ADCS_SIM_UPDATE_RATE_HZ 10
 
+/* Keep older mission configurations compatible with the original ownership. */
+#ifndef ADCS_CFG_SPACECRAFT_ID
+#define ADCS_CFG_SPACECRAFT_ID 0
+#endif
+#ifndef ADCS_CFG_WHEEL_MASK
+#define ADCS_CFG_WHEEL_MASK 15
+#endif
+#ifndef ADCS_CFG_MTB_MASK
+#define ADCS_CFG_MTB_MASK 7
+#endif
+
 // Status codes
 #define ADCS_SIM_SUCCESS 0
 #define ADCS_SIM_ERROR  1
@@ -24,18 +35,39 @@
 #define ADCS_SUN_POINT_KD 0.1               // Aggressive derivative gain
 #define ADCS_WHEEL_MAX_TORQUE 0.005         // Max wheel torque updated to match SC_NOS3.txt
 #define ADCS_MTB_MAX_DIPOLE 1.42            // Max MTB dipole from SC_NOS3.txt
-#define ADCS_DETUMBLE_GAIN_BASE 0.01        // Moderate base detumble gain
-#define ADCS_DETUMBLE_GAIN_HIGH 0.02        // Moderate high rate detumble gain
+#define ADCS_DETUMBLE_GAIN_BASE 2.0e5       // B-dot gain at low rates, A*m^2 per (rad/s * T)
+#define ADCS_DETUMBLE_GAIN_HIGH 1.0e6       // B-dot gain at high rates, A*m^2 per (rad/s * T)
 #define ADCS_WHEEL_DESAT_THRESHOLD 0.032    // Wheel momentum threshold for desaturation (80% of 0.04)
 #define ADCS_RATE_THRESHOLD 0.10            // Rate threshold - switch to hybrid (rad/s)
 #define ADCS_HIGH_RATE_THRESHOLD 0.5        // High rate threshold (rad/s)
 #define ADCS_ERROR_THRESHOLD 0.15           // Error threshold for fine pointing (rad)
 
+// Runtime-tunable control-law gains. Seeded from the ADCS_* macros above
+// (the compiled-in defaults / hardware ceilings) by adcs_sim_init(), and
+// overwritten by an ADCS_DEVICE_SET_GAINS_CMD frame once the cFE app pushes
+// down its boot-loaded gains table (see comp/adcs/src/adcs_tbl.c). The
+// controllers read these fields instead of the macros directly, so a table
+// load actually changes runtime behavior.
+typedef struct
+{
+    double sun_point_kp;
+    double sun_point_kd;
+    double wheel_max_torque;
+    double mtb_max_dipole;
+    double detumble_gain_base;
+    double detumble_gain_high;
+    double rotisserie_rate_rad_s;
+} adcs_sim_gains_t;
+
 // Adcs simulator state
-typedef struct 
+typedef struct
 {
     // Resources and model state are instance-owned; no callback globals.
     transport_port_t uart_port;
+    simulith_power_runtime_t power;
+    int spacecraft_id;
+    int wheel_mask;
+    int mtb_mask;
     // Simulator specifics
     uint64_t next_sensor_update_ns;
     // Device specifics
@@ -49,6 +81,7 @@ typedef struct
     double inertial_target[3];
     int current_mode;
     int controller_active;
+    adcs_sim_gains_t gains;
 } adcs_sim_state_t;
 
 // Public API

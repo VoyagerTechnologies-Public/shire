@@ -3,6 +3,17 @@ set(UNITY_SRC ./unity/unity.c)
 set(UNITY_INC ./unity)
 
 # Include paths for tests
+add_executable(test_network_config test_network_config.c ${UNITY_SRC})
+target_include_directories(test_network_config PRIVATE ${UNITY_INC} ../include)
+target_link_libraries(test_network_config simulith)
+target_compile_definitions(test_network_config PRIVATE
+    SIMULITH_SERVER_PATH="$<TARGET_FILE:simulith_server_standalone>")
+add_dependencies(test_network_config simulith_server_standalone)
+add_test(NAME NetworkConfigurationTests COMMAND test_network_config)
+# These suites normally take 2-7 seconds. Allow roughly ten times that, so a slow or contended machine
+# does not fail them, while a hung fixture is still stopped.
+set_tests_properties(NetworkConfigurationTests PROPERTIES TIMEOUT 60)
+
 include_directories(
     ${UNITY_INC}
     ../include
@@ -39,7 +50,12 @@ target_link_options(test_server_failures PRIVATE
     -Wl,--wrap=zmq_setsockopt
     -Wl,--wrap=zmq_close
     -Wl,--wrap=zmq_send
-    -Wl,--wrap=zmq_recv)
+    -Wl,--wrap=zmq_recv
+    -Wl,--wrap=socket
+    -Wl,--wrap=bind
+    -Wl,--wrap=fcntl
+    -Wl,--wrap=gethostbyname
+    -Wl,--wrap=sendto)
 add_test(NAME ServerFailureTests COMMAND test_server_failures)
 
 add_executable(test_client_failures test_client_failures.c ../src/simulith_client.c
@@ -54,7 +70,10 @@ target_link_options(test_client_failures PRIVATE
     -Wl,--wrap=zmq_setsockopt
     -Wl,--wrap=zmq_close
     -Wl,--wrap=zmq_send
-    -Wl,--wrap=zmq_recv)
+    -Wl,--wrap=zmq_recv
+    -Wl,--wrap=simulith_shared_barrier_connect
+    -Wl,--wrap=simulith_shared_barrier_receive
+    -Wl,--wrap=simulith_shared_barrier_complete)
 add_test(NAME ClientFailureTests COMMAND test_client_failures)
 
 add_executable(test_time test_time.c ${UNITY_SRC})
@@ -62,7 +81,7 @@ target_link_libraries(test_time simulith ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_time PRIVATE SIMULITH_TESTING)
 add_test(NAME TimeTests COMMAND test_time)
 
-add_executable(test_time_failures test_time_failures.c ../src/simulith_time.c ${UNITY_SRC})
+add_executable(test_time_failures test_time_failures.c ../src/simulith_time.c ../src/simulith_common.c ${UNITY_SRC})
 target_link_libraries(test_time_failures ${ZeroMQ_LIBRARIES})
 target_compile_definitions(test_time_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_time_failures PRIVATE
@@ -85,6 +104,7 @@ add_executable(test_transport_failures test_transport_failures.c ../src/simulith
 target_link_libraries(test_transport_failures ${ZeroMQ_LIBRARIES} pthread)
 target_compile_definitions(test_transport_failures PRIVATE SIMULITH_TESTING)
 target_link_options(test_transport_failures PRIVATE
+    -Wl,--wrap=snprintf
     -Wl,--wrap=zmq_ctx_new
     -Wl,--wrap=zmq_ctx_term
     -Wl,--wrap=zmq_socket
@@ -100,10 +120,32 @@ add_executable(test_shared_barrier test_shared_barrier.c
 target_link_libraries(test_shared_barrier pthread)
 add_test(NAME SharedBarrierTests COMMAND test_shared_barrier)
 
+add_executable(test_shared_barrier_failures test_shared_barrier_failures.c
+    ../src/simulith_shared_barrier.c ${UNITY_SRC})
+target_link_libraries(test_shared_barrier_failures pthread)
+target_link_options(test_shared_barrier_failures PRIVATE
+    -Wl,--wrap=open -Wl,--wrap=unlink -Wl,--wrap=ftruncate -Wl,--wrap=mmap
+    -Wl,--wrap=fstat -Wl,--wrap=nanosleep -Wl,--wrap=pthread_mutexattr_init
+    -Wl,--wrap=pthread_mutexattr_setpshared -Wl,--wrap=pthread_condattr_init
+    -Wl,--wrap=pthread_condattr_setpshared -Wl,--wrap=pthread_condattr_setclock
+    -Wl,--wrap=pthread_mutex_init -Wl,--wrap=pthread_cond_init)
+add_test(NAME SharedBarrierFailureTests COMMAND test_shared_barrier_failures)
+
+
 add_executable(test_42_socket_client test_42_socket_client.c ${UNITY_SRC})
 target_link_libraries(test_42_socket_client simulith pthread)
 target_compile_definitions(test_42_socket_client PRIVATE SIMULITH_TESTING)
 add_test(NAME 42SocketClientTests COMMAND test_42_socket_client)
+
+add_executable(test_42_socket_client_failures test_42_socket_client_failures.c
+    ../src/simulith_42_socket_client.c ${UNITY_SRC})
+target_include_directories(test_42_socket_client_failures PRIVATE ../../42/Include)
+target_link_libraries(test_42_socket_client_failures m pthread)
+target_compile_definitions(test_42_socket_client_failures PRIVATE SIMULITH_TESTING)
+target_link_options(test_42_socket_client_failures PRIVATE
+    -Wl,--wrap=socket -Wl,--wrap=open -Wl,--wrap=fstat -Wl,--wrap=mmap
+    -Wl,--wrap=recv -Wl,--wrap=send -Wl,--wrap=syscall)
+add_test(NAME 42SocketClientFailureTests COMMAND test_42_socket_client_failures)
 
 add_executable(test_director test_director.c ${UNITY_SRC})
 target_link_libraries(test_director simulith_director_core)
@@ -128,6 +170,9 @@ add_dependencies(test_director
     director_fixture_valid director_fixture_duplicate director_fixture_null director_fixture_no_interface
     director_fixture_bad_version director_fixture_bad_size)
 target_link_options(test_director PRIVATE
+    -Wl,--wrap=sendto
+    -Wl,--wrap=getaddrinfo -Wl,--wrap=nanosleep -Wl,--wrap=socket
+    -Wl,--wrap=malloc -Wl,--wrap=fread -Wl,--wrap=fseek
     -Wl,--wrap=eventfd
     -Wl,--wrap=pthread_create
     -Wl,--wrap=pthread_mutex_init
@@ -139,11 +184,18 @@ target_compile_definitions(test_director PRIVATE
     DIRECTOR_FIXTURE_DIR="${DIRECTOR_FIXTURE_DIR}")
 add_test(NAME DirectorTests COMMAND test_director)
 
+add_executable(test_control_trace test_control_trace.c ../src/simulith_control_trace.c)
+target_link_libraries(test_control_trace pthread)
+target_link_options(test_control_trace PRIVATE
+    -Wl,--wrap=fwrite -Wl,--wrap=pthread_create -Wl,--wrap=fflush
+    -Wl,--wrap=fsync -Wl,--wrap=fclose -Wl,--wrap=rename)
+add_test(NAME ControlTraceTests COMMAND test_control_trace)
+
 # Exercise every entry-point outcome with the real main source and deterministic
 # service stubs. Renaming main is confined to this object target.
 add_library(director_main_test_object OBJECT ../src/simulith_director_main.c)
 target_compile_definitions(director_main_test_object PRIVATE main=simulith_director_main)
-add_executable(test_director_main test_director_main.c
+add_executable(test_director_main test_director_main.c ../src/simulith_common.c
     $<TARGET_OBJECTS:director_main_test_object> ${UNITY_SRC})
 target_link_libraries(test_director_main pthread)
 target_link_options(test_director_main PRIVATE -Wl,--wrap=sleep)
@@ -182,4 +234,6 @@ set_tests_properties(ServerNumericSpeedAndMetricsThenUnknownTest PROPERTIES
 # Prevent a failed socket/thread fixture from stalling CI indefinitely.
 set_tests_properties(
     SimulithTests DirectorTests DirectorMainTests DirectorWithoutServerTest
-    PROPERTIES TIMEOUT 20)
+    42SocketClientTests 42SocketClientFailureTests ControlTraceTests
+    SharedBarrierTests SharedBarrierFailureTests
+    PROPERTIES TIMEOUT 60)

@@ -5,9 +5,29 @@
 #include <math.h>
 #include <signal.h>
 #include <sys/select.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #define MAX_CLIENTS 32
 #define MAX_LATENCY_SAMPLES 10000
+
+/* Caps how far next_tick_deadline_ns is allowed to fall behind real time
+** (see its use in the pacing block below). Without this, a single stall
+** (e.g. the 200ms zmq_poll fallback a few lines up when a client's
+** completion isn't immediately available) leaves the deadline schedule
+** far in the past, and since ticks run unthrottled whenever
+** completion_ns >= next_tick_deadline_ns, the server then burns through
+** the entire backlog at full speed -- a burst that can itself blow past
+** a docker --cpus quota and get throttled, stall again, and repeat,
+** producing a sustained "rubber-banding" between under- and over-speed
+** instead of one isolated blip. Clamping the lag bounds that burst; any
+** time lost to a stall beyond this cap is accepted as permanent (small)
+** drift rather than chased.
+*/
+#define MAX_CATCHUP_LAG_NS 50000000ULL /* 50ms */
 
 typedef struct
 {
@@ -50,13 +70,23 @@ static uint64_t     measurement_end_real_ns    = 0;
 static uint64_t     active_tick_start_ns       = 0;
 static uint64_t     active_phase_start_ns      = 0;
 static simulith_phase_t current_phase           = SIMULITH_PHASE_PREPARE;
+static int step_pending = 0;
 static uint64_t     completion_count           = 0;
 static uint64_t     tick_latency_samples[MAX_LATENCY_SAMPLES];
 static size_t       tick_latency_sample_count  = 0;
+static uint64_t     phase_latency_total_ns[4]  = {0};
+static uint64_t     phase_latency_samples[4][MAX_LATENCY_SAMPLES];
+static size_t       phase_latency_sample_count[4] = {0};
 static double       g_attempted_speed          = 1.0;
 static uint64_t     g_last_log_real_ns         = 0;
 static uint64_t     g_last_log_sim_ns          = 0;
 static uint64_t     watchdog_interval_ns       = 1000000000ULL;
+
+/* Ground-command interface: backdoor listener + status-telemetry sender. */
+static int                backdoor_sock         = -1;
+static int                status_sock           = -1;
+static struct sockaddr_in status_dest_addr;
+static int                status_dest_valid      = 0;
 
 /* Test/debug helper: request server shutdown from other threads. */
 static volatile sig_atomic_t simulith_server_stop_requested = 0;
@@ -103,6 +133,14 @@ static void close_server_resources(void)
     responder      = NULL;
     simulith_shared_barrier_close(&shared_barrier);
     server_context = NULL;
+
+    if (backdoor_sock >= 0)
+        close(backdoor_sock);
+    backdoor_sock = -1;
+    if (status_sock >= 0)
+        close(status_sock);
+    status_sock = -1;
+    status_dest_valid = 0;
 }
 
 static int is_client_id_taken(const char *id)
@@ -156,10 +194,13 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     tick_interval_ns = interval_ns;
     current_time_ns = 0;
     current_sequence = 0;
+    step_pending = 0;
     completed_ticks = 0;
     measured_ticks_completed = 0;
     completion_count = 0;
     tick_latency_sample_count = 0;
+    memset(phase_latency_total_ns, 0, sizeof(phase_latency_total_ns));
+    memset(phase_latency_sample_count, 0, sizeof(phase_latency_sample_count));
     protocol_errors = duplicate_completions = stale_completions = future_completions = 0;
     tick_latency_total_ns = tick_latency_max_ns = 0;
     tick_latency_min_ns = UINT64_MAX;
@@ -379,11 +420,11 @@ static int record_shared_completions(uint32_t completed_mask)
 
 static const char *handle_completion(const char *message)
 {
-    unsigned long sequence = 0;
+    uint64_t sequence = 0;
     unsigned phase = 0;
     char client_id[64] = {0};
     int consumed = 0;
-    if (sscanf(message, "COMPLETE %lu %u %63s %n", &sequence, &phase,
+    if (sscanf(message, "COMPLETE %" SCNu64 " %u %63s %n", &sequence, &phase,
                client_id, &consumed) != 3 || message[consumed] != '\0')
     {
         protocol_errors++;
@@ -443,7 +484,22 @@ static int process_cli_command(const char *command, int *paused, double *speed)
     char extra[2] = {0};
     int fields = sscanf(command, " %15s %31s %1s", action, argument, extra);
 
-    if (fields == 1 && strcmp(action, "p") == 0)
+    if (fields == 1 && strcmp(action, "pause") == 0)
+    {
+        *paused = 1;
+        step_pending = 0;
+    }
+    else if (fields == 1 && strcmp(action, "resume") == 0)
+    {
+        *paused = 0;
+        step_pending = 0;
+    }
+    else if (fields == 1 && strcmp(action, "step") == 0)
+    {
+        *paused = 1;
+        step_pending = 1;
+    }
+    else if (fields == 1 && strcmp(action, "p") == 0)
     {
         *paused = !*paused;
         printf(*paused ? "Simulation paused.\n" : "Simulation resumed.\n");
@@ -503,7 +559,7 @@ static int process_cli_command(const char *command, int *paused, double *speed)
     }
     else
     {
-        printf("Unknown command. Use 'p', '+', '-', 'speed <factor|max>', or 'quit'.\n");
+        printf("Unknown command. Use 'pause', 'resume', 'step', 'p', '+', '-', 'speed <factor|max>', or 'quit'.\n");
     }
     return 0;
 }
@@ -512,6 +568,249 @@ static int process_cli_command(const char *command, int *paused, double *speed)
 int simulith_server_process_cli_command_for_test(const char *command, int *paused, double *speed)
 {
     return process_cli_command(command, paused, speed);
+}
+#endif
+
+/* Ground-command backdoor: a UDP listener that accepts the same
+ * MAGIC/target/cmd_id/payload framing as the director's backdoor
+ * (simulith_director.c), so YAMCS can drive pause/play/speed the same way it
+ * already drives other simulation-side backdoor commands. Pause/play are
+ * explicit rather than a toggle so a duplicated or retried UDP datagram is a
+ * safe no-op. */
+static const uint8_t BACKDOOR_MAGIC[8] = { 'B', 'A', 'C', 'K', 'D', 'O', 'O', 'R' };
+static const char *BACKDOOR_TARGET_NAME = "shire_server";
+
+enum
+{
+    SERVER_BACKDOOR_CMD_PAUSE     = 0x0001,
+    SERVER_BACKDOOR_CMD_PLAY      = 0x0002,
+    SERVER_BACKDOOR_CMD_SET_SPEED = 0x0003,
+    SERVER_BACKDOOR_CMD_STEP      = 0x0004
+};
+
+static int ensure_backdoor_socket(void)
+{
+    if (backdoor_sock >= 0)
+        return 0;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0)
+    {
+        simulith_log("Unable to create server backdoor socket: %s\n", strerror(errno));
+        return -1;
+    }
+    int reuse = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(SERVER_BACKDOOR_PORT);
+    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        simulith_log("Unable to bind server backdoor socket on port %d: %s\n",
+                     SERVER_BACKDOOR_PORT, strerror(errno));
+        close(s);
+        return -1;
+    }
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0)
+        fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    backdoor_sock = s;
+    simulith_log("Server backdoor listening on udp://0.0.0.0:%d\n", SERVER_BACKDOOR_PORT);
+    return 0;
+}
+
+/* Best-effort: a missing status link should never prevent the server from
+ * accepting commands, so failures here only disable the outbound telemetry. */
+static void ensure_status_socket(void)
+{
+    if (status_sock >= 0)
+        return;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0)
+    {
+        simulith_log("Unable to create server status socket: %s\n", strerror(errno));
+        return;
+    }
+
+    memset(&status_dest_addr, 0, sizeof(status_dest_addr));
+    status_dest_addr.sin_family = AF_INET;
+    status_dest_addr.sin_port = htons(SERVER_STATUS_PORT);
+
+    const char *gsw_hostname = getenv("SIMULITH_GSW_HOST");
+    if (!gsw_hostname || gsw_hostname[0] == '\0')
+        gsw_hostname = "shire-gsw";
+    struct hostent *gsw_host = gethostbyname(gsw_hostname);
+    if (gsw_host && gsw_host->h_addr_list[0])
+        memcpy(&status_dest_addr.sin_addr, gsw_host->h_addr_list[0], sizeof(status_dest_addr.sin_addr));
+    else
+        status_dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    status_sock = s;
+    status_dest_valid = 1;
+}
+
+#define SERVER_STATUS_PACKET_SIZE 17 /* paused(1) + speed(8) + sim_time_ns(8) */
+
+/* Raw little-endian struct, no CCSDS header, mirroring how the director's
+ * 42-truth telemetry is serialized (simulith_serialize_42_telemetry). */
+static void send_status_update(int paused, double speed)
+{
+    if (status_sock < 0 || !status_dest_valid)
+        return;
+    uint8_t packet[SERVER_STATUS_PACKET_SIZE];
+    uint8_t paused_flag = paused ? 1 : 0;
+    memcpy(&packet[0], &paused_flag, sizeof(paused_flag));
+    memcpy(&packet[1], &speed, sizeof(speed));
+    memcpy(&packet[9], &current_time_ns, sizeof(current_time_ns));
+    sendto(status_sock, packet, sizeof(packet), 0,
+           (struct sockaddr *)&status_dest_addr, sizeof(status_dest_addr));
+}
+
+static void process_backdoor_command(const uint8_t *frame, size_t frame_len,
+                                      int *paused, double *speed)
+{
+    if (frame_len < 8 + 1 + 2 + 2 || memcmp(frame, BACKDOOR_MAGIC, 8) != 0)
+        return;
+    size_t off = 8;
+    uint8_t target_len = frame[off++];
+    if (target_len == 0 || target_len > 64 || off + (size_t)target_len + 2 + 2 > frame_len)
+        return;
+    char target[65];
+    memcpy(target, &frame[off], target_len);
+    target[target_len] = '\0';
+    off += target_len;
+    if (strcmp(target, BACKDOOR_TARGET_NAME) != 0)
+        return;
+
+    uint16_t cmd_id = (uint16_t)((frame[off] << 8) | frame[off + 1]);
+    off += 2;
+    uint16_t payload_len = (uint16_t)((frame[off] << 8) | frame[off + 1]);
+    off += 2;
+    if (off + payload_len > frame_len)
+        return;
+    const uint8_t *payload = &frame[off];
+
+    switch (cmd_id)
+    {
+        case SERVER_BACKDOOR_CMD_PAUSE:
+            *paused = 1;
+            step_pending = 0;
+            printf("Simulation paused (ground command).\n");
+            break;
+        case SERVER_BACKDOOR_CMD_PLAY:
+            *paused = 0;
+            step_pending = 0;
+            printf("Simulation resumed (ground command).\n");
+            break;
+        case SERVER_BACKDOOR_CMD_STEP:
+            if (payload_len != 0)
+                return;
+            *paused = 1;
+            step_pending = 1;
+            break;
+        case SERVER_BACKDOOR_CMD_SET_SPEED:
+        {
+            if (payload_len != 8)
+                return;
+            /* Big-endian on the wire, matching BACKDOOR_CONFIG_ArgType's
+             * existing convention for backdoor command arguments. */
+            uint64_t bits = 0;
+            for (int i = 0; i < 8; ++i)
+                bits = (bits << 8) | (uint64_t)payload[i];
+            char command[64];
+            if (bits == 0)
+            {
+                /* +0.0 on the wire is the "max" sentinel; compared as an
+                 * integer bit pattern rather than a converted double to
+                 * avoid a floating-point equality comparison. */
+                snprintf(command, sizeof(command), "speed max");
+            }
+            else
+            {
+                double requested_speed;
+                memcpy(&requested_speed, &bits, sizeof(requested_speed));
+                snprintf(command, sizeof(command), "speed %.17g", requested_speed);
+            }
+            process_cli_command(command, paused, speed);
+            break;
+        }
+        default:
+            return;
+    }
+
+    send_status_update(*paused, *speed);
+}
+
+#ifdef SIMULITH_TESTING
+void simulith_server_process_backdoor_command_for_test(const uint8_t *frame, size_t frame_len,
+                                                        int *paused, double *speed)
+{
+    process_backdoor_command(frame, frame_len, paused, speed);
+}
+
+int simulith_server_ensure_backdoor_socket_for_test(void)
+{
+    return ensure_backdoor_socket();
+}
+
+void simulith_server_ensure_status_socket_for_test(void)
+{
+    ensure_status_socket();
+}
+
+void simulith_server_send_status_update_for_test(int paused, double speed)
+{
+    send_status_update(paused, speed);
+}
+#endif
+
+/* Poll stdin and the ground-command backdoor socket for pending input and
+ * apply any command found. Returns 1 if the caller should stop the server
+ * (interactive 'quit'), 0 otherwise. */
+static int poll_and_dispatch_commands(int *paused, double *speed)
+{
+    fd_set readfds;
+    struct timeval tv = { 0, 0 };
+    FD_ZERO(&readfds);
+    FD_SET(0, &readfds);
+    int max_fd = 0;
+    if (backdoor_sock >= 0)
+    {
+        FD_SET(backdoor_sock, &readfds);
+        max_fd = backdoor_sock;
+    }
+
+    int ready = select(max_fd + 1, &readfds, NULL, NULL, &tv);
+    if (ready <= 0)
+        return 0;
+
+    int should_stop = 0;
+    if (FD_ISSET(0, &readfds))
+    {
+        char cli_buf[32];
+        if (fgets(cli_buf, sizeof(cli_buf), stdin))
+        {
+            should_stop = process_cli_command(cli_buf, paused, speed);
+            if (!should_stop)
+                send_status_update(*paused, *speed);
+        }
+    }
+    if (backdoor_sock >= 0 && FD_ISSET(backdoor_sock, &readfds))
+    {
+        uint8_t frame[256];
+        ssize_t n = recvfrom(backdoor_sock, frame, sizeof(frame), 0, NULL, NULL);
+        if (n > 0)
+            process_backdoor_command(frame, (size_t)n, paused, speed);
+    }
+    return should_stop;
+}
+
+#ifdef SIMULITH_TESTING
+int simulith_server_poll_and_dispatch_commands_for_test(int *paused, double *speed)
+{
+    return poll_and_dispatch_commands(paused, speed);
 }
 #endif
 
@@ -677,13 +976,14 @@ void simulith_server_run(void)
     reset_responses();
 
     // CLI state
-    int paused = 0;
+    const char *start_paused = getenv("SIMULITH_START_PAUSED");
+    int paused = start_paused && strcmp(start_paused, "1") == 0;
     int running = 1;
     double speed = configured_speed; // zero means unbounded
     g_attempted_speed = speed;
-    fd_set readfds;
-    struct timeval tv;
-    char cli_buf[32];
+
+    ensure_backdoor_socket();
+    ensure_status_socket();
 
     printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), '-' (slower), or 'speed <factor|max>'.\n");
     run_start_real_ns = monotonic_ns();
@@ -695,24 +995,16 @@ void simulith_server_run(void)
 
     while (running && !simulith_server_stop_requested)
     {
-        // Check for CLI input (non-blocking)
-        FD_ZERO(&readfds);
-        FD_SET(0, &readfds); // stdin
-        tv.tv_sec = 0;
-        tv.tv_usec = 0;
-        int cli_ready = select(1, &readfds, NULL, NULL, &tv);
-        if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
+        // Check for CLI input and ground-command backdoor input (non-blocking)
+        if (poll_and_dispatch_commands(&paused, &speed))
         {
-            if (fgets(cli_buf, sizeof(cli_buf), stdin) &&
-                process_cli_command(cli_buf, &paused, &speed))
-            {
-                running = 0;
-                break;
-            }
+            running = 0;
+            break;
         }
 
-        if (!paused) 
+        if (!paused || step_pending)
         {
+            step_pending = 0;
             uint64_t tick_start_ns = monotonic_ns();
             active_tick_start_ns = tick_start_ns;
             log_simulation_progress();
@@ -813,15 +1105,17 @@ void simulith_server_run(void)
                         }
                     }
 
-                    FD_ZERO(&readfds);
-                    FD_SET(0, &readfds);
-                    tv.tv_sec = 0;
-                    tv.tv_usec = 0;
-                    cli_ready = select(1, &readfds, NULL, NULL, &tv);
-                    if (cli_ready > 0 && FD_ISSET(0, &readfds) &&
-                        fgets(cli_buf, sizeof(cli_buf), stdin) &&
-                        process_cli_command(cli_buf, &paused, &speed))
+                    if (poll_and_dispatch_commands(&paused, &speed))
                         running = 0;
+                }
+                if (current_time_ns >= configured_warmup_ns && running &&
+                    !simulith_server_stop_requested)
+                {
+                    uint64_t duration_ns = monotonic_ns() - active_phase_start_ns;
+                    phase_latency_total_ns[current_phase] += duration_ns;
+                    if (phase_latency_sample_count[current_phase] < MAX_LATENCY_SAMPLES)
+                        phase_latency_samples[current_phase][
+                            phase_latency_sample_count[current_phase]++] = duration_ns;
                 }
             }
 
@@ -853,6 +1147,11 @@ void simulith_server_run(void)
                     pacing_speed = speed;
                 }
                 next_tick_deadline_ns += target_ns;
+                if (completion_ns > next_tick_deadline_ns &&
+                    completion_ns - next_tick_deadline_ns > MAX_CATCHUP_LAG_NS)
+                {
+                    next_tick_deadline_ns = completion_ns - MAX_CATCHUP_LAG_NS;
+                }
                 if (completion_ns < next_tick_deadline_ns)
                 {
                     struct timespec deadline = {
@@ -970,6 +1269,21 @@ static void write_metrics(FILE *stream)
                                   client_states[i].completion_latency_sample_count[phase], 0.99),
                     (double)client_states[i].completion_latency_max_ns[phase] / 1000.0);
         }
+    }
+    fputs("],\"phase_latency_us\":[", stream);
+    for (simulith_phase_t phase = SIMULITH_PHASE_PREPARE;
+         phase <= SIMULITH_PHASE_COMMIT;
+         phase = (simulith_phase_t)(phase + 1))
+    {
+        size_t count = phase_latency_sample_count[phase];
+        fprintf(stream,
+                "%s{\"phase\":\"%s\",\"count\":%zu,\"mean\":%.3f,"
+                "\"p50\":%.3f,\"p95\":%.3f}",
+                phase == SIMULITH_PHASE_PREPARE ? "" : ",", phase_name(phase),
+                count, measured_ticks > 0 ?
+                    (double)phase_latency_total_ns[phase] / (double)measured_ticks / 1000.0 : 0.0,
+                percentile_us(phase_latency_samples[phase], count, 0.50),
+                percentile_us(phase_latency_samples[phase], count, 0.95));
     }
     fputs("]}\n", stream);
 }

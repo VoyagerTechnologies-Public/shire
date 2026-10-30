@@ -17,9 +17,10 @@ For every tick it:
 
 The DRM expects two clients: FSW and the Director.
 The focused CLI environment expects one Director client.
-From the attached Server console, use `p` to pause or resume, `speed 25` to
-request an exact rate, `speed max` for unbounded execution, and `+` or `-` to
-double or halve the current requested rate.
+From the attached Server console, use `p` to toggle pause, or `pause` and `resume` to set the state explicitly.
+`step` pauses the clock and advances a single tick, and each further `step` advances one more.
+`speed 25` requests an exact rate, `speed max` requests unbounded execution, and `+` or `-` double or halve the current requested rate.
+`quit` makes the Server exit.
 The Server reports simulated time, attempted speed, and achieved speed every 10
 seconds of simulated time regardless of the active synchronization transport.
 The interactive controls accept attempted rates from 1/64x through 1024x, but
@@ -30,6 +31,33 @@ Use `make perf` to verify that the host has sufficient margin for the desired
 rate.
 To request 25x from startup instead of attaching to the console, run
 `SIMULITH_SPEED=25 make start`.
+
+### Ground-commanded pause/play/speed
+
+The Server also accepts the same pause, resume, and speed-change requests as
+ground commands, over a dedicated backdoor UDP link (target name
+`shire_server`, port 50061) separate from the Director's component backdoor
+described in [Fault injection](#fault-injection).
+YAMCS drives it with three commands, defined in `shire_server.xtce` and routed
+over the `tc_server_backdoor` stream:
+
+* `/SHIRE_SERVER/BACKDOOR_SERVER_PAUSE` and `/SHIRE_SERVER/BACKDOOR_SERVER_PLAY` pause and resume the simulation clock.
+  Both are idempotent.
+* `/SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED` sets the attempted rate from its `SPEED` argument, a 64-bit float using the same big-endian convention as the Demo component's backdoor arguments.
+  `0` requests the unbounded "max" rate, matching the CLI's `speed max`.
+  Values are validated the same way as the CLI's `speed <factor>` command: they must be finite and fall within 1/64x through 1024x, or the request is ignored and the current speed is left unchanged.
+
+The Server reports its state on a separate telemetry link (port 50043) as
+`/SHIRE_SERVER/PAUSED`, `/SHIRE_SERVER/SPEED`, and `/SHIRE_SERVER/SIM_TIME_NS`.
+`CheckoutTest.ycs` exercises all three commands.
+See [Checkout stack](ground-software.md#checkout-stack).
+
+A pause can last as long as you like.
+While the clock is paused, the Director is idle and 42 waits for the next command batch.
+42 normally stops if that batch is more than 5 seconds late, because a late batch usually means the Director has exited.
+The Director therefore holds a lock on `/tmp/42_ipc_director.v1.lock` for as long as it runs, and 42 keeps waiting while the lock is held and stops only when the lock is gone.
+If the Director really exits, the kernel drops its lock and 42 still stops about 5 seconds later.
+`ServerPauseResume.ycs` holds a 12 second pause in the `checkout` scenario to keep this behavior covered.
 
 ## Simulith Director
 
@@ -56,9 +84,22 @@ contract.
 An API change therefore requires a clean rebuild of every component.
 An old shared object is never called through a guessed layout.
 
+The Director retains a generic committed control trace for performance and fidelity checks.
+Component diagnostics belong to the component, outside this trace interface.
+EPS exposes optional console diagnostics and uses FSW housekeeping for stack acceptance.
+
 Mutable model data, transport endpoints, GPIO state, timing deadlines, and
 deterministic random-generator state belong to the allocated component state.
 The current ADCS, Demo, EPS, and Radio simulators follow this ownership rule.
+
+### Ground output completion
+
+Periodic FSW downlink draining normally runs outside the simulation completion barrier, with a 20 Hz wall-clock limit.
+`SHIRE_SYNCHRONIZE_GROUND_OUTPUT=1` includes that drain in the barrier and bypasses the limit.
+Use it when validation requires each scheduled drain to finish before time advances.
+It does not control console output or wait for an operator.
+Automated EPS validation explicitly enables this barrier to prevent downlink queue overruns.
+Ordinary manual starts retain asynchronous ground output.
 
 ### Tick loop at a glance
 
@@ -69,7 +110,7 @@ Every synchronized tick follows the same closed-loop cycle:
 flowchart LR
     PREPARE["PREPARE<br/>Read 42 truth<br/>Run on_tick"]
     EXECUTE["EXECUTE<br/>Run exactly one SCH slot<br/>Service device requests"]
-    COMMIT["COMMIT<br/>Quiesce service<br/>Run actuate<br/>Commit commands to 42"]
+    COMMIT["COMMIT<br/>Quiesce service<br/>Apply backdoors and power<br/>Run actuate<br/>Commit commands to 42"]
 
     PREPARE -->|Prepared| EXECUTE
     EXECUTE -->|All FSW work complete| COMMIT
@@ -134,6 +175,8 @@ sequenceDiagram
         Server->>Director: Publish COMMIT for sequence N
         Director->>Component: Interrupt readiness waits
         Director->>Director: Wait for active service callbacks
+        Director->>Component: Dispatch received backdoors
+        Director->>Component: Apply queued power transitions
         loop Each component in deterministic order
             Director->>Component: actuate(time, truth)
             Component-->>Director: Queue final actuator outputs
@@ -192,6 +235,32 @@ the request immediately, stores operation state, advances that state in
 Holding a synchronous request open until a future tick would deadlock the
 closed-loop barrier.
 
+## Component power lifecycle
+
+EPS owns the configured rail topology and queues effective switch transitions.
+Mapped device simulators implement `power_configure`, `power_set`, `power_reset`, and `power_snapshot` through `component_interface_t`.
+EPS exposes the provider side through `power_supply`.
+The Director connects these roles without interpreting the device's protocol.
+
+Power configuration runs at startup and every COMMIT.
+It updates electrical settings without rebooting an already configured consumer.
+After EXECUTE completes, the Director dispatches backdoors and applies queued transitions with service workers quiescent, before actuator publication.
+Actual OFF/ON edges reset volatile device state, while an unchanged ON leaves its boot deadline and configuration intact.
+An ON edge starts a boot deadline in simulated time.
+No wall-clock sleep is required to model boot.
+
+Off and booting devices retain their transport endpoints and complete device requests as modeled failures without returning device payloads.
+Their autonomous behavior is gated by readiness.
+An actuator component clears its pending outputs and commits zeros through `actuate` when unpowered.
+Power callbacks update private state and do not send 42 commands.
+
+The Director reads consumer snapshots at startup, before PREPARE model updates, and after COMMIT transitions.
+These snapshots describe readiness, mode, electrical demand and internal request history for EPS accounting.
+They are not Yamcs telemetry or an EPS audit stream.
+Fresh FSW results establish the stack's observable switching and recovery checks.
+
+See [Power-aware component simulators](../how-to/components.md#power-aware-component-simulators) for each callback's contract, the shared state helpers, a wiring example, and the DEMO implementation pattern.
+
 ## 42 integration
 
 42 runs as a separate container.
@@ -246,53 +315,49 @@ Its watchdog names the client holding a phase, while the PSP watchdog identifies
 the schedule entry, message ID, and participant state holding EXECUTE.
 No synchronized mode batches ticks, queues future ticks, or skips SCH slots.
 
+### Stopping, reloading, and restarting applications
+
+An application that leaves the Software Bus while a tick is open must not hold that tick open.
+Two safeguards in the PSP and cFE Executive Services make an application stop, reload, or restart safe.
+
+When an application task calls `CFE_ES_ExitApp()`, ES notifies the Software Bus observer first.
+The PSP then completes every delivery that is still bound to the pipe that task last received from.
+It also retires that pipe, so scheduled messages that the Software Bus keeps routing to it until ES finishes cleaning the application up are no longer tracked.
+This matters because ES measures its clean up delays on simulated time, which does not advance while a tick is open.
+
+OSAL stops an application's tasks with `pthread_cancel`.
+The PSP's wait for the next tick releases its mutex if the task is cancelled while it waits, so a stopped task never leaves the simulated clock locked for every later reader.
+
+The retired-pipe list is a fixed ring of 64 entries.
+Entries are never cleared, only overwritten by the 64th later application exit.
+While a pipe identifier is on the list, the PSP does not register child completions for messages routed to it.
+
+Stop, reload, or restart an application from YAMCS with the Executive Services commands `CFE_ES_STOP_APP`, `CFE_ES_RELOAD_APP`, and `CFE_ES_RESTART_APP`.
+Each takes the application name, and `CFE_ES_RELOAD_APP` also takes the path of the module to load.
+`CFE_ES_STOP_APP` stops an application and removes it, and `CFE_ES_START_APP` starts it again from a module file.
+See [Uploading tables and patches](../how-to/uplink-patches.md) for uploading a replacement module and reloading it.
+
+An application that is killed without calling `CFE_ES_ExitApp()`, such as after an exception, is not covered by the first safeguard and can still hold a tick open.
+The PSP stall report names the schedule entry, message ID, pipe, and state of each participant that is still missing.
+It reports by elapsed time, so a stall is named even when other completions keep waking the wait.
+
 ## Performance regression runs
 
-See [Synchronized Simulation Performance](../how-to/performance.md) for the
-diagnose-first findings, accepted workload, report contents, and current
-workstation results.
+See [Verify synchronized simulation performance](../how-to/performance.md) for
+the workload, acceptance checks, and report location.
+From the repository root, run:
 
-Run the complete active workload from the repository root:
-
-```bash
-make perf-smoke
+```sh
 make perf
-make perf-compare BASELINE=/path/to/accepted-report.json
 ```
 
-`make perf-smoke` runs one short diagnostic trial.
-`make perf` runs a 75 simulated second workload at 1x and 25x followed by three
-unbounded trials.
-The Director injects ADCS ENABLE at sequence 2000 and SUNSAFE at sequence 2200
-as validated CCSDS packets through the normal CI_LAB UDP port.
-This performance scenario file is independent of the DRM configuration scenario
-selected in `build/active.yaml`.
-Each command uses flat `sequence`, `host`, `port`, and `packet_hex` transport
-fields.
-Optional flat `acceptance_app`, `acceptance_event_id`, and
-`acceptance_count` fields identify the existing cFE EVS success event that the
-performance harness counts as application acceptance.
-These fields are assertions over normal flight behavior, not simulation hooks
-in an application.
-
-The performance report schema records root and submodule revisions (including dirty
-tree and untracked-file hashes), captured CMake/compiler flags and image identities, host and Docker
-metadata, scheduling policies, timestamped continuous resource samples,
-explicit scenario-command Software Bus delivery counts and scenario-declared
-application success-event counts, 5-us latency histograms with explicit
-out-of-range counts,
-phase and participant latencies, device transactions, scenario results, queue
-errors, and terminal-state digests.
-Deterministic command deliveries, including all scenario commands, are compared
-exactly.
-The report-declared periodic ground-output wakeup remains visible but
-is compared through exact `due = sent + throttled` accounting because its
-sent/throttled split is intentionally wall-clock paced.
-Generated reports and profiler captures are stored in timestamped, untracked
-directories under `build/performance/` by default.
-The comparison target also requires `BASELINE` and fails on synchronization or
-fidelity differences, an unbounded trial below 25x, or a median throughput
-regression greater than ten percent.
+`make perf` runs a full-output reference, paced 1x, 25x, and 50x control-mode
+trials, and three unbounded trials.
+Each unbounded trial must exceed 50x while the control-loop, command, device,
+truth, and trace checks pass.
+Use `make perf-smoke` for a short diagnostic or
+`make perf-compare BASELINE=/path/to/accepted-report.json` to compare with a
+reviewed report.
 
 The standalone Server also accepts `--speed <factor|max>`, `--duration`,
 `--warmup`, and `--metrics-json` while retaining the positional client count and
@@ -302,7 +367,11 @@ interactive controls.
 
 The Director listens for backdoor datagrams on UDP 50060 and dispatches a valid packet to the named component's `backdoor` callback.
 Backdoor behavior is specific to each component.
-Demo currently supports changing its device configuration and toggling randomized housekeeping or data.
+Demo currently supports three backdoor commands, all routed over the `tc_backdoor` stream: `/DEMO/BACKDOOR_DEMO_SET_CONFIG` writes `DEVICE_CONFIG` directly, bypassing normal command processing (see `DemoFDIR.ycs` and the [Fault Detection and Recovery](../../scenarios/fault-detection-recovery.md) lesson for the fault-injection pattern this enables), and `/DEMO/BACKDOOR_DEMO_RAND_HK` / `/DEMO/BACKDOOR_DEMO_RAND_DATA` toggle randomized housekeeping or channel data.
+EPS supports nine `/EPS/BACKDOOR_EPS_*` commands (`SET_SOC`, `SET_SOLAR`, `SET_SWITCH`, `SET_SWITCH_FAULT`, `FAIL_REQUESTS`, `CORRUPT_HK_CRC`, `CLEAR_FAULTS`, `SET_LOAD_SCALE`, and `RESET`), also routed over `tc_backdoor`, and the [EPS validation guide](../how-to/eps-validation.md) exercises them.
+Radio (target `radio_sim`) supports nine `/RADIO/BACKDOOR_RADIO_*` commands that force the RF link in view or out of view, set per-direction transmission delay and packet drop rate, bypass those impairments, enable or disable individual ground stations, reseed the loss generator, reset the link, corrupt packets in flight, and replay the last packet.
+See `comp/radio/README.md`, the [Radio Link and Command Paths](../../scenarios/radio-link-command-paths.md) lesson, the [Radio validation](../how-to/radio-validation.md) guide, the [Space Link Security](../../scenarios/space-link-security.md) lesson, and the [Radio security validation](../how-to/radio-security-validation.md) guide.
+This is a component-level backdoor into the Director, a different link from the Simulith Server's own pause/play/speed backdoor described above.
 A backdoor is a test interface, not a flight interface, and should only be used in isolated simulation runs.
 
 ## Tests
@@ -323,4 +392,4 @@ A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
 
 ***
-Last reviewed: 20260914
+Last reviewed: 20261027

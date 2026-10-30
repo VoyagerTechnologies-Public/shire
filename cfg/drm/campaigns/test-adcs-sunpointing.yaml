@@ -1,0 +1,26 @@
+# Sweep initial tumble rate and measure the ADCS SUNSAFE convergence check.
+# The ADCS truth scenario verifies the control loop and the Yamcs truth path
+# without coupling campaign acceptance to Demo or CFDP checkout steps.
+name: "test-adcs-sunpointing"
+description: >
+  Sweeps initial angular velocity (tumble rate at insertion) and measures
+  how long the ADCS SUNSAFE convergence check takes to pass.
+scenario: "adcs-truth-verification"
+base_initial_conditions: "nominal-baseline"
+trial_count: 2
+seed: 20260921
+max_parallel: 2
+
+parameters:
+  - path: "attitude.angular_velocity_deg_s.0"
+    distribution: {type: "uniform", low: -2.0, high: 2.0}
+  - path: "attitude.angular_velocity_deg_s.1"
+    distribution: {type: "uniform", low: -2.0, high: 2.0}
+  - path: "attitude.angular_velocity_deg_s.2"
+    distribution: {type: "uniform", low: -2.0, high: 2.0}
+
+metrics:
+  - name: "time_to_sun_pointed_s"
+    stack: "AdcsTruthComparison"
+    step_index: 3            # SUNSAFE convergence verify immediately after its mode command
+    field: "sim_elapsed_s"

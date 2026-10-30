@@ -1,0 +1,370 @@
+# Screenshots for atlas/docs/scenarios/radio-link-command-paths.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=radio-link-command-paths
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. The run takes about 15 minutes, and some of them are the
+# 16x skip to build up a stored file.
+scenario: radio-link-command-paths
+doc: scenarios/radio-link-command-paths.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Read the links ------------------------------------------------------------------------------------
+  - goto: /links
+  - wait: {text: debug-in}
+  - wait: {ms: 3000}
+  - shot: {name: 01-links-baseline, settle_ms: 500}
+
+  # ---- Send the same command two ways --------------------------------------------------------------------
+  # With both links enabled, the first command leaves by radio-out alone.
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET
+      send: true
+  - goto: /links
+  - wait: {text: debug-in}
+  - wait: {ms: 2000}
+  - shot: {name: 02-links-both-enabled, settle_ms: 500}
+  - command:
+      name: /SHIRE_GROUND/USE_DEBUG_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 0, fresh: true, timeout_s: 60}
+  - record: {name: /RADIO/RADIO_DEVICE_BytesReceived, as: radio_bytes_before}
+
+  # The debug path.
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 1, fresh: true, timeout_s: 60}
+  - goto: /links
+  - wait: {text: debug-in}
+  - wait: {ms: 2000}
+  - shot: {name: 03-links-debug-path, settle_ms: 500}
+
+  # The radio path. USE_RADIO_UPLINK lasts 30 seconds, so the command, the Links page, and RESTORE_UPLINK follow it
+  # without a pause.
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - goto: /links
+  - wait: {text: debug-in}
+  - wait: {ms: 2000}
+  - shot: {name: 04-links-radio-path, settle_ms: 500}
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 2, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_HKPACKET
+  - wait: {text: CMDCOUNTER}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: COUNTER}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 05-es-counter-two, settle_ms: 1000}
+
+  # The Radio's own byte counter is the flight side evidence that the command crossed the Radio.
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_DEVICE_BytesReceived, equals: {recorded: radio_bytes_before, plus: 44}, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_DEVICE_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 06-radio-bytes-received, settle_ms: 1000}
+
+  # ---- Lose contact --------------------------------------------------------------------------------------
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_LINK_MODE
+      args: {MODE: NEVER_IN_VIEW}
+  - shot: {name: 07-set-never-in-view-command}
+  - send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_DEVICE_GroundLock, equals: 0, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_DEVICE_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 08-ground-lock-lost, settle_ms: 1000}
+
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - goto: /commanding/history
+  - wait: {text: CFE_ES_NOOP}
+  - wait: {ms: 2000}
+  - shot: {name: 09-command-history-sent, settle_ms: 500}
+
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 2, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_HKPACKET
+  - wait: {text: CMDCOUNTER}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: COUNTER}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 10-es-counter-unchanged, settle_ms: 1000}
+
+  # Restoring the view makes the Radio print its packet counters, which include the packets it discarded.
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_LINK_MODE
+      args: {MODE: ALWAYS_IN_VIEW}
+      send: true
+  - wait_log: {source: compose_logs, service: shire-director, pattern: '"out_of_view":\[[1-9]', timeout_s: 60}
+  - shot:
+      name: 11-director-out-of-view
+      kind: terminal
+      source: compose_logs
+      service: shire-director
+      include: "RADIO_BACKDOOR"
+      tail: 1
+      title: SHIRE director
+
+  # The debug path recovers the command that was lost.
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 3, fresh: true, timeout_s: 60}
+
+  # ---- Delay and loss ------------------------------------------------------------------------------------
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_DELAY
+      args: {DIRECTION: UPLINK, DELAY_MS: 8000}
+      send: true
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_HKPACKET
+  - wait: {text: CMDCOUNTER}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: COUNTER}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 1500}
+  - shot: {name: 12-es-counter-before-delay, settle_ms: 500}
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 4, fresh: true, timeout_s: 60}
+  - wait: {ms: 1500}
+  - shot: {name: 13-es-counter-after-delay, settle_ms: 500}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_RESET_LINK
+      send: true
+
+  # Ten commands with half of the uplink packets dropped. The same seed drops the same packets, so four of the ten
+  # arrive on every run.
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_SEED
+      args: {SEED: 1}
+      send: true
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_DROP_RATE
+      args: {DIRECTION: UPLINK, DROP_PPM: 500000}
+      send: true
+  # radio-out is enabled again, so every command leaves by the radio until USE_DEBUG_UPLINK. The form's Resend button
+  # opens the same command again for each of the other nine.
+  - goto: /links
+  - wait: {text: debug-in}
+  - click: {selector: 'tr:has-text("radio-out") input[type="checkbox"]'}
+  - click: {selector: 'ya-page-button:has-text("Enable")'}
+  - wait: {ms: 1500}
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - click: Resend this command
+  - send: true
+  - command:
+      name: /SHIRE_GROUND/USE_DEBUG_UPLINK
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 8, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_HKPACKET
+  - wait: {text: CMDCOUNTER}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: COUNTER}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 14-es-counter-after-loss, settle_ms: 1000}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_RESET_LINK
+      send: true
+
+  # ---- Make the radio the only path ----------------------------------------------------------------------
+  - command:
+      name: /RADIO/RADIO_CONFIG_CC
+      args: {MODE: Duplex Mode, RX_SPEED: 1, RX_WAVE: 2, TX_SPEED: 3, TX_WAVE: 4}
+      send: true
+  - wait_param: {name: /RADIO/RADIO_DEVICE_Mode, equals: 3, fresh: true, timeout_s: 60}
+  - goto: /links
+  - wait: {text: debug-in}
+  - click: {selector: 'tr:has-text("debug-in") input[type="checkbox"]'}
+  - click: {selector: 'tr:has-text("debug-out") input[type="checkbox"]'}
+  - click: {selector: 'ya-page-button:has-text("Disable")'}
+  - wait: {ms: 1500}
+  - goto: /links
+  - wait: {text: debug-in}
+  - click: {selector: 'tr:has-text("radio-out") input[type="checkbox"]'}
+  - click: {selector: 'ya-page-button:has-text("Enable")'}
+  - wait: {ms: 6000}
+  - goto: /links
+  - wait: {text: debug-in}
+  - wait: {ms: 2000}
+  - shot: {name: 15-links-radio-only, settle_ms: 500}
+
+  # ---- Interrupt a file transfer -------------------------------------------------------------------------
+  # The file that the flight software started at boot is named for that time and is the largest. It holds about 200
+  # kilobytes after 15 simulated minutes, which a Class 2 transfer sends in about 80 seconds. The listing's order
+  # changes between runs, so the manifest names the file and does not choose a row.
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 16}
+      send: true
+  - wait_param: {name: /SHIRE_VISUAL/SIM_TIME, min: 900, timeout_s: 300}
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 1}
+      send: true
+  - command:
+      name: /DS/DS_COMMANDS/DS_CLOSE_ALL
+      send: true
+  - command:
+      name: /FM/FM_COMMANDS/FM_GET_DIR_PKT
+      args: {DIRECTORY: /d, DIRLISTOFFSET: 0, GETSIZETIMEMODE: 1}
+      send: true
+  - wait_param: {name: /FM/FM_DIRLISTPKT/FILESIZE1, min: 1, fresh: true, timeout_s: 120}
+
+  # A short outage: the transfer stalls and resumes.
+  - command:
+      name: /CF/CF_COMMANDS/CF_TX_FILE
+      args:
+        CFDP_CLASS: "CLASS 2 - WITH FEEDBACK"
+        KEEP_FILE: KEEP
+        CHANNEL: "CHANNEL 0"
+        PRIORITY: 0
+        DESTINATION_ENTITY_ID: 23
+        SOURCE_FILENAME: "/d/sv1980012140320.ds"
+        DESTINATION_FILENAME: sv1980012140320.ds
+      send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: sv1980012140320.ds, timeout_s: 120}
+  - wait: {ms: 10000}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_LINK_MODE
+      args: {MODE: NEVER_IN_VIEW}
+      send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: sv1980012140320.ds, timeout_s: 60}
+  - wait: {ms: 3000}
+  - shot: {name: 16-transfer-stalled, settle_ms: 500}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_LINK_MODE
+      args: {MODE: ALWAYS_IN_VIEW}
+      send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: sv1980012140320.ds, timeout_s: 60}
+  - wait_transfer: {timeout_s: 300}
+  - shot: {name: 17-transfer-resumed, settle_ms: 3000}
+
+  # A long outage: YAMCS gives up after 30 seconds without data, so the transfer fails and is sent again.
+  - command:
+      name: /CF/CF_COMMANDS/CF_TX_FILE
+      args:
+        CFDP_CLASS: "CLASS 2 - WITH FEEDBACK"
+        KEEP_FILE: KEEP
+        CHANNEL: "CHANNEL 0"
+        PRIORITY: 0
+        DESTINATION_ENTITY_ID: 23
+        SOURCE_FILENAME: "/d/sv1980012140320.ds"
+        DESTINATION_FILENAME: sv1980012140320.ds
+      send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: sv1980012140320.ds, timeout_s: 120}
+  - wait: {ms: 10000}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_LINK_MODE
+      args: {MODE: NEVER_IN_VIEW}
+      send: true
+  - wait: {ms: 55000}
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait_transfer: {state: FAILED, timeout_s: 60}
+  - wait: {ms: 1000}
+  - shot: {name: 18-transfer-failed, settle_ms: 500}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_SET_LINK_MODE
+      args: {MODE: ALWAYS_IN_VIEW}
+      send: true
+  # The flight software ends its half of the transfer too. Depending on timing, its event reads that the inactivity
+  # timer expired or that it got an early FIN from the ground.
+  - wait_log: {source: compose_logs, service: shire-fsw, pattern: 'CF \d+: CF S2?\(25:\d+\): (inactivity timer expired|got early FIN)', timeout_s: 120}
+  - shot:
+      name: 19-cf-transaction-ended
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: "CF \\d+: CF"
+      tail: 3
+      title: SHIRE flight software
+  - command:
+      name: /CF/CF_COMMANDS/CF_TX_FILE
+      args:
+        CFDP_CLASS: "CLASS 2 - WITH FEEDBACK"
+        KEEP_FILE: KEEP
+        CHANNEL: "CHANNEL 0"
+        PRIORITY: 0
+        DESTINATION_ENTITY_ID: 23
+        SOURCE_FILENAME: "/d/sv1980012140320.ds"
+        DESTINATION_FILENAME: sv1980012140320.ds
+      send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: sv1980012140320.ds, timeout_s: 120}
+  - wait_transfer: {completed: 2, ignore_failed: true, timeout_s: 300}
+  - shot: {name: 20-transfer-retried, settle_ms: 3000}

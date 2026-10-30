@@ -48,6 +48,7 @@ endif()
 # Create the shared library for dynamic loading by director
 add_library(radio_sim_component SHARED
     radio_sim.c
+    radio_link.c
     ../shared/radio_device.c
     ../../../${FSW_DIR}/psp/fsw/hwlib/src/sim/libgpio.c
     ../../../${FSW_DIR}/psp/fsw/hwlib/src/sim/libspi.c
@@ -69,6 +70,7 @@ target_link_libraries(radio_sim_component
     PRIVATE
     simulith
     ${ZeroMQ_LIBRARIES}
+    m
 )
 
 # Set C standard for the component
