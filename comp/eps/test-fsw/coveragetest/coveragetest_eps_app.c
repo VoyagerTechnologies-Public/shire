@@ -572,6 +572,15 @@ void Test_EPS_SetSwitchOn(void)
     UtAssert_True(EventTest.MatchCount == 1, "EPS_CMD_SWITCH_ON_ERR_EID generated for device error");
 }
 
+void Test_EPS_BuildIsNotTheUplinkPatch(void)
+{
+    /* The uplink patch is a separate build of this source, covered by coveragetest_eps_patch.c. */
+#ifdef EPS_PATCH_PROTECTED_SWITCH
+    UtAssert_Failed("the checked in build must not define EPS_PATCH_PROTECTED_SWITCH");
+#endif
+    UtAssert_True(EPS_REVISION == 0, "the checked in app reports revision 0");
+}
+
 void Test_EPS_ReportHousekeeping(void)
 {
     /*
@@ -676,6 +685,7 @@ void UtTest_Setup(void)
     ADD_TEST(EPS_ResetCounters);
     ADD_TEST(EPS_SetSwitchOff);
     ADD_TEST(EPS_SetSwitchOn);
+    ADD_TEST(EPS_BuildIsNotTheUplinkPatch);
     ADD_TEST(EPS_VerifyCmdLength);
     ADD_TEST(EPS_ProcessTelemetryRequest);
 }

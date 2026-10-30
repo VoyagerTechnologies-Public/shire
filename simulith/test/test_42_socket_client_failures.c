@@ -23,8 +23,8 @@
 
 enum { IO_OK, IO_SOCKET, IO_OPEN, IO_STAT, IO_SHORT_FILE, IO_MAP };
 static int failure, interrupt_read, interrupt_write, fail_read, fail_write, fragment_io;
-static int futex_mode, futex_waits, shared_opens;
-static char shared_path[128];
+static int futex_mode, futex_waits, shared_opens, lock_opens, lock_open_fails;
+static char shared_path[128], lock_path[128];
 static int owner_fd = -1, peer_fd = -1;
 static shire_ipc_shared_t *shared;
 
@@ -46,6 +46,12 @@ int __wrap_open(const char *path, int flags, ...)
     mode_t mode = 0;
     if (flags & O_CREAT) {
         va_list args; va_start(args, flags); mode = (mode_t)va_arg(args, int); va_end(args);
+    }
+    if (strcmp(path, SHIRE_IPC_DIRECTOR_LOCK_PATH) == 0) {
+        lock_opens++;
+        if (lock_open_fails) { errno = EACCES; return -1; }
+        /* Nor the production /tmp/42_ipc_director.v1.lock, which a running lab may hold. */
+        return __real_open(lock_path, flags, mode);
     }
     return __real_open(path, flags, mode);
 }
@@ -167,8 +173,10 @@ static void create_shared_owner(void)
 void setUp(void)
 {
     failure = IO_OK; interrupt_read = interrupt_write = fail_read = fail_write = fragment_io = 0;
-    futex_mode = futex_waits = shared_opens = 0;
+    futex_mode = futex_waits = shared_opens = lock_opens = lock_open_fails = 0;
     peer_fd = owner_fd = -1; shared = NULL; shared_path[0] = 0;
+    snprintf(lock_path, sizeof(lock_path), "/tmp/shire-42-private-lock-%d", (int)getpid());
+    unlink(lock_path);
     simulith_42_cleanup();
     setenv("FORTYTWO_IPC_MODE", "binary", 1);
     setenv("SIMULITH_42_RECONNECT_ATTEMPTS", "1", 1);
@@ -181,6 +189,7 @@ void tearDown(void)
     if (shared) munmap(shared, sizeof(*shared));
     if (owner_fd >= 0) close(owner_fd);
     if (shared_path[0]) unlink(shared_path);
+    unlink(lock_path);
     unsetenv("FORTYTWO_IPC_MODE");
     unsetenv("SIMULITH_42_RECONNECT_ATTEMPTS");
     unsetenv("SIMULITH_42_RECONNECT_DELAY_MS");
@@ -220,6 +229,54 @@ static void test_shared_requires_live_owner_and_valid_header(void)
     failure = IO_OK;
     TEST_ASSERT_EQUAL_INT(0, simulith_42_init(NULL, 0));
     TEST_ASSERT_EQUAL_INT(1, simulith_42_is_connected());
+}
+/* What 42 does to learn whether the Director is alive: a shared lock attempt fails only while someone holds the
+ * lock exclusively. The kernel drops the lock with the process, so a held lock means a live Director, even while it is
+ * idle because the simulation is paused. */
+static int director_lock_is_held(void)
+{
+    int probe = __real_open(lock_path, O_RDONLY);
+    if (probe < 0) return 0;
+    int held = flock(probe, LOCK_SH | LOCK_NB) != 0 && errno == EWOULDBLOCK;
+    close(probe);
+    return held;
+}
+static void test_director_lock_is_held_while_connected_and_dropped_on_cleanup(void)
+{
+    create_shared_owner();
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(1, lock_opens);
+    TEST_ASSERT_TRUE(director_lock_is_held());
+    simulith_42_cleanup();
+    TEST_ASSERT_FALSE(director_lock_is_held());
+    /* A later connection holds it again, so cleanup left no stale descriptor behind. */
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init(NULL, 0));
+    TEST_ASSERT_TRUE(director_lock_is_held());
+    TEST_ASSERT_EQUAL_INT(2, lock_opens);
+}
+static void test_a_director_lock_that_cannot_be_opened_does_not_stop_the_connection(void)
+{
+    create_shared_owner();
+    lock_open_fails = 1;
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(1, simulith_42_is_connected());
+    TEST_ASSERT_EQUAL_INT(1, lock_opens);
+    TEST_ASSERT_FALSE(director_lock_is_held());
+    simulith_42_cleanup();
+}
+static void test_a_director_lock_held_by_another_process_is_left_alone(void)
+{
+    create_shared_owner();
+    int other = __real_open(lock_path, O_RDWR | O_CREAT, 0600);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, other);
+    TEST_ASSERT_EQUAL_INT(0, flock(other, LOCK_EX | LOCK_NB));
+    TEST_ASSERT_EQUAL_INT(0, simulith_42_init(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(1, simulith_42_is_connected());
+    simulith_42_cleanup();
+    /* The other holder keeps the lock, because the client did not take or release it. */
+    TEST_ASSERT_TRUE(director_lock_is_held());
+    close(other);
+    TEST_ASSERT_FALSE(director_lock_is_held());
 }
 /* The producer publishes acknowledgements only after observing command_seq.
  * Its finite deadline also bounds failures when the client does not publish. */
@@ -441,6 +498,9 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_socket_creation_failure);
     RUN_TEST(test_shared_requires_live_owner_and_valid_header);
+    RUN_TEST(test_director_lock_is_held_while_connected_and_dropped_on_cleanup);
+    RUN_TEST(test_a_director_lock_that_cannot_be_opened_does_not_stop_the_connection);
+    RUN_TEST(test_a_director_lock_held_by_another_process_is_left_alone);
     RUN_TEST(test_shared_round_trip_and_reconnect_sequence);
     RUN_TEST(test_shared_wait_retries_interrupts_and_detects_sequence_loss);
     RUN_TEST(test_shared_ack_faults_disconnect_and_recovery);

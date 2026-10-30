@@ -15,6 +15,8 @@ The container images that the Makefile and CI use carry the placeholder tag `0.0
 ## [Unreleased]
 
 ### Added
+- Tests for the code added in this branch: PSP task exit, retired pipe, cancelled waiter, and stall report cases, the EPS uplink patch build, the cFE ES exit observer call, the Simulith client's Director lock, the screenshot command line, the component mold, telemetry limit error paths, the upload request checks, and the YAMCS commander motion checks
+- A `test-tools` CI job that runs the Python tool tests, the YAMCS commander tests, and the YAMCS Java checks, none of which CI ran before
 - Processor in the Loop lesson, the twelfth and last in the Atlas lesson plan, which runs the acceptance check and the nominal pass on the `qemu-zynq` emulator
 - New Component Development lesson, the eleventh in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
 - Monte Carlo Analysis lesson, the tenth in the Atlas lesson plan, and the six trial `adcs-tumble-sweep` campaign that it runs

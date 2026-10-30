@@ -68,11 +68,17 @@ class ManifestTests(unittest.TestCase):
             "record needs": "scenario: demo\nsteps: [{record: {name: /A/B}}]",
             "invalid redact": "scenario: demo\nredact: [{pattern: '('}]\nsteps: [{goto: /}]",
             "duplicate shot": "scenario: demo\nsteps: [{shot: {name: a}}, {shot: {name: a}}]",
+            "top level must be a mapping": "- scenario: demo",
+            "goto takes a string": "scenario: demo\nsteps: [{goto: 5}]",
+            "wait_transfer takes a mapping or nothing": "scenario: demo\nsteps: [{wait_transfer: 5}]",
         }
         for fragment, text in cases.items():
             with self.subTest(fragment):
                 with self.assertRaisesRegex(ManifestError, fragment):
                     self.load(text)
+
+    def test_manifest_path_is_named_for_the_scenario(self):
+        self.assertEqual(shots.manifest_path("demo"), shots.MANIFEST_DIR / "demo.yaml")
 
     def test_errors_name_the_step(self):
         with self.assertRaisesRegex(ManifestError, "step 2"):
@@ -200,6 +206,8 @@ class ParameterValueTests(unittest.TestCase):
         self.assertEqual(session.get.call_args.args[0], "http://h:8090/api/filetransfer/shire/cfdp/transfers")
         session.get.return_value = mock.Mock(ok=False)
         self.assertIsNone(client.transfers())
+        session.get.side_effect = shots.requests.ConnectionError()
+        self.assertIsNone(client.transfers())
 
     def test_client_parameter_builds_the_processor_url_and_tolerates_failures(self):
         session = mock.Mock()
@@ -283,6 +291,15 @@ class RunnerTests(unittest.TestCase):
         clipped = self.page.locator.return_value.first.screenshot.call_args.kwargs
         self.assertEqual(clipped["style"], ".host { visibility: hidden !important; }")
         self.assertTrue(self.page.screenshot.call_args_list[-1].kwargs["full_page"])
+
+    def test_goto_keeps_an_absolute_address_and_a_web_shot_can_settle_first(self):
+        self.runner([{"goto": "http://other:9000/page"}, {"shot": {"name": "a", "settle_ms": 750}}]).run()
+        self.page.goto.assert_called_once_with("http://other:9000/page", wait_until="networkidle")
+        self.page.wait_for_timeout.assert_called_once_with(750)
+
+    def test_a_locator_needs_a_selector_or_text(self):
+        with self.assertRaisesRegex(CaptureError, r"locator needs 'selector' or 'text', got \{'exact': True\}"):
+            self.runner([{"click": {"exact": True}}]).run()
 
     def test_only_writes_selected_shots_but_still_runs_every_action(self):
         runner = self.runner([{"goto": "/a"}, {"shot": {"name": "a"}}, {"goto": "/b"}, {"shot": {"name": "b"}}],

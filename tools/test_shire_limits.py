@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from shire_limits_config import (LimitError, apply_limits, merge_limits, normalize_limits, resolve_limits,
+from shire_limits_config import (LimitError, apply_limits, mdb_sources, merge_limits, normalize_limits, resolve_limits,
                                  root_space_system, write_limited_mdb)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,6 +69,9 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(normalize_limits(None), {})
         self.assertEqual(normalize_limits({"/DEV/BUS": None}), {})
 
+    def test_a_parameter_whose_levels_are_all_null_has_no_limits(self):
+        self.assertEqual(normalize_limits({"/DEV/BUS": {"yellow": None, "red": None}}), {})
+
     def test_rejects_malformed_limits(self):
         cases = {
             "qualified name": {"BUS": {"red": {"min": 1}}},
@@ -107,6 +110,12 @@ class MergeTests(unittest.TestCase):
         merged = merge_limits(base, {"/DEV/BUS": {"yellow": None}, "/DEV/AUX": None})
         self.assertEqual(merged, {"/DEV/BUS": {"red": {"min": 18}}})
         self.assertEqual(merge_limits(base, {"/DEV/BUS": {"yellow": None, "red": None}}).get("/DEV/BUS"), None)
+
+    def test_a_layer_or_a_parameter_that_is_not_a_mapping_is_rejected(self):
+        with self.assertRaisesRegex(LimitError, "mapping of parameter name"):
+            merge_limits(["/DEV/BUS"])
+        with self.assertRaisesRegex(LimitError, "must give yellow, red, or both"):
+            merge_limits({"/DEV/BUS": 5})
 
     def test_inputs_are_not_modified(self):
         base = {"/DEV/BUS": {"red": {"min": 18}}}
@@ -167,6 +176,32 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual((text, applied), (SAMPLE, set()))
         self.assertEqual(apply_limits(SAMPLE, {}), (SAMPLE, set()))
 
+    def test_a_path_through_a_missing_system_or_a_system_without_parameters_is_not_applied(self):
+        text, applied = apply_limits(SAMPLE, {"/DEV/NOPE/TEMP": {"red": {"min": 1.0}}})
+        self.assertEqual((text, applied), (SAMPLE, set()))
+        bare = SAMPLE.replace('<xtce:SpaceSystem name="PACKET">',
+                              '<xtce:SpaceSystem name="EMPTY"><xtce:TelemetryMetaData /></xtce:SpaceSystem>'
+                              '<xtce:SpaceSystem name="PACKET">')
+        text, applied = apply_limits(bare, {"/DEV/EMPTY/TEMP": {"red": {"min": 1.0}}})
+        self.assertEqual(applied, set())
+
+    def test_a_parameter_whose_type_is_not_in_the_same_file_is_an_error(self):
+        orphan = SAMPLE.replace('<xtce:Parameter name="AUX" parameterTypeRef="VOLTS_Type" />',
+                                '<xtce:Parameter name="AUX" parameterTypeRef="OTHER_FILE_Type" />')
+        with self.assertRaisesRegex(LimitError, "OTHER_FILE_Type.*not defined in the same XTCE file"):
+            apply_limits(orphan, {"/DEV/AUX": {"red": {"min": 1.0}}})
+
+    def test_the_alarm_is_placed_before_any_context_alarms(self):
+        contextual = SAMPLE.replace(
+            '<xtce:UnitSet><xtce:Unit>V</xtce:Unit></xtce:UnitSet>',
+            '<xtce:UnitSet><xtce:Unit>V</xtce:Unit></xtce:UnitSet>'
+            '<xtce:ContextAlarmList />')
+        text, applied = apply_limits(contextual, {"/DEV/BUS": {"red": {"min": 1.0}}})
+        self.assertEqual(applied, {"/DEV/BUS"})
+        types, _ = types_of(text)
+        children = [child.tag.split("}")[-1] for child in types["VOLTS_Type_BUS_Limits"]]
+        self.assertEqual(children.index("DefaultAlarm") + 1, children.index("ContextAlarmList"))
+
     def test_unknown_parameter_in_a_known_system_is_not_applied(self):
         _, applied = apply_limits(SAMPLE, normalize_limits({"/DEV/NOPE": {"red": {"min": 1}}}))
         self.assertEqual(applied, set())
@@ -225,3 +260,25 @@ class WriteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceTests(unittest.TestCase):
+    def test_sources_are_every_component_and_mission_definition_with_the_generated_eps_substituted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in ("comp/eps/gsw/eps.xtce", "comp/demo/gsw/demo.xtce", "comp/demo/gsw/other.xtce",
+                             "cfg/drm/gsw/ground.xtce", "comp/radio/gsw/readme.txt"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text("<x />")
+            generated = root / "generated-eps.xtce"
+            generated.write_text("<x />")
+            sources = mdb_sources(root, "drm", generated)
+            self.assertEqual([(path.relative_to(root).as_posix(), name) for path, name in sources], [
+                ("comp/demo/gsw/demo.xtce", "components/demo/demo.xtce"),
+                ("comp/demo/gsw/other.xtce", "components/demo/other.xtce"),
+                ("generated-eps.xtce", "components/eps/eps.xtce"),
+                ("cfg/drm/gsw/ground.xtce", "ground.xtce"),
+            ])
+            # With no generated EPS definition the checked in one is used.
+            self.assertIn(("comp/eps/gsw/eps.xtce", "components/eps/eps.xtce"),
+                          [(path.relative_to(root).as_posix(), name) for path, name in mdb_sources(root, "drm")])
