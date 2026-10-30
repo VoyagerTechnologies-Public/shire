@@ -9,75 +9,52 @@ Version numbers follow MAJOR.MINOR.PATCH:
 - **MINOR** — new components, new scenarios, new capabilities, or deprecation notices
 - **PATCH** — bug fixes, documentation corrections, security patches, and dependency updates
 
-No release has been tagged yet, so every change below is listed under Unreleased.
+No release has been tagged yet, so everything below is listed under Unreleased and describes SHIRE as it stands today.
 The container images that the Makefile and CI use carry the placeholder tag `0.0.0`.
 
 ## [Unreleased]
 
 ### Added
-- Tests for the code added in this branch: PSP task exit, retired pipe, cancelled waiter, and stall report cases, the EPS uplink patch build, the cFE ES exit observer call, the Simulith client's Director lock, the screenshot command line, the component mold, telemetry limit error paths, the upload request checks, and the YAMCS commander motion checks
-- A `test-tools` CI job that runs the Python tool tests, the YAMCS commander tests, and the YAMCS Java checks, none of which CI ran before
-- Processor in the Loop lesson, the twelfth and last in the Atlas lesson plan, which runs the acceptance check and the nominal pass on the `qemu-zynq` emulator
-- New Component Development lesson, the eleventh in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- Monte Carlo Analysis lesson, the tenth in the Atlas lesson plan, and the six trial `adcs-tumble-sweep` campaign that it runs
-- Nominal Operations lesson, the ninth in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- `nominal-pass` scenario and `NominalPass.ycs` stack, which run one complete pass with a CFDP download of the DS boot file over the radio path
-- Fault Detection and Recovery lesson, the eighth in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- `demo-fdir` scenario, which runs `DemoFDIR.ycs` and asserts on the flight software events for the detection, the device disable, and the device enable
-- Space Link Security lesson, the seventh in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- Radio Link and Command Paths lesson, the fifth in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- `RadioCommandPaths.ycs` stack in the `radio-link-testing` scenario, which sends the ES NOOP over the debug path, over the radio path, out of view, with delay, and through a lossy link, and checks the ES counter after each, with `log_assertions` on the director log for the packets the Radio discarded and dropped
-- `completed` and `ignore_failed` options for the `wait_transfer` screenshot action, so a lesson can fail a transfer on purpose and retry it
-- `adcs-bdot-detumble` scenario and `AdcsBdotDetumble.ycs` stack, which prove that `BDOT` mode reduces the initial tumble using only the magnetorquers
-- Power and Attitude timeline views in `yamcs/timelines/`, with bands for eclipse, battery, solar, switch currents, ADCS mode, Sun vector, body rates, and pointing vector, shown in the Power and Eclipse and Attitude Control lessons
-- Attitude Control lesson, the fourth in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- Power and Eclipse lesson, the third in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- Simulation Time and Repeatability lesson, the second in the Atlas lesson plan, with its screenshot manifest and scripted screenshots
-- `ServerPauseResume.ycs` in the `checkout` scenario, which holds a 12 second pause and proves the clock stood still and then resumed, with `unchanged` and `advances` conditions in `yamcs_commander.py`
-- Atlas lesson plan: the Scenarios overview arranges the scenarios in five units with a shared mission story, a lesson page template enforced by `check_docs.py`, and a guide to writing a lesson
-- Host Python requirements in `tools/requirements-host.txt` for `make scenario`, `make campaign`, and the screenshot check
-- Mission brief, limitations, and review sections with a checkpoint and a link to the next lesson on the Commissioning and Cmd/Tlm Validation pages
-- Submodule workflow documentation in the Atlas Getting Started and Installation guides
-- Dependabot configuration for GitHub Actions, Docker, pip, and Maven dependency updates
-- Issue and pull request templates under `.github/`
-- Atlas documentation site with `atlas/scripts/check_docs.py` content checks and a strict build in the documentation workflow
-- Code coverage for flight software, component simulators, and the Simulith core uploaded to Codecov, plus a cyclomatic complexity report (`make complexity`)
-- Processor-in-the-loop (PIL) targets `make board-prepare`, `board-connect`, `board-inspect`, `board-build`, `board-deploy`, `board-start`, `board-stop`, `board-scenario`, and `board-test` with board profiles in `cfg/boards/` for a Zynq QEMU guest, a Zybo 7020, and a Raspberry Pi 5
-- Monte Carlo campaigns (`make campaign`) with campaign definitions in `cfg/drm/campaigns/`
-- Synchronized performance tooling (`make perf-smoke`, `make perf`, `make perf-compare`) and CPU placement for the simulation processes
-- Deterministic scenario initialization through Initial Condition bins in `cfg/drm/initial_conditions/` with a per-run snapshot
-- Headless `make scenario SCENARIO=<name>` and `make scenario-smoke`, with 20 DRM scenarios that run YAMCS stacks through `verify_stacks` and container log assertions through `log_assertions`
-- Replay archives per run (`make replay-list`, `make replay`, `make replay-delete`) and a Cesium based spacecraft visualization served by YAMCS
-- ADCS expansion with GPS time, a time file fallback, Sun point rotisserie roll, target tracking, and component stacks for each
-- EPS expansion with eight switched loads wired to the Demo, ADCS, and Radio simulators, EPS backdoors, a fault injection stack, and EPS campaigns
-- Radio link model with ground station visibility from `cfg/drm/ground_stations.yaml`, one-way delay, and packet loss, controlled through Radio backdoors
-- Radio link security with AES-256-GCM through CryptoLib by default, backdoors that corrupt or replay packets, and the `radio-security-testing` scenario
-- Yellow and red telemetry limits configured under `limits:` in `cfg/drm/drm.yaml` and resolved into the YAMCS mission database under `build/<mission>/scenario/mdb`
-- `/CCSDS/CFDP_UPLOAD` command for uploading a file from the YAMCS `cfdpUp` bucket to `/d`
-- Uploadable flight files built from `cfg/shire_defs/tables/up_*.c` and `comp/eps`, namely RTS 12, a deliberately corrupt RTS 13, an LC watchpoint table with the uplink-only watchpoint 12, and the `up_eps` application patch
-- Cmd/Tlm Validation scenario with the `CmdTlmLimits.ycs`, `CmdTlmStoredCommands.ycs`, and `CmdTlmPatches.ycs` stacks
-- Scripted scenario screenshot capture (`make screenshots-setup`, `make screenshots`, `make screenshots-check`)
-- Apple Silicon (arm64) support for the SHIRE build image and component CLI builds
 
-### Changed
-- The `rpi5` board profile and its documentation now record the physical Raspberry Pi 5 acceptance run (3 of 3 trials) in place of "unvalidated example"
-- Atlas How-To Guides navigation grouped into Setup and Operation, Components, Processor in the Loop, Scenarios, and Validation
-- Atlas scenario screenshot capture guidance moved from the Scenarios overview to the Scenario Screenshots guide, and the overview no longer lists scenario status
-- The Nominal Operations draft and the Data Lifecycle draft were merged into the Nominal Operations lesson, because the lesson replaces both as the scenario page
-- The Fault Detection, Isolation, and Recovery scenario draft was merged into the Fault Detection and Recovery lesson, because the lesson replaces it as the scenario page
-- The Radio Security Testing scenario page moved to the Radio Security Validation how-to guide, and the Security Incident Response draft was merged into the Space Link Security lesson, because the lesson replaces both as the scenario page
-- The Radio Link Testing scenario page moved to the Radio Validation how-to guide, and the Debug and Radio Path Comparison draft was merged into the Radio Link and Command Paths lesson, because the lesson replaces both as the scenario page
-- The ADCS Truth Comparison scenario draft moved to the ADCS Validation how-to guide, with a table of the seven ADCS scenarios, because the Attitude Control lesson replaces it as the scenario page
-- The EPS Load Switching scenario draft moved to the EPS Validation how-to guide, because the Power and Eclipse lesson replaces it as the scenario page
-- All container images moved to the `ghcr.io/voyagertechnologies-public/` registry
-- `yamcs/` is wired in as the `external-yamcs` submodule
-- External vendored directories converted to git submodules (`42`, `cfs/cfe`, `cfs/osal`, `cfs/psp`, `cfs/tools/elf2cfetbl`, nine cFS apps, `yamcs`, and `comp/cryptolib`)
-- Pinned Python dependencies live in `tools/requirements.txt`
+- **Synchronized simulation (Simulith)**
+  - A deterministic simulation clock that every participant follows in prepare, execute, and commit phases, with pause, play, and speed control, including long pauses
+  - A Director that steps the component simulators and the 42 dynamics simulator together, with a control trace for repeatability checks
+  - Initial Condition bins in `cfg/drm/initial_conditions/` (`nominal-baseline`, `eclipse-entry`, `eclipse-exit`) and a per-run snapshot, so a run can be repeated exactly
+- **Flight software**
+  - cFS (cFE, OSAL, PSP) with a SHIRE platform layer that runs cFS on simulation time, with the CF, DS, FM, LC, SC, SCH, CI_LAB, TO_LAB, and IO_LIB applications
+  - Mission tables for limit checking, stored commands, data storage, file transfer, scheduling, and telemetry subscriptions
+  - Applications can be reloaded while simulation time is synchronized
+- **Components**, each with a flight application, a simulator, a command line tool, ground definitions, YAMCS stacks, and unit tests
+  - ADCS with B-dot detumble, Sun pointing, target tracking, GPS and file based time, and a truth comparison against 42
+  - EPS with eight switched loads wired to the Demo, ADCS, and Radio simulators, backdoors, and fault injection
+  - Radio with ground station visibility, one-way delay, packet loss, and link security through CryptoLib (AES-256-GCM) with backdoors that corrupt or replay packets
+  - Demo reference component, and `make mold COMP=<name>` to create a new component from it
+- **Ground software (YAMCS)**
+  - Mission database, displays, and stacks for every component, CFDP file transfer, and a choice between the debug and radio command paths
+  - Yellow and red telemetry limits set under `limits:` in the mission, spacecraft, or scenario configuration and applied as alarm ranges
+  - Upload of files from the `cfdpUp` bucket to `/d` with `/CCSDS/CFDP_UPLOAD`, used for stored command tables, a limit checker table, and an application patch
+  - Power and Attitude timeline views, a Cesium based live visualization, and a replay archive for every run (`make replay-list`, `replay`, `replay-delete`)
+- **Scenarios and automation**
+  - `make scenario SCENARIO=<name>` runs a scenario headless and confirms a clean pass from its YAMCS stacks and container log assertions, and `make scenario-smoke` confirms an exact repeat
+  - 20 Design Reference Mission scenarios covering checkout, ADCS, EPS, Radio link and security, Cmd/Tlm validation, fault detection and recovery, and a complete nominal pass
+  - Monte Carlo campaigns with `make campaign CAMPAIGN=<name>` and seven campaign definitions in `cfg/drm/campaigns/`
+  - Synchronized performance tooling (`make perf-smoke`, `perf`, `perf-compare`) and CPU placement for the simulation processes
+  - Scripted documentation screenshots (`make screenshots-setup`, `screenshots`, `screenshots-check`)
+- **Processor in the loop**
+  - Board targets `make board-prepare`, `board-build`, `board-deploy`, `board-inspect`, `board-start`, `board-connect`, `board-test`, `board-scenario`, and `board-stop`, with profiles in `cfg/boards/`
+  - `qemu-zynq`, an open source Zynq ARM32 Linux guest in QEMU, `zybo7020`, a physical Zybo Z7, and `rpi5`, a physical Raspberry Pi 5 with AArch64 Linux
+  - Acceptance runs on the physical `zybo7020` and `rpi5` boards, covering the processor with simulated devices
+- **Documentation (Atlas)**
+  - A documentation site with concepts, how-to guides, a quick reference, a glossary, and the Design Reference Mission documents, checked by `atlas/scripts/check_docs.py` and built strictly in the documentation workflow
+  - A 12 lesson plan for new space operations users, from Commissioning through Processor in the Loop, with a guide to writing a lesson
+- **Build, test, and repository**
+  - Docker based build on Linux, Windows 11 with WSL 2, and Apple Silicon, with images under `ghcr.io/voyagertechnologies-public/`
+  - Flight software, component simulator, and Simulith unit tests with coverage uploaded to Codecov, a cyclomatic complexity report (`make complexity`), and a CI job for the Python tools, the YAMCS commander, and the YAMCS Java checks
+  - External software as git submodules (`42`, cFE, OSAL, PSP, `elf2cfetbl`, nine cFS applications, `yamcs`, and CryptoLib), with a submodule workflow in the Atlas guides
+  - `SBOM.md`, `sbom.cdx.json`, and `THIRD_PARTY_NOTICES.md` for licenses and provenance, Dependabot for GitHub Actions, Docker, pip, and Maven, and issue and pull request templates
 
-### Fixed
-- The Atlas pages said that YAMCS sends each command on every enabled command link, but with both links enabled a command leaves by `radio-out` alone and `debug-out` carries commands only while `radio-out` is disabled
-- ADCS `BDOT` mode did not de-tumble the spacecraft: the control law had the wrong sign, so the torque aided the rotation, and the default gains were about seven orders of magnitude too small for a field measured in tesla, so the dipole was around 1e-7 A*m^2 and nothing happened. The law is now `M = +k (w x B)` in the B-dot controller and in the two MTB assist paths, the default detumble gains are 2e5 and 1e6 A*m^2 per (rad/s * T), and the unit tests that asserted the old sign now assert that the torque opposes the rotation
-- Pausing the simulation for more than about 5 seconds stopped 42 and the Director, because 42 gave up waiting for the next command batch, and 42 now keeps waiting while the Director holds its lock file and still stops if the Director exits
-- LC watchpoint table corrections that accompany the Cmd/Tlm Validation scenario
-- PSP retires the deliveries of exiting tasks, releases the tick mutex when a task is cancelled, and reports stalls by elapsed time so that application reload works in the synchronized simulation
-- Target tracking quaternion scalar order in the ADCS simulator
+### Known limitations
+
+- Processor in the loop qualifies the processor with simulated devices, and no profile qualifies a physical component bus
+- The second CPU target is scaffolded, disabled, and unvalidated
+- Link security uses built in development keys, which are an example and not flight keys

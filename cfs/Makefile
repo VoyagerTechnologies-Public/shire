@@ -52,7 +52,7 @@ build-test:
 	$(MAKE) --no-print-directory -C $(BUILDDIR) mission-install
 	mkdir -p $(COVBUILDDIR) && \
 	cd $(COVBUILDDIR) && SHIRE_COVERAGE=1 ENABLE_UNIT_TESTS=false \
-		cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=false -DSHIRE_COVERAGE=ON $(CURDIR)/cfe && \
+		cmake $(PREP_OPTS) -DENABLE_UNIT_TESTS=false $(CURDIR)/cfe && \
 	SHIRE_COVERAGE=1 ENABLE_UNIT_TESTS=false \
 		$(MAKE) --no-print-directory -C $(COVBUILDDIR) mission-install
 	$(SHIRE_DIR)/tools/coverage.sh initial fsw $(COVDIR) $(COVDIR) $(COVMISSIONDIR)
