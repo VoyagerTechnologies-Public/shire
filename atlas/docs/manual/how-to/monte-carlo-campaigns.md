@@ -28,7 +28,10 @@ parameters:
   - path: "attitude.angular_velocity_deg_s.0"
     distribution: {type: "uniform", low: -1.0, high: 1.0}
   - path: "component_overrides.eps.battery_initial_soc"
-    distribution: {type: "choice", values: [40.0, 60.0, 80.0, 95.0]}
+    distribution: {type: "choice", values: [0.4, 0.6, 0.8, 0.95]}
+  - path: "component_overrides.eps.battery_capacity_wh"
+    distribution: {type: "uniform", low: 32.0, high: 48.0}
+    mode: "absolute"                     # required, the base bin has no value to add to
 ```
 
 `scenario` and `base_initial_conditions` are fixed for the whole campaign.
@@ -39,6 +42,7 @@ A numeric path segment indexes into a list, for example `attitude.angular_veloci
 A non-numeric segment indexes into a dict, creating missing intermediate dicts as needed.
 Every shipped IC bin's `component_overrides` is `{}`, so a path like
 `component_overrides.eps.battery_initial_soc` creates the `eps` dict the first time it is used.
+`battery_initial_soc` is a fraction from 0 to 1, so a value such as `40.0` is rejected when the trial's EPS configuration is validated.
 A list index is never auto-extended.
 An out-of-range index is a campaign-authoring error, reported clearly at load time.
 
@@ -57,6 +61,7 @@ Each parameter also has a `mode`, controlling how the drawn sample becomes the t
   always used to disperse an existing physical quantity around whatever the base IC bin already
   specifies.
   Campaign loading fails fast if the path doesn't already resolve to a number in the base bin.
+  A continuous sweep into the empty `component_overrides` therefore needs `mode: absolute`, as every shipped EPS campaign sets.
 * `absolute` sets the value to `sample`, replacing (or filling in) the base value entirely.
   This is the default for `choice`, since a discrete pick is usually a complete value, often into
   a field the base bin leaves empty.
@@ -123,6 +128,34 @@ statistics the summary already computes for swept parameters and `run_duration_s
 make campaign CAMPAIGN=<name>
 make campaign CAMPAIGN=<name> MAX_PARALLEL=4
 ```
+
+`make campaign` with no `CAMPAIGN` prints the available campaign names and exits.
+It passes only `CAMPAIGN` and `MAX_PARALLEL` through to `tools/shire-campaign.py`.
+Call the script directly for the other options.
+
+| Option | Meaning |
+| --- | --- |
+| `--campaign <name>` | Campaign name from `cfg/drm/campaigns/`. |
+| `--list-campaigns` | Print every campaign name under `cfg/drm/campaigns/` and exit. |
+| `--mission <name>` | Mission to run under, default `drm`. |
+| `--spacecraft <name>` | Spacecraft to run under, default `sat-1`. |
+| `--max-parallel <n>` | Concurrent trials, overriding the YAML's `max_parallel`. |
+| `--seed <n>` | Override the YAML's `seed` for ad hoc use, which means the YAML no longer fully describes the run. |
+| `--report-dir <path>` | Report directory, default `build/monte-carlo-runs/<campaign>-<UTC timestamp>/`. |
+| `--from-report <path>` | Re-export the dataset from an existing `campaign_report.json` without running anything. |
+| `--jsonl-out <path>` | Output path for `--from-report`, default alongside the report. |
+
+### Shipped campaigns
+
+| Campaign | What it runs |
+| --- | --- |
+| `eps-nominal` | 100 trials of the `eps-functional` scenario with EPS capacity, solar, load and startup dispersions. |
+| `eps-wiring-smoke` | 5 trials of the `eps-functional` scenario with similar dispersions as a quick smoke check. |
+| `eps-backdoor-faults` | 20 trials of the `eps-backdoor-testing` scenario with similar EPS dispersions. |
+| `adcs-tumble-sweep` | 6 trials of `adcs-truth-verification` sweeping the initial tumble rate and measuring SUNSAFE convergence time, which the Monte Carlo Analysis lesson runs. |
+| `test-adcs-sunpointing` | 2 trials of `adcs-truth-verification` sweeping initial tumble rate and measuring SUNSAFE convergence time. |
+| `test-orbit-sweep` | 4 trials of `nominal` sweeping orbit inclination, which exercises the no-deduplication build path. |
+| `test-soc-choice` | 4 trials of `nominal` choosing between two EPS initial charge values, which exercises build deduplication. |
 
 This is a developer tool, not wired into any CI job.
 A full campaign of many trials is too slow for CI gating, matching the same reasoning that keeps
@@ -222,3 +255,6 @@ different compose-topology change, not an extension of this mechanism.
 The per-trial instance token this design uses is deliberately independent of spacecraft identity,
 so a future vehicle-id axis could be added alongside it without renaming or restructuring
 anything this page describes.
+
+***
+Last reviewed: 20261027

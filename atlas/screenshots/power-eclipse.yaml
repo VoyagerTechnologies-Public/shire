@@ -1,0 +1,143 @@
+# Screenshots for atlas/docs/scenarios/power-eclipse.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=power-eclipse
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. The run reaches the first eclipse at about 22 simulated
+# minutes, which takes about 80 seconds at the 16x speed the lesson uses.
+scenario: power-eclipse
+doc: scenarios/power-eclipse.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Read the power system -----------------------------------------------------------------------------
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: BATTERY}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 01-battery-parameters, settle_ms: 1000}
+
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 6000}
+  - shot: {name: 02-viewer-eps-panel, clip: "#eps-panel", settle_ms: 500}
+
+  # ---- Point at the Sun ----------------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/AdcsComponent.ycs
+  - wait: {text: ADCS_ENABLE_CC}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 300}
+  - wait_param: {name: /EPS/SWITCH_4_CURRENT, min: 0.05, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SOLAR_VOLTAGE}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 03-solar-sun-pointed, settle_ms: 1000}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SWITCH_4}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 04-adcs-switch, settle_ms: 1000}
+
+  # ---- A switch and its device ---------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/DemoComponent.ycs
+  - wait: {text: DEMO_ENABLE_CC}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 300}
+
+  - command:
+      name: /EPS/EPS_SWITCH_OFF_CC
+      args: {SWITCH_NUMBER: 0}
+  - shot: {name: 05-demo-switch-off-command}
+  - send: true
+  - wait_param: {name: /EPS/SWITCH_0_STATE, equals: "OFF", fresh: true, timeout_s: 120}
+  - wait_param: {name: /DEMO/DEVICE_ERR_COUNT, min: 5, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ERR_COUNT}
+  - shot: {name: 06-demo-unpowered, settle_ms: 1500}
+
+  - command:
+      name: /EPS/EPS_SWITCH_ON_CC
+      args: {SWITCH_NUMBER: 0}
+      send: true
+  - wait_param: {name: /EPS/SWITCH_0_STATE, equals: "ON", fresh: true, timeout_s: 120}
+  # The device needs a short boot time after power returns, and its housekeeping refreshes every 10 seconds.
+  - wait: {ms: 30000}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ERR_COUNT}
+  - shot: {name: 07-demo-powered, settle_ms: 1500}
+
+  # ---- An orbit at 16x -----------------------------------------------------------------------------------
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 16}
+      send: true
+  - wait_param: {name: /SHIRE_VISUAL/ECLIPSE, equals: 1, timeout_s: 300}
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 5000}
+  - shot: {name: 08-viewer-eclipse}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SOLAR_VOLTAGE}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 09-solar-eclipse, settle_ms: 1000}
+
+  # ---- A load in the eclipse -----------------------------------------------------------------------------
+  - command:
+      name: /EPS/EPS_SWITCH_ON_CC
+      args: {SWITCH_NUMBER: 5}
+  - shot: {name: 10-load-bank-command}
+  - send: true
+  - wait_param: {name: /EPS/SWITCH_5_CURRENT, min: 1.0, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: SWITCH_5}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 11-load-bank-current, settle_ms: 1000}
+
+  # The drain is about one voltage count every 24 simulated seconds, so the battery reaches the yellow
+  # limit after about 35 simulated minutes.
+  - wait_param: {name: /EPS/BATTERY_VOLTAGE, max: 19.99, timeout_s: 420}
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: BATTERY}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 12-battery-yellow, settle_ms: 1000}
+  - goto: /alarms
+  - wait: {text: "/EPS/BATTERY_VOLTAGE"}
+  - shot: {name: 13-alarm-yellow, settle_ms: 1000}
+
+  # Return the load bank to off and the lab to real time, and acknowledge the alarm so nothing is left pending.
+  - command:
+      name: /EPS/EPS_SWITCH_OFF_CC
+      args: {SWITCH_NUMBER: 5}
+      send: true
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 1}
+      send: true
+  - wait_param: {name: /EPS/SWITCH_5_CURRENT, max: 0.01, fresh: true, timeout_s: 120}
+
+  # ---- On the timeline -----------------------------------------------------------------------------------
+  - goto: /timeline
+  - wait: {selector: 'ya-page-button[icon="view_timeline"]'}
+  - click: {selector: 'ya-page-button[icon="view_timeline"]'}
+  - click: {text: Power, exact: true}
+  - wait: {ms: 2000}
+  - click: {text: "Jump to..."}
+  - fill: {selector: 'mat-dialog-container input[placeholder="YYYY-MM-DD"]', value: "2023-09-16"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="hh"]', value: "23"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="mm"]', value: "30"}
+  - fill: {selector: 'mat-dialog-container input[placeholder="ss"]', value: "00"}
+  - click: {selector: 'mat-dialog-container button:has-text("OK")'}
+  - wait: {ms: 1500}
+  - click: {text: "1 hour", exact: true}
+  - wait: {ms: 2500}
+  - shot: {name: 14-power-timeline, settle_ms: 1500}

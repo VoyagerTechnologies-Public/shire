@@ -35,8 +35,8 @@
 #define ADCS_SUN_POINT_KD 0.1               // Aggressive derivative gain
 #define ADCS_WHEEL_MAX_TORQUE 0.005         // Max wheel torque updated to match SC_NOS3.txt
 #define ADCS_MTB_MAX_DIPOLE 1.42            // Max MTB dipole from SC_NOS3.txt
-#define ADCS_DETUMBLE_GAIN_BASE 0.01        // Moderate base detumble gain
-#define ADCS_DETUMBLE_GAIN_HIGH 0.02        // Moderate high rate detumble gain
+#define ADCS_DETUMBLE_GAIN_BASE 2.0e5       // B-dot gain at low rates, A*m^2 per (rad/s * T)
+#define ADCS_DETUMBLE_GAIN_HIGH 1.0e6       // B-dot gain at high rates, A*m^2 per (rad/s * T)
 #define ADCS_WHEEL_DESAT_THRESHOLD 0.032    // Wheel momentum threshold for desaturation (80% of 0.04)
 #define ADCS_RATE_THRESHOLD 0.10            // Rate threshold - switch to hybrid (rad/s)
 #define ADCS_HIGH_RATE_THRESHOLD 0.5        // High rate threshold (rad/s)

@@ -1,0 +1,732 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Cmd/Tlm validation, part 3. Upload a Relative Time Sequence (RTS) table, load, validate and activate it, then run it. RTS 12 is empty when the spacecraft boots, so the same start command is rejected before the upload and works after it. The table is built with the flight software and staged in the upload bucket as up_sc_rts012.tbl. Keep the simulation playing.",
+      "comment": "Cmd/Tlm validation, part 3. Upload a Relative Time Sequence (RTS) table, load, validate and activate it, then run it. RTS 12 is empty when the spacecraft boots, so the same start command is rejected before the upload and works after it. The table is built with the flight software and staged in the upload bucket as up_sc_rts012.tbl. Keep the simulation playing."
+    },
+    {
+      "type": "text",
+      "text": "Before: RTS 12 is empty, so starting it must be rejected and counted as an error",
+      "comment": "Before: RTS 12 is empty, so starting it must be rejected and counted as an error"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_SB/CFE_SB_COMMANDS/CFE_SB_RESET_CTRS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_RESET_COUNTERS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_SB/CFE_SB_COMMANDS/CFE_SB_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_START_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "12"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/RTSCMDCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "the empty RTS was rejected and ran no commands"
+    },
+    {
+      "type": "text",
+      "text": "Upload: send the table from the upload bucket to /d by CFDP. The command completes when the transfer does",
+      "comment": "Upload: send the table from the upload bucket to /d by CFDP. The command completes when the transfer does"
+    },
+    {
+      "type": "command",
+      "name": "/CCSDS/CFDP_UPLOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "OBJECT_NAME",
+          "value": "up_sc_rts012.tbl"
+        },
+        {
+          "name": "REMOTE_PATH",
+          "value": "/d/up_sc_rts012.tbl"
+        }
+      ],
+      "stream": "checkout_control"
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CF/CF_EOTPACKET/DIRECTION",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/TRANSACTION_STATUS",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/SOURCE_ENTITY_ID",
+          "operator": "eq",
+          "value": "23"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/DESTINATION_FILENAME",
+          "operator": "eq",
+          "value": "/d/up_sc_rts012.tbl"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/FILE_SIZE",
+          "operator": "eq",
+          "value": "416"
+        }
+      ],
+      "timeout": 180000,
+      "comment": "the spacecraft received all 416 bytes of the table"
+    },
+    {
+      "type": "text",
+      "text": "Load: put the file in the table's inactive buffer",
+      "comment": "Load: put the file in the table's inactive buffer"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_LOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "LOADFILENAME",
+          "value": "/d/up_sc_rts012.tbl"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "the load command was accepted"
+    },
+    {
+      "type": "text",
+      "text": "Validate: SC checks the loaded table before it can be activated",
+      "comment": "Validate: SC checks the loaded table before it can be activated"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_VALIDATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ACTIVETBLFLAG",
+          "value": "0"
+        },
+        {
+          "name": "TABLENAME",
+          "value": "SC.RTS_TBL012"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/LASTVALSTATUS",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "validation passed and did not fail"
+    },
+    {
+      "type": "text",
+      "text": "Activate: the validated buffer becomes the table SC runs",
+      "comment": "Activate: the validated buffer becomes the table SC runs"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_ACTIVATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TABLENAME",
+          "value": "SC.RTS_TBL012"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "load, validate, and activate were all accepted"
+    },
+    {
+      "type": "text",
+      "text": "After: activating a table leaves its RTS disabled, so enable RTS 12 and start it. It sends an ES, a TBL, and an SB NOOP, so each of those counters rises by exactly one",
+      "comment": "After: activating a table leaves its RTS disabled, so enable RTS 12 and start it. It sends an ES, a TBL, and an SB NOOP, so each of those counters rises by exactly one"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_SB/CFE_SB_COMMANDS/CFE_SB_RESET_CTRS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_RESET_COUNTERS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_SB/CFE_SB_COMMANDS/CFE_SB_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_SB/CFE_SB_HKMSG/COMMANDCNT",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_ENABLE_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "12"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_START_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "12"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_SB/CFE_SB_HKMSG/COMMANDCNT",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_SB/CFE_SB_HKMSG/CMDERRCNT",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "all three commands in the uploaded RTS ran"
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/RTSCMDCTR",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/RTSCMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "SC accepted the enable and start commands and dispatched three commands from RTS 12 without error"
+    },
+    {
+      "type": "text",
+      "text": "Restore: load the boot table for RTS 12 from /cf, which is empty, so the spacecraft returns to its boot state and this stack can run again",
+      "comment": "Restore: load the boot table for RTS 12 from /cf, which is empty, so the spacecraft returns to its boot state and this stack can run again"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_RESET",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_LOAD",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "LOADFILENAME",
+          "value": "/cf/sc_rts012.tbl"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_VALIDATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "ACTIVETBLFLAG",
+          "value": "0"
+        },
+        {
+          "name": "TABLENAME",
+          "value": "SC.RTS_TBL012"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/SUCCESSVALCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/FAILEDVALCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/LASTVALSTATUS",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the boot table validated"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_ACTIVATE",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "TABLENAME",
+          "value": "SC.RTS_TBL012"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_TBL/CFE_TBL_COMMANDS/CFE_TBL_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/CFE_TBL/CFE_TBL_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 30000,
+      "comment": "load, validate, and activate were all accepted"
+    },
+    {
+      "type": "text",
+      "text": "RTS 12 is empty again, so enabling and starting it is rejected as an error, exactly as it was at boot",
+      "comment": "RTS 12 is empty again, so enabling and starting it is rejected as an error, exactly as it was at boot"
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_RESET_COUNTERS",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_ENABLE_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "12"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_START_RTS",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "12"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/CMDCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/CMDERRCTR",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/SC/SC_HKTLM/RTSCMDCTR",
+          "operator": "eq",
+          "value": "0"
+        }
+      ],
+      "timeout": 60000,
+      "comment": "the enable was accepted, and the start was rejected because the table is empty"
+    }
+  ],
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  }
+}

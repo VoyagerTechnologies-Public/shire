@@ -92,7 +92,7 @@ These are illustrative simulation defaults.
 Rail current is summed load watts divided by configured rail voltage.
 Switches without device or passive demand draw no power.
 `base_load_w` models always-on platform demand in addition to switched loads.
-It is currently configured as 2 W for illustrative platform demand, remains active with all rails off, and contributes only to total battery consumption, not rail current.
+It is currently configured as 1.5 W for illustrative platform demand, remains active with all rails off, and contributes only to total battery consumption, not rail current.
 In AUTO solar mode, eclipse sets solar generation to zero.
 Battery energy integrates `(solar watts - base watts - switched watts) * elapsed seconds / 3600` each tick.
 The default 40 Wh battery maps SOC linearly onto 16–24 V, and FSW battery voltage now uses all 256 byte values across that configured range.
@@ -100,12 +100,14 @@ Battery voltage resolution is `(battery_voltage_max - battery_voltage_min) / 255
 The one-byte field and CRC placement are unchanged.
 Rail and solar voltages retain their 32/255 V scaling.
 Resolved Yamcs calibration follows the configured battery range.
-With the configured 2 W base load and 1.5 W idle device demand, one full voltage count spans about 2.7 simulated minutes of eclipse discharge.
-The default passive 20 W load bank on switch 5 reduces this to about 24 simulated seconds when enabled.
+One voltage count is 40 Wh / 255, about 0.157 Wh of stored energy.
+With the configured 1.5 W base load and 1.2 W idle device demand (DEMO 0.8 W, disabled ADCS 0.2 W, sleeping radio 0.2 W), total demand is 2.7 W and one full voltage count spans about 3.5 simulated minutes of eclipse discharge.
+The default passive 20 W load bank on switch 5 raises demand to 22.7 W and reduces this to about 25 simulated seconds when enabled.
 The load bank starts off, has no component simulator, and contributes to switch current and battery consumption.
-Default solar capacity is 12 W, scaled by positive body-X solar incidence and set to zero in eclipse.
-With idle devices and peak illumination, the 8.5 W charging surplus produces a full voltage count in about 1.1 simulated minutes.
+Default solar capacity is 8 W, scaled by positive body-X solar incidence and set to zero in eclipse.
+With idle devices and peak illumination, the 5.3 W charging surplus produces a full voltage count in about 1.8 simulated minutes.
 The 20 W bank exceeds solar capacity, so enabling it demonstrates discharge even in sunlight.
+These figures come from `comp/eps/support/device_config.yaml`, so re-derive them from that file if it changes.
 A solar override can keep charging in eclipse until AUTO mode is restored.
 
 Configure `eps.switches` and `eps.loads` in the mission, spacecraft, initial condition, or scenario YAML using the existing configuration precedence.
@@ -122,12 +124,14 @@ Passive and mapped demand share the rail current limit of 10 A.
 Several loads can share one switch.
 Each component has one assignment.
 
+The example below repeats the defaults from `comp/eps/support/device_config.yaml`, so change any value to override it.
+
 ```yaml
 eps:
   wire_default_loads: true
   battery_initial_soc: 0.8
-  max_solar_power_w: 12.0
-  base_load_w: 4.0  # Always-on platform watts, independent of the eight rails
+  max_solar_power_w: 8.0
+  base_load_w: 1.5  # Always-on platform watts, independent of the eight rails
   switch_load_power_w: [0, 0, 0, 0, 0, 20, 0, 0]
   loads:
     demo:
@@ -138,7 +142,7 @@ eps:
       power_scale: 1
     adcs:
       switch: 4
-      mode_power_w: [0.5, 2.5, 2.5, 2.5, 2.5, 2.5]
+      mode_power_w: [0.2, 1.0, 1.25, 1.25, 1.25, 1.25]
     radio:
       switch: 6
       mode_power_w: [0.2, 4, 1.5, 4.5, 0.2, 0.2]
@@ -204,7 +208,7 @@ EPS simulator state and application diagnostics appear as `EPS_SIM_STATE` and `E
 `EPS_SIM_STATE` is emitted only with EPS debug enabled. `SIMULITH_EPS_DEBUG=1` explicitly enables snapshots at runtime, and `SIMULITH_EPS_DEBUG=0` suppresses them. Manual and automated stacks do not require snapshots or console observation. Backdoor application logs remain available with snapshots disabled.
 Use `python3 tools/shire_eps_console.py --container shire-director-sat-1 --follow` to view named diagnostics from console records (use the instance-specific director name for isolated runs).
 The EPS display and stack conditions show flight telemetry only.
-All EPS stacks first issue `/SHIRE_GROUND/USE_DEBUG_UPLINK` to enable `debug-out` and disable `radio-out` for normal commanding, including radio outages. This removes dependence on the initial command-link states.
+`EpsPowerFunctional.ycs`, `EpsBackdoorFunctional.ycs`, and `EpsFaultInjection.ycs` first issue `/SHIRE_GROUND/USE_DEBUG_UPLINK` to enable `debug-out` and disable `radio-out` for normal commanding, including radio outages. This removes dependence on the initial command-link states. `EpsAllOn.ycs`, `EpsAllOff.ycs`, and `EpsComponent.ycs` have no path step and follow the current link state, because both command links are enabled at startup and a command leaves by `radio-out` alone while both are enabled.
 In `EpsPowerFunctional.ycs`, the normal EPS flight NOOP exercises RF through the existing `radio-out` link.
 The nominal stack automatically enables `radio-out` and disables `debug-out` around each marked EPS flight NOOP, then restores their previous states before requesting housekeeping. Its ground-only `/SHIRE_GROUND/USE_RADIO_UPLINK` and `/SHIRE_GROUND/RESTORE_UPLINK` commands work in both the Yamcs browser and headless runner. No manual link changes are needed during execution. If a run stops between those commands, Yamcs restores the saved states after 30 wall-clock seconds; `RESTORE_UPLINK` also allows immediate recovery. Radio housekeeping reports RF byte totals; disabling `radio-out` blocks ground uplink, while radio downlink can continue.
 After updating, restart Yamcs to load the ground-control service and commands, and re-import the EPS procedures. Existing uploaded stacks are retained and are not overwritten by startup.
@@ -219,7 +223,7 @@ make campaign CAMPAIGN=eps-backdoor-faults MAX_PARALLEL=2
 ```
 
 The three generated stacks are `EpsPowerFunctional.ycs`, `EpsBackdoorFunctional.ycs`, and `EpsFaultInjection.ycs`.
-The fault stack can run independently after a fresh start. Before running it in Yamcs, enable `debug-in` and `sim-backdoor` and keep the simulation playing. The stack selects the debug command path automatically. Its initial preflight proves EPS commands work with the radio supply off, and it initializes the mapped FSW devices. Command advancement waits one second instead of five; the fault stack keeps commands on debug throughout recovery.
+The fault stack can run independently after a fresh start. Before running it in Yamcs, enable `debug-in` and `sim-backdoor` and keep the simulation playing. The stack selects the debug command path automatically. Its initial preflight proves EPS commands work with the radio supply off, and it initializes the mapped FSW devices. The fault stack keeps commands on debug throughout recovery.
 Manual stacks use standard Yamcs conditions on EPS and consumer FSW telemetry.
 Generated stacks need no console companion files and the runner reads FSW results only.
 Stacks request application housekeeping explicitly before checking FSW results.

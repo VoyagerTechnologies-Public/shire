@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 board-build board-connect board-deploy board-inspect board-prepare board-scenario board-start board-stop board-test build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 board-build board-connect board-deploy board-inspect board-prepare board-scenario board-start board-stop board-test build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke screenshots screenshots-check screenshots-setup sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -234,6 +234,9 @@ help:
 	@echo "  replay-delete  - Explicitly remove RUN=<run-id> archive"
 	@echo "  scenario       - Run SCENARIO=<name> headlessly and confirm a clean pass (no GUI)"
 	@echo "  scenario-smoke - Run the active scenario + IC twice and confirm exact repeat"
+	@echo "  screenshots    - Capture SCENARIO=<name> documentation screenshots (optional ONLY=<shot>, ATTACH=1)"
+	@echo "  screenshots-check - Confirm SCENARIO=<name> screenshots match the scenario page"
+	@echo "  screenshots-setup - Install Playwright and headless Chromium under build/"
 	@echo "  sim            - Build Simulith and component simulators (includes Docker images)"
 	@echo "  start          - Start lab compose"
 	@echo "  stop           - Stop lab and CLI compose, clean up Docker images"
@@ -278,6 +281,19 @@ scenario:
 
 scenario-smoke: build
 	python3 tools/shire-perf.py --mode determinism
+
+screenshots-setup:
+	python3 tools/shire-screenshots.py setup
+
+screenshots-check:
+	@test -n "$(SCENARIO)" || { echo "SCENARIO=<name> is required"; exit 2; }
+	python3 tools/shire-screenshots.py check --scenario "$(SCENARIO)"
+
+screenshots:
+	@test -n "$(SCENARIO)" || { echo "SCENARIO=<name> is required"; exit 2; }
+	@test -x "$(BUILD_DIR)/screenshots-venv/bin/python" || { echo "Run make screenshots-setup first"; exit 2; }
+	$(BUILD_DIR)/screenshots-venv/bin/python tools/shire-screenshots.py run --scenario "$(SCENARIO)" \
+		$(if $(ONLY),--only $(ONLY)) $(if $(ATTACH),--attach)
 
 sim: cfg
 	python3 tools/shire-build.py sim

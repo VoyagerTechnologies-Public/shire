@@ -7,6 +7,7 @@
 # The add_cfe_tables_impl tool calls cfe_locate_implementation_file for each
 # entry, which checks MISSION_DEFS/tables/ first; shire-provided tables
 # (005, 006, 011) are found there, stubs fill the remaining slots.
+# up_*.c tables are alternates for the ground to upload, not boot tables.
 #
 # This file is included AFTER all apps are processed, so the sc target exists.
 
@@ -22,7 +23,13 @@ add_cfe_tables(sc
     sc_rts013.c
     sc_rts014.c
     sc_rts015.c
+    # Built with the flight software and uploaded by the ground. SC does not load it at boot.
+    up_sc_rts012.c
+    up_sc_rts13bad.c
 )
+
+# Alternate LC watchpoint table for the ground to upload (see up_lc_wdt.c).
+add_cfe_tables(lc up_lc_wdt.c)
 
 # Repository-owned coverage tests for upstream applications live in the
 # mission layer so upstream submodules stay pristine.  This hook runs after

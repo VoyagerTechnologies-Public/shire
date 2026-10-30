@@ -1,0 +1,547 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Nominal operations: one complete pass. The stack prepares the pass, opens the radio window with RTS 6, reviews health, collects payload data, closes the data file, downloads it over the radio path with CFDP, and closes the pass in Receive mode. Before running in Yamcs Links: enable debug-in and sim-backdoor and keep the simulation playing. The file name is the one the flight software opens at boot, so run this stack on a freshly booted spacecraft. Hash comparison of the source and received files is a manual step.",
+      "comment": "Nominal operations: one complete pass. The stack prepares the pass, opens the radio window with RTS 6, reviews health, collects payload data, closes the data file, downloads it over the radio path with CFDP, and closes the pass in Receive mode. Before running in Yamcs Links: enable debug-in and sim-backdoor and keep the simulation playing. The file name is the one the flight software opens at boot, so run this stack on a freshly booted spacecraft. Hash comparison of the source and received files is a manual step."
+    },
+    {
+      "type": "text",
+      "text": "Prepare: choose the debug path for the setup commands, restore the ideal link, and record a zero baseline for the counters this pass will use",
+      "comment": "Prepare: choose the debug path for the setup commands, restore the ideal link, and record a zero baseline for the counters this pass will use"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_RESET_LINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "baseline: no ES commands counted and no errors",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "The startup sequences must be finished before the pass begins, because Do No Harm enables the Radio and sets its mode. The Radio reports Receive mode once it has, and then no stored command sequence is running",
+      "comment": "The startup sequences must be finished before the pass begins, because Do No Harm enables the Radio and sets its mode. The Radio reports Receive mode once it has, and then no stored command sequence is running"
+    },
+    {
+      "type": "verify",
+      "comment": "Do No Harm has enabled the Radio in Receive mode",
+      "timeout": 120000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "no stored command sequence is running",
+      "timeout": 120000,
+      "condition": [
+        {
+          "parameter": "/SC/SC_HKTLM/RTSEXECUTINGSTATUS_1",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CF/CF_COMMANDS/CF_RESET_COUNTERS",
+      "arguments": [
+        {
+          "name": "RESET_TYPE",
+          "value": "0"
+        },
+        {
+          "name": "SPARE1",
+          "value": "0"
+        },
+        {
+          "name": "SPARE2",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CF/CF_COMMANDS/CF_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "baseline: no CF commands counted and no errors",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CF/CF_HKPACKET/COMMAND_COUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_HKPACKET/COMMAND_ERROR_COUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_SET_AP_STATE",
+      "arguments": [
+        {
+          "name": "APNUMBER",
+          "value": "11"
+        },
+        {
+          "name": "NEWAPSTATE",
+          "value": "LC_APSTATE_ACTIVE"
+        }
+      ],
+      "extraOptions": [],
+      "comment": "arm the Demo restart so the spacecraft protects the payload during the pass"
+    },
+    {
+      "type": "command",
+      "name": "/LC/LC_COMMANDS/LC_RESET_AP_STATS",
+      "arguments": [
+        {
+          "name": "APNUMBER",
+          "value": "11"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "text",
+      "text": "Review health before the window: the battery is above its yellow limit of 20 V",
+      "comment": "Review health before the window: the battery is above its yellow limit of 20 V"
+    },
+    {
+      "type": "command",
+      "name": "/EPS/EPS_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "battery voltage above the yellow limit",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/EPS/BATTERY_VOLTAGE",
+          "operator": "gt",
+          "value": "20"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Open the window: RTS 6 puts the Radio in Duplex mode one second after it starts, so telemetry flows down the radio link",
+      "comment": "Open the window: RTS 6 puts the Radio in Duplex mode one second after it starts, so telemetry flows down the radio link"
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_START_RTS",
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "6"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "text",
+      "text": "Payload activity: enable the Demo device and set a configuration marker, then confirm the device is healthy",
+      "comment": "Payload activity: enable the Demo device and set a configuration marker, then confirm the device is healthy"
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_RST_COUNTERS_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_ENABLE_CC",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "DEVICE_CONFIG",
+          "value": "10"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/DEMO/DEMO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "Demo is enabled with the marker configuration and no errors",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "ENABLED"
+        },
+        {
+          "parameter": "/DEMO/DEVICE_CONFIG",
+          "operator": "eq",
+          "value": "10"
+        },
+        {
+          "parameter": "/DEMO/CMD_ERR_COUNT",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/DEMO/CHAN1",
+          "operator": "gte",
+          "value": "256"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Confirm the window is open before the download. The RTS enters Duplex mode one scheduler wakeup after it starts, so the stack first waits for two more Demo samples, which are about a second of simulation time apart, and then reads the Radio",
+      "comment": "Confirm the window is open before the download. The RTS enters Duplex mode one scheduler wakeup after it starts, so the stack first waits for two more Demo samples, which are about a second of simulation time apart, and then reads the Radio"
+    },
+    {
+      "type": "verify",
+      "comment": "a Demo sample arrived",
+      "timeout": 60000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNTER",
+          "operator": "advances",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "comment": "another Demo sample arrived",
+      "timeout": 60000,
+      "condition": [
+        {
+          "parameter": "/DEMO/DEVICE_COUNTER",
+          "operator": "advances",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the Radio is in Duplex mode",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "3"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "comment": "the Radio is sending telemetry",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_BytesSent",
+          "operator": "gt",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Select and send the file: close the data files so the boot file is complete, then download it with CFDP Class 2. The command is sent over the radio path, so the Radio byte counter shows the command crossed the link",
+      "comment": "Select and send the file: close the data files so the boot file is complete, then download it with CFDP Class 2. The command is sent over the radio path, so the Radio byte counter shows the command crossed the link"
+    },
+    {
+      "type": "command",
+      "name": "/DS/DS_COMMANDS/DS_CLOSE_ALL",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CF/CF_COMMANDS/CF_TX_FILE",
+      "arguments": [
+        {
+          "name": "CFDP_CLASS",
+          "value": "CLASS 2 - WITH FEEDBACK"
+        },
+        {
+          "name": "KEEP_FILE",
+          "value": "KEEP"
+        },
+        {
+          "name": "CHANNEL",
+          "value": "CHANNEL 0"
+        },
+        {
+          "name": "PRIORITY",
+          "value": "0"
+        },
+        {
+          "name": "DESTINATION_ENTITY_ID",
+          "value": "23"
+        },
+        {
+          "name": "SOURCE_FILENAME",
+          "value": "/d/sv1980012140320.ds"
+        },
+        {
+          "name": "DESTINATION_FILENAME",
+          "value": "sv1980012140320.ds"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the Radio received the 44 byte transmit command from the ground, so it crossed the radio path",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_BytesReceived",
+          "operator": "gte",
+          "value": "44"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "comment": "the transfer finished with the file that was selected",
+      "timeout": 120000,
+      "condition": [
+        {
+          "parameter": "/CF/CF_EOTPACKET/DIRECTION",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/TRANSACTION_STATUS",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/SOURCE_FILENAME",
+          "operator": "eq",
+          "value": "/d/sv1980012140320.ds"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/DESTINATION_FILENAME",
+          "operator": "eq",
+          "value": "sv1980012140320.ds"
+        },
+        {
+          "parameter": "/CF/CF_EOTPACKET/FILE_SIZE",
+          "operator": "gt",
+          "value": "1000"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CF/CF_COMMANDS/CF_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "CF counted the transmit command and no errors",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CF/CF_HKPACKET/COMMAND_COUNTER",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CF/CF_HKPACKET/COMMAND_ERROR_COUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Close the pass: stop RTS 6 and return the Radio to Receive mode so the spacecraft ends the pass in a known state",
+      "comment": "Close the pass: stop RTS 6 and return the Radio to Receive mode so the spacecraft ends the pass in a known state"
+    },
+    {
+      "type": "command",
+      "name": "/SC/SC_COMMANDS/SC_STOP_RTS",
+      "arguments": [
+        {
+          "name": "RTSID",
+          "value": "6"
+        },
+        {
+          "name": "PADDING",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_CONFIG_CC",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "Receive Only Mode"
+        },
+        {
+          "name": "RX_SPEED",
+          "value": "1"
+        },
+        {
+          "name": "RX_WAVE",
+          "value": "2"
+        },
+        {
+          "name": "TX_SPEED",
+          "value": "0"
+        },
+        {
+          "name": "TX_WAVE",
+          "value": "0"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the Radio is in Receive mode",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_Mode",
+          "operator": "eq",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "no ES command errors during the pass",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    }
+  ]
+}

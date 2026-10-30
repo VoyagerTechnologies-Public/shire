@@ -16,6 +16,7 @@ DOCS = ATLAS / "docs"
 MARKDOWN_FILES = [ATLAS / "README.md", *sorted(DOCS.rglob("*.md"))]
 PROCEDURE_FILES = [
     *sorted((REPOSITORY / "comp").glob("*/gsw/procedures/*.ycs")),
+    *sorted((REPOSITORY / "cfg/drm/gsw/procedures").glob("*.ycs")),
     *sorted((REPOSITORY / "yamcs/src/main/yamcs/procedures").rglob("*.ycs")),
 ]
 ASSET_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
@@ -292,9 +293,50 @@ def check_repository_facts(issues: list[str]) -> None:
             report(issues, quick_path, None, f"missing configured public or UDP port: {port}")
 
 
+LESSON_SECTIONS = (
+    "Mission brief",
+    "Objective",
+    "Prerequisites",
+    "Limitations",
+    "Review",
+)
+
+
+def scenario_lesson_pages() -> list[Path]:
+    """Return the lesson pages in the Scenarios navigation, which excludes the overview."""
+    config_text = (ATLAS / "zensical.toml").read_text(encoding="utf-8")
+    start = config_text.find('{ "Scenarios" = [')
+    if start < 0:
+        return []
+    section = config_text[start:]
+    pages = re.findall(r'"(scenarios/[^"]+\.md)"', section)
+    return [DOCS / page for page in pages if page != "scenarios/overview.md"]
+
+
+def check_lessons(issues: list[str]) -> None:
+    """Require the lesson template sections, in order, on every published scenario page."""
+    for path in scenario_lesson_pages():
+        if not path.exists():
+            continue
+        headings = [
+            line[3:].strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("## ")
+        ]
+        positions = []
+        for section in LESSON_SECTIONS:
+            if section not in headings:
+                report(issues, path, None, f"lesson page is missing the '{section}' section")
+            else:
+                positions.append(headings.index(section))
+        if positions != sorted(positions):
+            report(issues, path, None, "lesson sections are out of order, expected " + ", ".join(LESSON_SECTIONS))
+
+
 def main() -> int:
     issues: list[str] = []
     referenced_assets = check_markdown(issues)
+    check_lessons(issues)
     check_assets(issues, referenced_assets)
     check_make_commands(issues)
     check_procedures(issues)

@@ -262,6 +262,39 @@ jobs:
           fail_ci_if_error: true
           use_oidc: true
 
+  test-tools:
+    name: Test host tools
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Check out YAMCS
+        run: git submodule update --init yamcs
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.x
+
+      - name: Install Python packages
+        run: python3 -m pip install --requirement tools/requirements.txt --requirement tools/requirements-host.txt
+
+      - name: Test the Python tools
+        working-directory: tools
+        run: python3 -m unittest discover -s . -p "test_shire_*.py"
+
+      - name: Test the YAMCS commander
+        working-directory: yamcs
+        run: python3 -m unittest test_yamcs_commander_verify
+
+      - name: Test the YAMCS uplink checks
+        working-directory: yamcs
+        run: |
+          sh test-uplink-selection.sh
+          sh test-upload-validation.sh
+
   build-cli:
     name: Build command-line interfaces
     runs-on: ubuntu-latest

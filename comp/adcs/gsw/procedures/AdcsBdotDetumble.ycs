@@ -1,0 +1,159 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "advancement": {
+    "acknowledgment": "Acknowledge_Sent",
+    "wait": 1000
+  },
+  "steps": [
+    {
+      "type": "text",
+      "text": "ADCS B-dot de-tumble.\n* Enable the ADCS and push its control gains\n* Command BDOT mode\n* Wait for every body rate component, as measured by the ADCS and as known to 42, to fall inside 0.09 radians per second\n\nThe spacecraft starts tumbling at about 0.21 radians per second. A tumble of that size cannot have every component inside 0.09 radians per second, because that would put the total below 0.16, so a pass proves that the magnetorquers took away more than a quarter of the rotation. With the original control law, which had the wrong sign and a gain that was far too small, the total stayed at 0.21 forever and this step could never pass.\n\nThe magnetorquers cannot remove spin about the magnetic field direction, and how much of the spin lies along the field depends on when BDOT starts, so this stack does not ask for the rates to reach zero."
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_ENABLE_CC",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_CONFIG_CC",
+      "extraOptions": [],
+      "arguments": [],
+      "comment": "Push the boot gains table, which carries the B-dot gains."
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_SET_MODE_CC",
+      "extraOptions": [],
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "BDOT"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/ADCS/ADCS_REQ_HK",
+      "extraOptions": [],
+      "arguments": []
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/MODE",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/ADCS/DEVICE_ENABLED",
+          "operator": "eq",
+          "value": "1"
+        }
+      ],
+      "timeout": 30000
+    },
+    {
+      "type": "check",
+      "parameters": [
+        {
+          "parameter": "/ADCS/ANGRATE_X"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_1"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_2"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_3"
+        }
+      ]
+    },
+    {
+      "type": "verify",
+      "condition": [
+        {
+          "parameter": "/ADCS/ANGRATE_X",
+          "operator": "lt",
+          "value": "0.09"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_X",
+          "operator": "gt",
+          "value": "-0.09"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y",
+          "operator": "lt",
+          "value": "0.09"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Y",
+          "operator": "gt",
+          "value": "-0.09"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "lt",
+          "value": "0.09"
+        },
+        {
+          "parameter": "/ADCS/ANGRATE_Z",
+          "operator": "gt",
+          "value": "-0.09"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_1",
+          "operator": "lt",
+          "value": "0.09"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_1",
+          "operator": "gt",
+          "value": "-0.09"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_2",
+          "operator": "lt",
+          "value": "0.09"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_2",
+          "operator": "gt",
+          "value": "-0.09"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_3",
+          "operator": "lt",
+          "value": "0.09"
+        },
+        {
+          "parameter": "/SIM_42_TRUTH/WN_3",
+          "operator": "gt",
+          "value": "-0.09"
+        }
+      ],
+      "timeout": 240000,
+      "comment": "Every rate component is inside 0.09 radians per second, so the total is below 0.16 and well under the initial 0.21."
+    }
+  ]
+}

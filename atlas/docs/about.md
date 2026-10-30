@@ -44,7 +44,8 @@ The current SHIRE baseline is a development and integration environment.
 It does not, by itself, establish flight qualification, hardware compatibility, requirements compliance, performance on a particular host, or suitability for a specific mission.
 
 Component simulators model software interfaces and selected behavior rather than every electrical, radio frequency, thermal, mechanical, or radiation effect.
-The ARM and CPU2 files provide development scaffolding, but the default tested path uses the Linux simulation target.
+The default path runs cFS on the Linux simulation target, and ARM32 and AArch64 processor-in-the-loop targets can run cFS on a processor or in QEMU with devices still simulated on the host.
+The CPU2 target and physical component buses remain disabled or unsupported.
 Host resources, networking, and Docker behavior can affect observed timing and transfer performance.
 
 Claims about simulation rate, pointing accuracy, transfer rate, fault response, or hardware portability need a defined configuration and recorded evidence.
@@ -57,3 +58,6 @@ The Design Reference Mission also includes intended behavior and proposed requir
 Status notes identify that distinction where it matters.
 
 When documentation and the current checkout disagree, the source, configuration, generated artifacts, and tests take precedence.
+
+***
+Last reviewed: 20261027

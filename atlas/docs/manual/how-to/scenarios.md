@@ -4,10 +4,12 @@ SHIRE has one scenario concept: a description of how a mission run starts
 and what happens during it.
 There are two ways to exercise a scenario today.
 
-An Atlas doc scenario (`atlas/docs/scenarios/*.md`, for example
-commissioning, nominal operations, or FDIR) is a scenario walked through
+An Atlas doc scenario (`atlas/docs/scenarios/*.md`) is a scenario walked through
 manually: a human reads the steps and drives 42, YAMCS, and the vehicle by
 hand.
+Commissioning is manual only, and `checkout` automates its component checks.
+The DRM scenario named `nominal` is a separate, shorter configuration run, and it is not the Nominal Operations lesson, which has the `nominal-pass` scenario.
+Other doc pages pair with a DRM scenario that automates their checks, such as Cmd/Tlm Validation, Fault Detection and Recovery, Radio link testing, Radio security testing, ADCS truth comparison, and EPS load switching.
 A DRM scenario (`cfg/drm/scenarios/*.yaml`, selected via `build/active.yaml`'s
 `scenario:`) is the same concept exercised through configuration instead: it
 is built, and can be run automatically, without a human walking through
@@ -18,7 +20,7 @@ There is nothing DRM-specific about the mechanism.
 Any mission can define its own scenarios the same way.
 
 The two forms are not tied to separate content forever.
-An Atlas doc scenario today has no machine-readable configuration behind it,
+Commissioning, nominal operations, and FDIR have no machine-readable configuration behind them today,
 but a future one could be rebuilt on the same DRM scenario and Initial
 Condition (IC) bin mechanism this page describes, gaining the reproducible
 starting state and the autonomous/manual run paths below for free.
@@ -131,11 +133,14 @@ entry/exit, ground-pass acquisition/loss) for you.
 You will need to determine it yourself by doing the following:
 
 1. Copy `cfg/drm/initial_conditions/nominal-baseline.yaml` to a new name.
-2. Run the reference orbit for at least one period (`make start`, or
-   `tools/shire-scenario.py --scenario nominal`) and read 42's own real
-   output in the `shire-42-<spacecraft>` container's `/42/InOut/`: `svn.42`
-   (sun vector) and `PosN.42`/`VelN.42` (position/velocity), both in the
+2. Run the reference orbit for at least one period with 42's legacy report files enabled,
+   using `SHIRE_42_REPORT_MODE=full make start`.
+   The compose default is control mode, which does not write these files
+   (see [42 output modes](performance.md#42-output-modes)).
+   Then read 42's own real output in the `shire-42-<spacecraft>` container's `/42/InOut/`:
+   `svn.42` (sun vector) and `PosN.42`/`VelN.42` (position/velocity), both in the
    inertial frame, one row per simulated timestep.
+   Use `make start` rather than `python3 tools/shire-scenario.py`, because the scenario runner removes its containers when the run ends.
 3. Find the crossing you want by applying 42's own test for it to that real
    data.
    For eclipse, that is the cylindrical shadow test in
@@ -168,11 +173,33 @@ Deriving one is a good follow-up.
 
 ## Running a scenario
 
-Five scenarios ship today: `nominal` and `debug` (both use
-`nominal-baseline`, the default launch state), `eclipse-entry-adcs` and
-`eclipse-exit-adcs` (both use the eclipse IC bins above), and `checkout`
-(also `nominal-baseline`, plus a `verify_stacks` entry covered later on
-this page).
+`cfg/drm/drm.yaml` registers 20 scenarios.
+List them with `make scenario` and no argument, or with `python3 tools/shire-scenario.py --list-scenarios`.
+Durations are simulated seconds from `run_duration_s`, and every scenario starts from `nominal-baseline` unless the table says otherwise.
+
+| Scenario | What it runs |
+| --- | --- |
+| `nominal` | A 900 second run at maximum speed with no stacks and `debug: false`. |
+| `debug` | The same 900 second run as `nominal` with `debug: true` on every selected component. |
+| `eclipse-entry-adcs` | A 900 second run at maximum speed from the `eclipse-entry` bin with no stacks. |
+| `eclipse-exit-adcs` | A 900 second run at maximum speed from the `eclipse-exit` bin with no stacks. |
+| `checkout` | The `CheckoutTest` and `ServerPauseResume` stacks for 240 seconds at 1x. |
+| `cmd-tlm-validation` | The `CmdTlmLimits`, `CmdTlmStoredCommands`, and `CmdTlmPatches` stacks for 480 seconds. |
+| `adcs-bdot-detumble` | The `AdcsBdotDetumble` stack for 600 seconds at 4x. |
+| `adcs-boot-config` | The `AdcsComponent` stack for 300 seconds. |
+| `adcs-gps-time-sync` | The `AdcsGpsTimeSync` stack for 120 seconds. |
+| `adcs-modes-sweep` | The `AdcsModesSweep` stack for 360 seconds. |
+| `adcs-sunpoint-rotisserie` | The `AdcsSunpointRotisserie` stack for 180 seconds. |
+| `adcs-target-track` | The `AdcsTargetTrack` stack for 180 seconds. |
+| `adcs-time-file-fallback` | The `AdcsTimeFileFallback` stack for 180 seconds. |
+| `adcs-truth-verification` | The `AdcsTruthComparison` stack for 180 seconds at 5x with a Yamcs clock parameter. |
+| `eps-functional` | The `EpsPowerFunctional` stack for 1200 seconds at 2x with EPS validation. |
+| `eps-backdoor-testing` | The `EpsBackdoorFunctional` and `EpsFaultInjection` stacks for 1200 seconds at 2x with EPS validation. |
+| `radio-link-testing` | The `RadioLinkBackdoor` and `RadioCommandPaths` stacks for 600 seconds at 2x with two ground stations and an always in view link, plus `log_assertions` on the director log. |
+| `radio-security-testing` | The `RadioSecurity` stack for 600 seconds at 2x plus `log_assertions` on the CryptoLib and FSW logs. |
+| `demo-fdir` | The `DemoFDIR` stack for 120 seconds plus `log_assertions` on the FSW log. |
+| `nominal-pass` | The `NominalPass` stack for 180 seconds plus `log_assertions` on the FSW log. |
+
 Use `<name>` below to try any of them.
 
 ### Manually, with Yamcs visualization
@@ -275,18 +302,20 @@ exclusively through `verify_stacks`, never ones also meant for manual GUI
 use.
 See `APPROX_OPERATOR`'s comment in `yamcs_commander.py` for the detail.
 
-`checkout` and several `adcs-*` scenarios (`adcs-gps-time-sync`,
-`adcs-boot-config`, `adcs-sunpoint-rotisserie`, `adcs-truth-verification`,
-`adcs-target-track`) use `verify_stacks` today, the latter running
-`comp/adcs/gsw/procedures/*.ycs` stacks.
-It is a developer tool.
+The commander also supports two headless-only conditions that compare a parameter with its own earlier value.
+`unchanged` holds the step for the number of milliseconds in `value` and fails if the parameter changes, and `advances` passes once the parameter is greater than it was when the step began.
+A step that uses either may not mix them with other operators, and they are reserved for stacks driven through `verify_stacks` like the others.
+`ServerPauseResume.ycs` uses them to prove that the simulation clock stood still during a pause and then resumed.
+
+Every scenario in the table above except `nominal`, `debug`, `eclipse-entry-adcs`, and `eclipse-exit-adcs` uses `verify_stacks` today.
+The `adcs-*` scenarios run `comp/adcs/gsw/procedures/*.ycs` stacks, the EPS and Radio scenarios run `comp/eps` and `comp/radio` stacks, and `checkout` and `cmd-tlm-validation` run stacks from `cfg/drm/gsw/procedures/`.
+`make scenario` is a developer tool.
 No CI job runs `make scenario` at all yet (see the note above), so this
 isn't gating anything by extension either.
-Using it needs `requests`/`yamcs-client` installed on whatever host runs
+Using it needs `requests` and PyYAML installed on whatever host runs
 `make scenario`
-(`python3 -m pip install --requirement yamcs/requirements-commander.txt`),
-a prerequisite only for scenarios that set `verify_stacks`, not for
-`make scenario` in general.
+(`python3 -m pip install --requirement tools/requirements-host.txt`),
+for every scenario and not only those that set `verify_stacks`.
 
 ### Asserting on container logs (`log_assertions`)
 
@@ -371,6 +400,53 @@ should have been freshly reset), fixed by `FSW_BOOT_SETTLE_S` in
 `tools/shire-scenario.py`, a real-second floor applied once, before the
 first scheduled entry, independent of speed.
 
+### Scenario keys and runner options
+
+A scenario file accepts the keys below.
+Only `scenario_name` is needed to name it, and every other key is optional.
+
+| Key | Meaning |
+| --- | --- |
+| `scenario_name`, `description` | The registered name and a human description. |
+| `initial_conditions` | The IC bin name, defaulting to `nominal-baseline`. |
+| `overrides` | A mapping applied to every selected component. |
+| `<component>:` such as `radio:` | Values merged into only that component's configuration. |
+| `run_duration_s` | Simulated seconds the run lasts, default 900. |
+| `simulith_speed` | `max` or a multiplier, where `--simulith-speed` overrides it. |
+| `director_command_scenario` | A Director command playlist injected during the run. |
+| `verify_stacks` | Stacks to run headlessly, each with a repo-relative `stack` path and an `at_s` time. |
+| `verification_clock_parameter` | A Yamcs clock parameter used to record `sim_elapsed_s` for each verify step. |
+| `log_assertions` | Checks on captured container logs, evaluated after the run. |
+| `limits` | Telemetry limit overrides for this scenario, described in [Telemetry limits](telemetry-limits.md#where-limits-are-set). |
+| `eps_validation` | Runs the EPS stacks regenerated from the resolved EPS configuration, requires fresh FSW results, and adds an event gate, an archive completeness check, and infrastructure error checks that can fail the run. |
+| `retain_all_events` | Raises the cFE event burst and refill limits for the build so that the run retains every flight event. |
+| `synchronize_ground_output` | Sets `SHIRE_SYNCHRONIZE_GROUND_OUTPUT` for the run unless that variable is already set in your environment. |
+| `ground_output_hz` | Sets `SHIRE_GROUND_OUTPUT_HZ`, the periodic FSW downlink rate limit, which is 20 Hz when unset. |
+| `accelerate_after_verification` | After the stacks finish, sends the Server backdoor speed command and then waits for the run to complete. |
+| `post_verification_speed` | The speed that command requests, default 0 for unbounded. |
+
+The EPS and Radio acceptance scenarios set `synchronize_ground_output`, `accelerate_after_verification`, and `post_verification_speed`.
+The two EPS scenarios also set `eps_validation` and `retain_all_events`.
+See [EPS validation](eps-validation.md) for why.
+
+`result.json` also records a `fault_scan` entry.
+It is a heuristic grep for ` ERROR` and ` CRITICAL` lines across the container logs, with a `match_count` and the first 50 matches.
+It never changes the pass or fail result, so read it as a hint for diagnosis only.
+
+`make scenario` passes only `SCENARIO`.
+Call `tools/shire-scenario.py` directly for the other options.
+
+| Option | Meaning |
+| --- | --- |
+| `--scenario <name>` | The scenario to run, required unless `--list-scenarios` is given. |
+| `--list-scenarios` | Print every scenario registered for the mission and exit. |
+| `--mission <name>` | Override the mission in `build/active.yaml`. |
+| `--spacecraft <name>` | Override the spacecraft in `build/active.yaml`. |
+| `--report-dir <path>` | Where to write `result.json` and logs, default `build/scenario-runs/<scenario>-<UTC timestamp>/`. |
+| `--simulith-speed <n>` | Override the runtime speed, where 0 is maximum and 1 is real time. |
+| `--no-build` | Skip `make build` and run `make cfg-compose-only` instead, assuming an image matching `--image-tag` already exists. |
+| `--instance-id`, `--port-offset`, `--image-tag`, `--initial-conditions-file` | Isolation and image options that Monte Carlo campaigns set for each trial. |
+
 ### Confirming a scenario is deterministic
 
 ```bash
@@ -393,3 +469,6 @@ bins, reusing this page's autonomous run path unmodified for every trial.
 See [Monte Carlo campaigns](monte-carlo-campaigns.md) for the campaign
 YAML schema, parameter sampling, running one with `make campaign`, and its
 aggregated report and dataset export.
+
+***
+Last reviewed: 20261027

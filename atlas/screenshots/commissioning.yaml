@@ -1,0 +1,191 @@
+# Screenshots for atlas/docs/scenarios/commissioning.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=commissioning
+# The steps follow the operator walkthrough, so the page text and this file should change together.
+scenario: commissioning
+doc: scenarios/commissioning.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # ---- Startup -------------------------------------------------------------------------------------------
+  # YAMCS answers before the director and flight software have printed their startup text.
+  - wait_log: {source: start_log, pattern: "CFE_PSP: Default CPU Name", timeout_s: 180}
+  - shot:
+      name: 01-services-startup
+      kind: terminal
+      source: start_log
+      after: "Initializing component: eps_sim"
+      head: 24
+      title: make start
+
+  # RTS 5 enables the Radio. Its last event is the AP statistics reset. The viewer and packet list are
+  # captured after it so they show a settled system, not the first seconds of the run.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 180}
+
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 6000}
+  - shot: {name: 02-42-initial-spacecraft}
+
+  - goto: /instance
+  - wait: {text: "/SC/SC_HKTLM/SC_HKTLM"}
+  - wait: {text: "/DS/DS_HKPACKET/DS_HKPACKET"}
+  - wait: {ms: 2000}
+  - shot: {name: 03-yamcs-packet-flow}
+
+  - goto: /links
+  - wait: {text: radio-out}
+  - shot: {name: 04-yamcs-startup-links}
+
+  - shot:
+      name: 05-do-no-harm-startup-events
+      kind: terminal
+      source: start_log
+      after: "FM 72: Child Task initialization complete"
+      head: 26
+      title: make start
+
+  # ---- First contact -------------------------------------------------------------------------------------
+  - command:
+      name: /SC/SC_COMMANDS/SC_START_RTS
+      args: {RTSID: 6, PADDING: 0}
+  - shot: {name: 06-start-pass-rts-command}
+  - send: true
+
+  - wait_param: {name: /RADIO/RADIO_DEVICE_Mode, equals: 3, fresh: true, timeout_s: 60}
+  - goto: /links
+  - wait: {text: radio-in}
+  - wait: {ms: 4000}
+  - shot: {name: 07-radio-contact-links}
+
+  # ---- Health assessment ---------------------------------------------------------------------------------
+  - record: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, as: es_cmd_count}
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP
+      send: true
+  - wait_param:
+      name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER
+      equals: {recorded: es_cmd_count, plus: 1}
+      timeout_s: 90
+  - shot:
+      name: 08-cfe-es-noop-event
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      after: "CFE_ES 3: No-op command"
+      head: 6
+      title: SHIRE flight software
+
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_HKPACKET
+  - wait: {text: CMDCOUNTER}
+  - shot: {name: 09-cfe-es-health-telemetry}
+
+  # ---- ADCS ----------------------------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/AdcsComponent.ycs
+  - wait: {text: ADCS_ENABLE_CC}
+  - hover: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {ms: 1000}
+  - shot: {name: 10-adcs-procedure-ready}
+
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 300}
+  - shot:
+      name: 11-adcs-command-events
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      after: "ADCS: Device enabled successfully"
+      include: "ADCS: "
+      title: SHIRE flight software
+
+  # Frame the Sun vector assertions, then the closing counter and rate checks beneath them.
+  - scroll_to: {text: "/ADCS/SUN_X > 0.95"}
+  - shot: {name: 12-adcs-checkout-complete, settle_ms: 4000}
+
+  # The stack ends Sun pointed, so the red body X axis and the yellow Sun vector overlap.
+  - goto: /visualization/
+  - wait: {text: "SHIRE Visualization"}
+  - wait: {ms: 6000}
+  - shot: {name: 13-42-sun-safe-alignment}
+
+  # ---- Demo instrument -----------------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/DemoComponent.ycs
+  - wait: {text: DEMO_ENABLE_CC}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 120}
+  - shot: {name: 14-demo-checkout-complete, settle_ms: 3000}
+  - shot:
+      name: 15-demo-command-events
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: "DEMO: "
+      tail: 3
+      title: SHIRE flight software
+
+  - command:
+      name: /DEMO/DEMO_CONFIG_CC
+      args: {DEVICE_CONFIG: 10}
+      send: true
+  - wait_param: {name: /DEMO/DEVICE_CONFIG, equals: 10, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_CONFIG}
+  - shot: {name: 16-demo-configuration-telemetry}
+
+  # ---- Download data -------------------------------------------------------------------------------------
+  - command:
+      name: /SC/SC_COMMANDS/SC_STOP_RTS
+      args: {RTSID: 6, PADDING: 0}
+      send: true
+
+  - command:
+      name: /RADIO/RADIO_CONFIG_CC
+      args: {MODE: Duplex Mode, RX_SPEED: 1, RX_WAVE: 2, TX_SPEED: 3, TX_WAVE: 4}
+  - shot: {name: 17-radio-duplex-command}
+  - send: true
+
+  - wait_param: {name: /RADIO/RADIO_DEVICE_Mode, equals: 3, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - shot: {name: 18-radio-duplex-telemetry}
+
+  - command:
+      name: /DS/DS_COMMANDS/DS_CLOSE_ALL
+      send: true
+  - command:
+      name: /FM/FM_COMMANDS/FM_GET_DIR_PKT
+      args: {DIRECTORY: /d, DIRLISTOFFSET: 0, GETSIZETIMEMODE: 1}
+      send: true
+  - wait_param: {name: /FM/FM_DIRLISTPKT/FILESIZE2, min: 1, timeout_s: 120}
+  - shot:
+      name: 19-data-download-events
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: ["DS \\d+: DEST CLOSE ALL", "FM \\d+: Directory List"]
+      tail: 2
+      title: SHIRE flight software
+
+  - goto: /telemetry/parameters?system=%2FFM%2FFM_DIRLISTPKT
+  - wait: {text: FILENAME1}
+  - shot: {name: 20-fm-directory-listing}
+
+  # Enabling ADCS syncs spacecraft time, so Data Storage starts a new small file named with the new time and
+  # lists it first. The second entry is the earlier file, which the page recommends over the newest.
+  - record: {name: /FM/FM_DIRLISTPKT/FILENAME2, as: stored_file}
+  - command:
+      name: /CF/CF_COMMANDS/CF_TX_FILE
+      args:
+        CFDP_CLASS: "CLASS 2 - WITH FEEDBACK"
+        KEEP_FILE: KEEP
+        CHANNEL: "CHANNEL 0"
+        PRIORITY: 0
+        DESTINATION_ENTITY_ID: 23
+        SOURCE_FILENAME: "/d/{stored_file}"
+        DESTINATION_FILENAME: "{stored_file}"
+  - shot: {name: 21-cfdp-transmit-file-command}
+  - send: true
+
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: "{stored_file}", timeout_s: 120}
+  - wait_transfer: {timeout_s: 300}
+  - shot: {name: 22-cfdp-transfer-complete, settle_ms: 3000}

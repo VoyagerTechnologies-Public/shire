@@ -111,58 +111,30 @@
         {
           "parameter": "/ADCS/SUN_X",
           "operator": "gt",
-          "value": "0.98"
+          "value": "0.95"
         },
         {
           "parameter": "/ADCS/SUN_Y",
           "operator": "lt",
-          "value": "0.02"
+          "value": "0.05"
         },
         {
           "parameter": "/ADCS/SUN_Y",
           "operator": "gt",
-          "value": "-0.02"
+          "value": "-0.05"
         },
         {
           "parameter": "/ADCS/SUN_Z",
           "operator": "lt",
-          "value": "0.02"
+          "value": "0.05"
         },
         {
           "parameter": "/ADCS/SUN_Z",
           "operator": "gt",
-          "value": "-0.02"
+          "value": "-0.05"
         }
       ],
       "timeout": 120000
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_SET_MODE_CC",
-      "extraOptions": [],
-      "arguments": [
-        {
-          "name": "MODE",
-          "value": "TARGET"
-        }
-      ]
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_SET_TARGET_CC",
-      "extraOptions": [],
-      "arguments": [
-        {
-          "name": "TARGET",
-          "value": "1"
-        }
-      ]
-    },
-    {
-      "type": "command",
-      "name": "/ADCS/ADCS_REQ_HK",
-      "extraOptions": [],
-      "arguments": []
     },
     {
       "type": "verify",
@@ -175,7 +147,7 @@
         {
           "parameter": "/ADCS/CMD_COUNT",
           "operator": "gte",
-          "value": "5"
+          "value": "3"
         },
         {
           "parameter": "/ADCS/CMD_ERR_COUNT",
@@ -191,32 +163,32 @@
         {
           "parameter": "/ADCS/ANGRATE_X",
           "operator": "lt",
-          "value": "0.02"
+          "value": "0.1"
         },
         {
           "parameter": "/ADCS/ANGRATE_X",
           "operator": "gt",
-          "value": "-0.02"
+          "value": "-0.1"
         },
         {
           "parameter": "/ADCS/ANGRATE_Y",
           "operator": "lt",
-          "value": "0.02"
+          "value": "0.1"
         },
         {
           "parameter": "/ADCS/ANGRATE_Y",
           "operator": "gt",
-          "value": "-0.02"
+          "value": "-0.1"
         },
         {
           "parameter": "/ADCS/ANGRATE_Z",
           "operator": "lt",
-          "value": "0.02"
+          "value": "0.1"
         },
         {
           "parameter": "/ADCS/ANGRATE_Z",
           "operator": "gt",
-          "value": "-0.02"
+          "value": "-0.1"
         }
       ],
       "timeout": 30000

@@ -1,5 +1,5 @@
 # Confirms the 42 truth packet is correct end-to-end (issue #8 item 1):
-# closes the gap atlas/docs/scenarios/adcs-truth-comparison.md left open
+# closes the gap atlas/docs/manual/how-to/adcs-validation.md left open
 # ("does not assert numeric agreement") by asserting real numeric agreement
 # between /ADCS ground telemetry and /SIM_42_TRUTH, via
 # AdcsTruthComparison.ycs's verify_stacks steps.

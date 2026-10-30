@@ -17,7 +17,7 @@ Start with [Installation](manual/handbook/installation.md), then follow [Getting
 | Build and run the default DRM | [Getting Started](manual/handbook/getting-started.md) |
 | Rehearse a developer or operator workflow | [Scenarios](scenarios/overview.md) |
 | Automate a scenario run or sweep initial conditions | [Scenarios and initial conditions](manual/how-to/scenarios.md) and [Monte Carlo campaigns](manual/how-to/monte-carlo-campaigns.md) |
-| Review core concepts | [System Architecture](manual/core-concepts/space-systems.md) |
+| Review core concepts | [Space System Crash Course](manual/core-concepts/space-systems.md) and [Architecture](manual/core-concepts/architecture.md) |
 | Diagnose a common problem | [FAQ](manual/handbook/faq.md) |
 | Look up a term or command | [Glossary](reference/glossary.md) and [Quick Reference](reference/quick-reference.md) |
 
@@ -54,3 +54,6 @@ Help improve the journey from day one to flight and back again.
 
 Report reproducible defects through [GitHub Issues](https://github.com/VoyagerTechnologies-Public/shire/issues).
 Share questions and ideas in [GitHub Discussions](https://github.com/VoyagerTechnologies-Public/shire/discussions).
+
+***
+Last reviewed: 20261027

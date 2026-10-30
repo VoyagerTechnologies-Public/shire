@@ -25,6 +25,7 @@ import yaml
 from shire_provenance import ROOT
 from shire_eps_config import normalize_eps, merge_component_config
 from shire_radio_config import normalize_radio
+from shire_limits_config import resolve_limits
 
 
 def container_names(mission: str, spacecraft: str, instance: str | None = None) -> dict[str, str]:
@@ -176,6 +177,10 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
         resolved[comp_name] = comp_cfg
     if scenario_cfg.get('retain_all_events'):
         resolved['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
+    limits = resolve_limits(global_cfg.get("limits"), mission_cfg.get("limits"),
+                            (spacecraft_cfg or {}).get("limits"), scenario_cfg.get("limits"))
+    if limits:
+        resolved['__limits'] = limits
     return resolved
 
 

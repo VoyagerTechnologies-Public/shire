@@ -16,6 +16,7 @@ from shire_eps_config import normalize_eps, merge_component_config
 from shire_radio_config import normalize_radio
 from shire_runner_lib import resolve_component_configs
 from shire_eps_stacks import write_stacks, write_xtce
+from shire_limits_config import LimitError, mdb_sources, resolve_limits, write_limited_mdb
 from shire_board_config import DEFAULT_PROFILE
 
 CFG_DIR = str(ROOT / "cfg")
@@ -83,7 +84,9 @@ def main():
         mission_cfg_path = os.path.join(CFG_DIR, missions[0]["config_file"])
         mission_cfg = load_yaml(mission_cfg_path)
         scenarios = mission_cfg.get("scenarios", [])
-        scenario = scenarios[0]["name"] if scenarios else "nominal"
+        # The default is "nominal" by name, so the order of the mission's scenario list (which is alphabetical) does not matter.
+        names = [entry["name"] for entry in scenarios]
+        scenario = "nominal" if "nominal" in names or not names else names[0]
         
         # Default spacecraft selection from global or mission config
         if "spacecraft" in global_cfg["build"] and global_cfg["build"]["spacecraft"]:
@@ -378,6 +381,19 @@ def main():
         if 'eps' in resolved_components:
             write_stacks(resolved_components['eps'], os.path.join(BUILD_DIR, mission, 'scenario', 'eps-stacks'))
             write_xtce(resolved_components['eps'], os.path.join(ROOT, 'comp', 'eps', 'gsw', 'eps.xtce'), os.path.join(BUILD_DIR, mission, 'scenario', 'eps.xtce'))
+
+        # Yellow and red telemetry limits cascade like component config. They are applied to the ground MDB as XTCE
+        # alarm ranges, in a copy the ground image build overlays on the checked in definitions.
+        try:
+            limits = resolve_limits(merged["global"].get("limits"), merged["mission_cfg"].get("limits"),
+                                    (merged["spacecraft_cfg"] or {}).get("limits"), merged["scenario_cfg"].get("limits"))
+            scenario_dir = ROOT / 'build' / mission / 'scenario'
+            write_limited_mdb(limits, mdb_sources(ROOT, mission, scenario_dir / 'eps.xtce'), scenario_dir / 'mdb')
+        except LimitError as exc:
+            fail(str(exc))
+        if limits:
+            resolved_components['__limits'] = limits
+            print(f"[orchestrator] {len(limits)} telemetry limit(s) applied to the ground MDB")
 
         # Snapshot the scenario + resolved IC selection for this build, so a
         # specific run's exact starting state stays traceable even after

@@ -87,6 +87,26 @@
                 <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
                 <xtce:ValidRange minInclusive="0" maxInclusive="255" />
             </xtce:IntegerArgumentType>
+            <xtce:StringArgumentType name="UPLOAD_OBJECT_Type" characterWidth="8" initialValue="up_sc_rts012.tbl"
+                shortDescription="Name of an object in the cfdpUp bucket">
+                <xtce:StringDataEncoding encoding="UTF-8">
+                    <xtce:SizeInBits>
+                        <xtce:Fixed>
+                            <xtce:FixedValue>1024</xtce:FixedValue>
+                        </xtce:Fixed>
+                    </xtce:SizeInBits>
+                </xtce:StringDataEncoding>
+            </xtce:StringArgumentType>
+            <xtce:StringArgumentType name="UPLOAD_PATH_Type" characterWidth="8" initialValue="/d/up_sc_rts012.tbl"
+                shortDescription="Full path where the file is written on the spacecraft">
+                <xtce:StringDataEncoding encoding="UTF-8">
+                    <xtce:SizeInBits>
+                        <xtce:Fixed>
+                            <xtce:FixedValue>1024</xtce:FixedValue>
+                        </xtce:Fixed>
+                    </xtce:SizeInBits>
+                </xtce:StringDataEncoding>
+            </xtce:StringArgumentType>
         </xtce:ArgumentTypeSet>
         <xtce:MetaCommandSet>
             <xtce:MetaCommand name="CCSDS_TC" abstract="true">
@@ -110,6 +130,19 @@
                     <xtce:EntryList>
                         <xtce:FixedValueEntry name="GROUND_ONLY" sizeInBits="64"
                             binaryValue="0000000000000000" />
+                    </xtce:EntryList>
+                </xtce:CommandContainer>
+            </xtce:MetaCommand>
+            <xtce:MetaCommand name="CFDP_UPLOAD"
+                shortDescription="Ground-side command that uploads a file from the cfdpUp bucket to the spacecraft by CFDP and completes when the transfer does">
+                <xtce:ArgumentList>
+                    <xtce:Argument name="OBJECT_NAME" argumentTypeRef="UPLOAD_OBJECT_Type" />
+                    <xtce:Argument name="REMOTE_PATH" argumentTypeRef="UPLOAD_PATH_Type" />
+                </xtce:ArgumentList>
+                <xtce:CommandContainer name="CFDP_UPLOAD_CommandContainer">
+                    <xtce:EntryList>
+                        <xtce:ArgumentRefEntry argumentRef="OBJECT_NAME" />
+                        <xtce:ArgumentRefEntry argumentRef="REMOTE_PATH" />
                     </xtce:EntryList>
                 </xtce:CommandContainer>
             </xtce:MetaCommand>

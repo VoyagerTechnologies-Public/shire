@@ -29,11 +29,18 @@ SHIRE replaces those physical elements with a software radio model and UDP trans
 
 Telemetry and commands commonly use packet and frame formats such as those defined by the Consultative Committee for Space Data Systems (CCSDS) Space Packet standard.
 The current SHIRE ground and flight configuration includes CCSDS packet handling and CCSDS File Delivery Protocol (CFDP) services.
-CFDP Class 2 adds acknowledgements and retransmission to its file transfer flow provided by class 1.
+CFDP Class 1 transfers files without acknowledgements, while Class 2 adds acknowledgements and retransmission.
+The DRM scenarios send files as Class 2 by setting the `CFDP_CLASS` command argument, and the polling directory in `cf_def_config.c` is also set to Class 2 though it is disabled.
 
 The Radio component provides Sleep, Transmit, Receive, and Duplex modes.
-The DRM uses RTS 6 to create a fixed pass window by selecting Duplex mode for 480 seconds before returning to Receive mode.
-This window is not calculated from ground station visibility.
+Its simulator also models the link itself.
+The default `link_mode` is `always`, which keeps the link up regardless of geometry.
+With `link_mode: auto`, the simulator computes visibility from 42 truth and the ground stations in `cfg/drm/ground_stations.yaml`, and each station has a `min_elev_deg` elevation mask.
+Each direction can also have a one-way delay (`*_delay_ms`) and a packet drop rate (`*_drop_ppm`).
+See `comp/radio/README.md` for the full link model.
+
+The DRM uses RTS 6 to create a pass window by selecting Duplex mode for a fixed 480 scheduler wakeups before returning to Receive mode.
+That window does not follow the Radio link model or ground station visibility.
 
 ## Spacecraft bus and payload
 
@@ -42,7 +49,7 @@ Common bus functions include command and data handling, power, communication, at
 
 The payload performs the mission specific work.
 SHIRE uses the Demo or demonstration component as its reference payload.
-The Demo application and simulator provide commands, housekeeping, and three representative data channels mimicing an instrument grade magnetometer.
+The Demo application and simulator provide commands, housekeeping, and three representative data channels mimicking an instrument grade magnetometer.
 
 ## The Spacecraft Bus
 
@@ -57,4 +64,4 @@ The current DRM does not include a separate thermal control component.
 Thermal gradients, heaters, coolers, and temperature sensor dynamics are outside the implemented baseline.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261027

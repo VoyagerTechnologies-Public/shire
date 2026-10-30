@@ -17,9 +17,10 @@ For every tick it:
 
 The DRM expects two clients: FSW and the Director.
 The focused CLI environment expects one Director client.
-From the attached Server console, use `p` to pause or resume, `speed 25` to
-request an exact rate, `speed max` for unbounded execution, and `+` or `-` to
-double or halve the current requested rate.
+From the attached Server console, use `p` to toggle pause, or `pause` and `resume` to set the state explicitly.
+`step` pauses the clock and advances a single tick, and each further `step` advances one more.
+`speed 25` requests an exact rate, `speed max` requests unbounded execution, and `+` or `-` double or halve the current requested rate.
+`quit` makes the Server exit.
 The Server reports simulated time, attempted speed, and achieved speed every 10
 seconds of simulated time regardless of the active synchronization transport.
 The interactive controls accept attempted rates from 1/64x through 1024x, but
@@ -50,6 +51,13 @@ The Server reports its state on a separate telemetry link (port 50043) as
 `/SHIRE_SERVER/PAUSED`, `/SHIRE_SERVER/SPEED`, and `/SHIRE_SERVER/SIM_TIME_NS`.
 `CheckoutTest.ycs` exercises all three commands.
 See [Checkout stack](ground-software.md#checkout-stack).
+
+A pause can last as long as you like.
+While the clock is paused, the Director is idle and 42 waits for the next command batch.
+42 normally stops if that batch is more than 5 seconds late, because a late batch usually means the Director has exited.
+The Director therefore holds a lock on `/tmp/42_ipc_director.v1.lock` for as long as it runs, and 42 keeps waiting while the lock is held and stops only when the lock is gone.
+If the Director really exits, the kernel drops its lock and 42 still stops about 5 seconds later.
+`ServerPauseResume.ycs` holds a 12 second pause in the `checkout` scenario to keep this behavior covered.
 
 ## Simulith Director
 
@@ -307,6 +315,32 @@ Its watchdog names the client holding a phase, while the PSP watchdog identifies
 the schedule entry, message ID, and participant state holding EXECUTE.
 No synchronized mode batches ticks, queues future ticks, or skips SCH slots.
 
+### Stopping, reloading, and restarting applications
+
+An application that leaves the Software Bus while a tick is open must not hold that tick open.
+Two safeguards in the PSP and cFE Executive Services make an application stop, reload, or restart safe.
+
+When an application task calls `CFE_ES_ExitApp()`, ES notifies the Software Bus observer first.
+The PSP then completes every delivery that is still bound to the pipe that task last received from.
+It also retires that pipe, so scheduled messages that the Software Bus keeps routing to it until ES finishes cleaning the application up are no longer tracked.
+This matters because ES measures its clean up delays on simulated time, which does not advance while a tick is open.
+
+OSAL stops an application's tasks with `pthread_cancel`.
+The PSP's wait for the next tick releases its mutex if the task is cancelled while it waits, so a stopped task never leaves the simulated clock locked for every later reader.
+
+The retired-pipe list is a fixed ring of 64 entries.
+Entries are never cleared, only overwritten by the 64th later application exit.
+While a pipe identifier is on the list, the PSP does not register child completions for messages routed to it.
+
+Stop, reload, or restart an application from YAMCS with the Executive Services commands `CFE_ES_STOP_APP`, `CFE_ES_RELOAD_APP`, and `CFE_ES_RESTART_APP`.
+Each takes the application name, and `CFE_ES_RELOAD_APP` also takes the path of the module to load.
+`CFE_ES_STOP_APP` stops an application and removes it, and `CFE_ES_START_APP` starts it again from a module file.
+See [Uploading tables and patches](../how-to/uplink-patches.md) for uploading a replacement module and reloading it.
+
+An application that is killed without calling `CFE_ES_ExitApp()`, such as after an exception, is not covered by the first safeguard and can still hold a tick open.
+The PSP stall report names the schedule entry, message ID, pipe, and state of each participant that is still missing.
+It reports by elapsed time, so a stall is named even when other completions keep waking the wait.
+
 ## Performance regression runs
 
 See [Verify synchronized simulation performance](../how-to/performance.md) for
@@ -333,9 +367,10 @@ interactive controls.
 
 The Director listens for backdoor datagrams on UDP 50060 and dispatches a valid packet to the named component's `backdoor` callback.
 Backdoor behavior is specific to each component.
-Demo currently supports three backdoor commands, all routed over the `tc_backdoor` stream: `/DEMO/BACKDOOR_DEMO_SET_CONFIG` writes `DEVICE_CONFIG` directly, bypassing normal command processing (see `DemoFDIR.ycs` and the [FDIR scenario](../../scenarios/fdir.md) for the fault-injection pattern this enables), and `/DEMO/BACKDOOR_DEMO_RAND_HK` / `/DEMO/BACKDOOR_DEMO_RAND_DATA` toggle randomized housekeeping or channel data.
+Demo currently supports three backdoor commands, all routed over the `tc_backdoor` stream: `/DEMO/BACKDOOR_DEMO_SET_CONFIG` writes `DEVICE_CONFIG` directly, bypassing normal command processing (see `DemoFDIR.ycs` and the [Fault Detection and Recovery](../../scenarios/fault-detection-recovery.md) lesson for the fault-injection pattern this enables), and `/DEMO/BACKDOOR_DEMO_RAND_HK` / `/DEMO/BACKDOOR_DEMO_RAND_DATA` toggle randomized housekeeping or channel data.
+EPS supports nine `/EPS/BACKDOOR_EPS_*` commands (`SET_SOC`, `SET_SOLAR`, `SET_SWITCH`, `SET_SWITCH_FAULT`, `FAIL_REQUESTS`, `CORRUPT_HK_CRC`, `CLEAR_FAULTS`, `SET_LOAD_SCALE`, and `RESET`), also routed over `tc_backdoor`, and the [EPS validation guide](../how-to/eps-validation.md) exercises them.
 Radio (target `radio_sim`) supports nine `/RADIO/BACKDOOR_RADIO_*` commands that force the RF link in view or out of view, set per-direction transmission delay and packet drop rate, bypass those impairments, enable or disable individual ground stations, reseed the loss generator, reset the link, corrupt packets in flight, and replay the last packet.
-See `comp/radio/README.md`, the [radio link scenario](../../scenarios/radio-link-testing.md), and the [radio security scenario](../../scenarios/radio-security-testing.md).
+See `comp/radio/README.md`, the [Radio Link and Command Paths](../../scenarios/radio-link-command-paths.md) lesson, the [Radio validation](../how-to/radio-validation.md) guide, the [Space Link Security](../../scenarios/space-link-security.md) lesson, and the [Radio security validation](../how-to/radio-security-validation.md) guide.
 This is a component-level backdoor into the Director, a different link from the Simulith Server's own pause/play/speed backdoor described above.
 A backdoor is a test interface, not a flight interface, and should only be used in isolated simulation runs.
 
@@ -357,4 +392,4 @@ A passing unit test does not by itself verify a complete mission scenario.
 Record the configuration, revision, command, and result for any formal verification claim.
 
 ***
-Last reviewed: 20261008
+Last reviewed: 20261027

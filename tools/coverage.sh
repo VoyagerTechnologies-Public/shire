@@ -92,13 +92,18 @@ coverage_common=(--parallel "$coverage_jobs" --branch-coverage --mcdc-coverage
                  --ignore-errors inconsistent,inconsistent)
 lcov_common=("${coverage_common[@]}" --rc geninfo_unexecuted_blocks=1)
 
+# A source file with no executable code, such as a table definition, a name table, or a stub list, has nothing for gcov
+# to report, and capture warns about each one. They are skipped, because they cannot have uncovered lines. Real source
+# is unaffected: a file that should have data and does not is still absent from the report.
+capture_common=("${lcov_common[@]}" --ignore-errors gcov,gcov)
+
 if [[ "$phase" == initial ]]; then
-    lcov --capture --initial --directory "$build_dir" "${lcov_common[@]}" \
+    lcov --capture --initial --directory "$build_dir" "${capture_common[@]}" \
         --output-file "$output_dir/initial-primary.info"
 
     if [[ -n "$supplement_dir" ]]; then
         supplement_dir=$(realpath "$supplement_dir")
-        lcov --capture --initial --directory "$supplement_dir" "${lcov_common[@]}" \
+        lcov --capture --initial --directory "$supplement_dir" "${capture_common[@]}" \
             --output-file "$output_dir/initial-supplement-raw.info"
         lcov --extract "$output_dir/initial-supplement-raw.info" \
             "${supplement_patterns[@]}" "${lcov_common[@]}" \
@@ -118,7 +123,7 @@ fi
     exit 1
 }
 
-lcov --capture --directory "$build_dir" "${lcov_common[@]}" \
+lcov --capture --directory "$build_dir" "${capture_common[@]}" \
     --output-file "$output_dir/executed.info"
 lcov --add-tracefile "$output_dir/initial.info" \
     --add-tracefile "$output_dir/executed.info" "${lcov_common[@]}" \

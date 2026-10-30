@@ -16,6 +16,7 @@ static unsigned int EndCalls;
 static unsigned int TransmitCalls;
 static unsigned int BeginReceiveCalls;
 static unsigned int ReceivedCalls;
+static unsigned int TaskExitCalls;
 static uint32_t LastMsgId;
 static uint32_t LastPipeId;
 static const void *LastBuffer;
@@ -71,12 +72,17 @@ void CFE_PSP_SimulithMessageReceived(uint32_t message_id, uint32_t pipe_id,
     LastBuffer = message_ref;
 }
 
+void CFE_PSP_SimulithTaskExit(void)
+{
+    TaskExitCalls++;
+}
+
 static void ResetObserver(void)
 {
     FakeTypeStatus = CFE_SUCCESS;
     FakeType = CFE_MSG_Type_Cmd;
     FakeReservation = 7;
-    ReserveCalls = EndCalls = TransmitCalls = BeginReceiveCalls = ReceivedCalls = 0;
+    ReserveCalls = EndCalls = TransmitCalls = BeginReceiveCalls = ReceivedCalls = TaskExitCalls = 0;
     LastMsgId = LastPipeId = 0;
     LastBuffer = NULL;
     LastToken = 0;
@@ -156,8 +162,18 @@ static void Test_ReceiveFiltering(void)
     UtAssert_True(LastBuffer == &buffer, "received command retains its buffer identity");
 }
 
+static void Test_TaskExit(void)
+{
+    ResetObserver();
+    CFE_SB_Observer_TaskExit();
+    UtAssert_UINT32_EQ(TaskExitCalls, 1);
+    CFE_SB_Observer_TaskExit();
+    UtAssert_UINT32_EQ(TaskExitCalls, 2);
+}
+
 void UtTest_Setup(void)
 {
     UtTest_Add(Test_DeliveryFiltering, NULL, NULL, "SHIRE PSP command delivery observation");
     UtTest_Add(Test_ReceiveFiltering, NULL, NULL, "SHIRE PSP command receive observation");
+    UtTest_Add(Test_TaskExit, NULL, NULL, "SHIRE PSP task exit observation");
 }

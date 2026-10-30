@@ -1,6 +1,8 @@
+# Raspberry Pi 5 AArch64 cFS build and userspace, validated as physical processor PIL with host simulated devices.
+# Set your actual SSH account/address (or pass --target) and supply these build artifacts first.
 schema_version: 1
 name: rpi5
-description: Raspberry Pi 5 AArch64 Linux PIL example, hardware unvalidated
+description: Raspberry Pi 5 AArch64 Linux PIL, physical processor validated, no physical bus qualification
 work_dir: build/boards/rpi5
 ssh:
   target: jpl@192.168.6.194

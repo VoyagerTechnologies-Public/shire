@@ -82,7 +82,8 @@ flowchart TD
 
 The Director loads and initializes the selected component libraries before it registers with the Server.
 It starts one device service worker for each loaded component and then attempts to connect to 42.
-The Director continues without 42 if that connection cannot be initialized, although 42 is expected in the default DRM.
+The Director retries the connection and exits if 42 never initializes, because it refuses to run an open loop simulation.
+The retry count is `SIMULITH_42_RECONNECT_ATTEMPTS`, which the generated compose file sets to 90.
 
 ```mermaid
 sequenceDiagram
@@ -97,7 +98,7 @@ sequenceDiagram
     alt 42 initializes
         FortyTwo-->>Director: Connection ready
     else 42 initialization fails
-        Director->>Director: Disable 42 and continue
+        Director->>Director: Report the failure and exit
     end
     Director->>Director: Prepare YAMCS truth publisher
     Director->>Director: Initialize Simulith client
@@ -214,6 +215,7 @@ sequenceDiagram
 
 The server console accepts `p` to pause or resume, `+` to increase the attempted rate, and `-` to decrease it.
 These are requested rates, not performance guarantees: achievable speed depends on the host and workload.
+A pause may last any length of time, as described in [Ground-commanded pause/play/speed](simulations.md#ground-commanded-pauseplayspeed).
 
 ## Component and hardware interfaces
 
@@ -241,6 +243,7 @@ The included YAMCS instance defines these lab links:
 | Server pause/play/speed backdoor | YAMCS to Server on UDP 50061 |
 | Server status telemetry | Server to YAMCS on UDP 50043 |
 | 42 truth | Director to YAMCS on UDP 50042 |
+| Visualization | Director to YAMCS on UDP 50044 |
 
 The debug path is useful for lab checkout.
 The radio path exercises the simulated radio and CryptoLib pipeline and is the representative space link path in the DRM.
@@ -268,8 +271,11 @@ sequenceDiagram
     end
 ```
 
-YAMCS prefers the representative `radio-out` path for commands.
-It falls back to `debug-out` when the preferred interface is unavailable.
+Both command links are enabled when the lab starts, and while both are enabled YAMCS sends each command by `radio-out` alone.
+`debug-out` carries commands only while `radio-out` is disabled, and there is no automatic fallback.
+Send `/SHIRE_GROUND/USE_DEBUG_UPLINK` to make `debug-out` the only command path.
+Send `/SHIRE_GROUND/USE_RADIO_UPLINK` to make `radio-out` the only command path for 30 seconds, and `/SHIRE_GROUND/RESTORE_UPLINK` to end that selection sooner.
+These ground commands change YAMCS link state and send no spacecraft packet.
 
 ## Build time architecture
 

@@ -71,6 +71,7 @@ typedef struct {
     int binary_mode;
     int shared_mode;
     int shared_fd;
+    int director_lock_fd;
     uint32_t shared_seq;
     shire_ipc_shared_t *shared;
 } fortytwo_socket_client_t;
@@ -83,6 +84,7 @@ static fortytwo_socket_client_t g_client = {
     .rx_buffer_len = 0,
     .binary_mode = 1,
     .shared_fd = -1,
+    .director_lock_fd = -1,
     .shared_seq = 1
 };
 
@@ -119,6 +121,21 @@ static int shared_wait(uint32_t *word, uint32_t expected)
     return 0;
 }
 
+/* 42 treats this lock as proof that the Director is alive, so it does not
+ * give up on a Director that is idle because the simulation is paused. */
+static void hold_director_lock(void)
+{
+    int fd = open(SHIRE_IPC_DIRECTOR_LOCK_PATH, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0 || flock(fd, LOCK_EX | LOCK_NB) < 0)
+    {
+        fprintf(stderr, "[42-client] Unable to hold the Director lock, so 42 will stop if a pause lasts longer than its watchdog: %s\n",
+                strerror(errno));
+        if (fd >= 0) close(fd);
+        return;
+    }
+    g_client.director_lock_fd = fd;
+}
+
 static int connect_shared(void)
 {
     for (unsigned int attempt = 0; attempt < reconnect_attempts(); ++attempt)
@@ -145,6 +162,7 @@ static int connect_shared(void)
                         g_client.shared = shared;
                         g_client.shared_seq = 1;
                         g_client.connected = 1;
+                        hold_director_lock();
                         return 0;
                     }
                     munmap(shared, sizeof(*shared));
@@ -622,6 +640,11 @@ void simulith_42_cleanup(void)
     {
         close(g_client.shared_fd);
         g_client.shared_fd = -1;
+    }
+    if (g_client.director_lock_fd >= 0)
+    {
+        close(g_client.director_lock_fd);
+        g_client.director_lock_fd = -1;
     }
     g_client.shared_mode = 0;
     g_client.shared_seq = 1;

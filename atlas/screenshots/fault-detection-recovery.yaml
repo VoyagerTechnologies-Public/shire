@@ -1,0 +1,132 @@
+# Screenshots for atlas/docs/scenarios/fault-detection-recovery.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=fault-detection-recovery
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. The run takes about 6 minutes.
+scenario: fault-detection-recovery
+doc: scenarios/fault-detection-recovery.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Establish the baseline ----------------------------------------------------------------------------
+  # Action point 11 is active at boot. The commands make the starting state explicit, as DemoFDIR.ycs does.
+  - command:
+      name: /LC/LC_COMMANDS/LC_SET_AP_STATE
+      args: {APNUMBER: 11, NEWAPSTATE: LC_APSTATE_ACTIVE}
+      send: true
+  - command:
+      name: /LC/LC_COMMANDS/LC_RESET_AP_STATS
+      args: {APNUMBER: 11, PADDING: 0}
+      send: true
+  - command:
+      name: /DEMO/DEMO_ENABLE_CC
+      send: true
+  - command:
+      name: /DEMO/DEMO_REQ_HK
+      send: true
+  - wait_param: {name: /DEMO/DEVICE_ENABLED, equals: ENABLED, fresh: true, timeout_s: 60}
+  - wait_param: {name: /DEMO/CHAN1, min: 256, fresh: true, timeout_s: 60}
+  - wait_param: {name: /LC/LC_HKPACKET/APRESULTS_11, equals: ACTIVE_PASS, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ENABLED}
+  - wait: {ms: 2000}
+  - shot: {name: 01-demo-baseline, settle_ms: 1000}
+  - goto: /telemetry/parameters?system=%2FLC%2FLC_HKPACKET
+  - wait: {text: APRESULTS_11}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: APRESULTS_11}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 02-lc-baseline, settle_ms: 1000}
+
+  # ---- Inject the fault ----------------------------------------------------------------------------------
+  # Half speed gives the screenshots a wider window on the short response, and the pause freezes it.
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 0.5}
+      send: true
+  - command:
+      name: /DEMO/BACKDOOR_DEMO_RAND_DATA
+      args: {ENABLE: ENABLE}
+  - shot: {name: 03-inject-command}
+  - send: true
+  - wait_param: {name: /DEMO/CHAN1, max: 255, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ENABLED}
+  - wait: {ms: 1500}
+  - shot: {name: 04-demo-data-invalid, settle_ms: 500}
+
+  # ---- Watch the response --------------------------------------------------------------------------------
+  - wait_param: {name: /SC/SC_HKTLM/RTSEXECUTINGSTATUS_1, equals: 1024, timeout_s: 120}
+  - wait_param: {name: /DEMO/DEVICE_ENABLED, equals: DISABLED, timeout_s: 60}
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_PAUSE
+      send: true
+  - wait_param: {name: /SHIRE_SERVER/PAUSED, equals: PAUSED, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FLC%2FLC_HKPACKET
+  - wait: {text: APRESULTS_11}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: APRESULTS_11}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 05-lc-action-point-tripped, settle_ms: 1000}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ENABLED}
+  - wait: {ms: 2000}
+  - shot: {name: 06-demo-disabled, settle_ms: 1000}
+  - goto: /telemetry/parameters?system=%2FSC%2FSC_HKTLM
+  - wait: {text: RTSEXECUTINGSTATUS_1}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RTSEXECUTINGSTATUS}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 07-rts-executing, settle_ms: 1000}
+
+  # ---- Recover -------------------------------------------------------------------------------------------
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_PLAY
+      send: true
+  - wait_param: {name: /SHIRE_SERVER/PAUSED, equals: RUNNING, timeout_s: 60}
+  - command:
+      name: /SHIRE_SERVER/BACKDOOR_SERVER_SET_SPEED
+      args: {SPEED: 1}
+      send: true
+  - command:
+      name: /DEMO/BACKDOOR_DEMO_RAND_DATA
+      args: {ENABLE: DISABLE}
+      send: true
+  - wait_param: {name: /DEMO/DEVICE_ENABLED, equals: ENABLED, fresh: true, timeout_s: 120}
+  - wait_param: {name: /DEMO/CHAN1, min: 256, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ENABLED}
+  - wait: {ms: 2000}
+  - shot: {name: 08-demo-recovered, settle_ms: 1000}
+  - shot:
+      name: 09-flight-events
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: "LC 0:|DEMO_APP 1[35]:"
+      tail: 3
+      title: SHIRE flight software
+  - goto: /commanding/history
+  - wait: {text: BACKDOOR_DEMO_RAND_DATA}
+  - wait: {ms: 2000}
+  - shot: {name: 10-command-history, settle_ms: 500}
+
+  # Action point 11 went passive when it tripped, so arm it again.
+  - command:
+      name: /LC/LC_COMMANDS/LC_SET_AP_STATE
+      args: {APNUMBER: 11, NEWAPSTATE: LC_APSTATE_ACTIVE}
+      send: true
+  - command:
+      name: /LC/LC_COMMANDS/LC_RESET_AP_STATS
+      args: {APNUMBER: 11, PADDING: 0}
+      send: true
+  - wait_param: {name: /LC/LC_HKPACKET/APRESULTS_11, equals: ACTIVE_PASS, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FLC%2FLC_HKPACKET
+  - wait: {text: APRESULTS_11}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: APRESULTS_11}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 11-lc-rearmed, settle_ms: 1000}

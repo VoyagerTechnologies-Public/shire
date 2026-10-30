@@ -35,7 +35,10 @@ The specific command format is as follows:
   * (1) get housekeeping
   * (2) set mode
     * 0, disabled
-    * 1, de-tumble
+    * 1, de-tumble (B-dot: commands the magnetorquer dipole M = +k (w x B),
+      where w is the body rate and B the magnetic field in the body frame in
+      tesla, so the torque M x B always opposes the part of w that is
+      perpendicular to B; it cannot remove spin about B)
     * 2, sun point (holds body +X on the sun vector; also executes a mild
       rotisserie roll about that boresight for thermal management, at the
       rate set by the boot-loaded gains table's RotisserieRateRadS -- see
@@ -61,7 +64,10 @@ The specific command format is as follows:
     SunPointKd, WheelMaxTorqueNm, MtbMaxDipoleAm2, DetumbleGainBase,
     DetumbleGainHigh, RotisserieRateRadS), pushed down from the cFE app's
     boot-loaded gains table (comp/adcs/src/adcs_tbl.c) instead of the usual
-    uint16 payload
+    uint16 payload. The two detumble gains are B-dot gains in A*m^2 per
+    (rad/s * T), which are large numbers because the field is in tesla: the
+    defaults are 2e5 at low rates and 1e6 at high rates, which saturate the
+    1.42 A*m^2 magnetorquers above roughly 0.14 rad/s in a 25 microtesla field
   * (23) set target vector: payload is 3 big-endian float32s (X, Y, Z), an
     arbitrary inertial direction for modes 4/5 to point at. Normalized on
     receipt; rejected (previous target kept) if the magnitude is ~0

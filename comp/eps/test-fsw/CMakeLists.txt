@@ -60,6 +60,16 @@ add_cfe_coverage_test(eps DEVICE
 
 add_cfe_coverage_dependency(eps ALL eps-internal)
 
+# The uplink patch build of the app: the same source with the protected switch compiled in.
+add_cfe_coverage_test(eps PATCH
+    "coveragetest/coveragetest_eps_patch.c"
+    "../src/eps_app.c"
+)
+foreach(target coverage-eps-PATCH-object coverage-eps-PATCH-testrunner)
+    target_compile_definitions(${target} PRIVATE EPS_PATCH_PROTECTED_SWITCH=5)
+endforeach()
+add_cfe_coverage_dependency(eps PATCH eps-internal)
+
 
 # The eps uses library functions provided by eps_lib so must be linked
 # with the eps_lib stub library (this is mainly just an example of how this 

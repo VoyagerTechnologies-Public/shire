@@ -23,7 +23,7 @@ make list
 make
 ```
 
-The first run pulls or builds several container images and compiles cFS, YAMCS, Simulith, 42, CryptoLib, and the selected component simulators.
+The first run builds several container images and compiles cFS, YAMCS, Simulith, 42, CryptoLib, and the selected component simulators.
 It can take substantial time and disk space.
 
 `make cfg` creates `build/active.yaml`.
@@ -68,8 +68,9 @@ Attach to its console to control simulation time:
 docker attach shire-server-drm
 ```
 
-Use `p` to pause or resume, `speed 25` to request an exact rate, `speed max` for
-unbounded execution, and `+` or `-` to double or halve the requested rate.
+Use `p` to toggle pause, or `pause` and `resume` to set the state explicitly.
+Use `step` to pause and advance a single 10 ms tick, `speed 25` to request an exact rate, `speed max` for unbounded execution, and `+` or `-` to double or halve the requested rate.
+`quit` makes the Server exit, so use it only to end the run.
 Detach without stopping the container with `Ctrl+P`, then `Ctrl+Q`.
 To start at 25x, use `SIMULITH_SPEED=25 make start`.
 
@@ -82,9 +83,19 @@ Then ensure all services are stopped:
 make stop
 ```
 
-YAMCS data is stored in a named volume and normally survives `make stop`.
-A later `make start` reuses the generated configuration and images.
-Run `make` again after source or configuration changes.
+Every `make start` runs `tools/shire-archives.py start`, which allocates a new labeled Docker volume named `shire-yamcs-archive-<run-id>` for that run and passes it to Compose as `SHIRE_YAMCS_VOLUME`.
+YAMCS data from the earlier run therefore stays in its own volume as a retained run, and the next `make start` begins with an empty archive.
+A later `make start` reuses the generated configuration and images, so run `make` again after source or configuration changes.
+
+To review a retained run after the stack has stopped:
+
+```bash
+make replay-list
+make replay RUN=<run-id>
+```
+
+`make replay` serves the selected archive from a standalone YAMCS container on port 8090, or on `PORT=<free-port>`.
+`make replay-delete RUN=<run-id>` removes one retained run.
 
 Use cleanup targets deliberately:
 
@@ -92,8 +103,9 @@ Use cleanup targets deliberately:
 * `make clean-cache` deletes all labeled SHIRE replay archives and pinned run images, then prunes Docker builder cache.
   It keeps older unlabeled GSW volumes.
 * `make uninstall` removes SHIRE build artifacts, containers, images, labeled replay archives, and networks through its `clean-cache` dependency.
+  It removes only images whose names begin with `shire-`, so the `ghcr.io/voyagertechnologies-public/...` dependency images from `make container` remain.
 
 Continue with the [Commissioning scenario](../../scenarios/commissioning.md), or see [Troubleshooting](faq.md) if startup fails.
 
 ***
-Last reviewed: 20260817
+Last reviewed: 20261027

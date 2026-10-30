@@ -1,0 +1,49 @@
+# Screenshots for atlas/docs/scenarios/new-component-development.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=new-component-development
+# The lesson adds a component named thermal that the mold generates. To regenerate, apply the edits in the lesson to a
+# clean checkout, run `make mold COMP=thermal`, replace the Demo names in its three GSW files, and run `make`. The
+# run takes about 4 minutes. Remove the component again afterward, because it is not part of the DRM.
+scenario: new-component-development
+doc: scenarios/new-component-development.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Check the new component starts --------------------------------------------------------------------
+  - shot:
+      name: 01-component-startup
+      kind: terminal
+      source: start_log
+      include: "thermal|THERMAL"
+      head: 6
+      title: make start
+
+  - goto: /telemetry/parameters
+  - wait: {text: THERMAL}
+  - wait: {ms: 2000}
+  - shot: {name: 02-thermal-in-mission-database, settle_ms: 500}
+
+  # ---- Run the checkout stack ----------------------------------------------------------------------------
+  - goto: /procedures/stacks/files/ThermalComponent.ycs
+  - wait: {text: THERMAL_ENABLE_CC}
+  - shot: {name: 03-checkout-stack-ready, settle_ms: 500}
+  - click: {selector: 'ya-page-icon-button[mattooltip="Run all from selected step"]'}
+  - wait: {selector: 'ya-page-icon-button[mattooltip="Clear all outputs"]:not(.disabled)', timeout_s: 120}
+  - scroll_to: {text: "/THERMAL/CMD_COUNT >= 1"}
+  - shot: {name: 04-checkout-stack-complete, settle_ms: 4000}
+
+  - goto: /telemetry/parameters?system=%2FTHERMAL
+  - wait: {text: DEVICE_ENABLED}
+  - wait: {ms: 3000}
+  - shot: {name: 05-thermal-telemetry, settle_ms: 1000}
+  - shot:
+      name: 06-thermal-events
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: "THERMAL: "
+      tail: 4
+      title: SHIRE flight software

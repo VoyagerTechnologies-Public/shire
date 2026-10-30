@@ -1,0 +1,5 @@
+# Host side Python packages for the tools that run outside the build container:
+# make scenario, make campaign, make screenshots-check, and yamcs/yamcs_commander.py.
+# Install with: python3 -m pip install --requirement tools/requirements-host.txt
+PyYAML==6.0.3
+requests==2.32.5

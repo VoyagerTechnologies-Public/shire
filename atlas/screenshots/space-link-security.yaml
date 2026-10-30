@@ -1,0 +1,207 @@
+# Screenshots for atlas/docs/scenarios/space-link-security.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=space-link-security
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. The run takes about 8 minutes.
+scenario: space-link-security
+doc: scenarios/space-link-security.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Read the protection -------------------------------------------------------------------------------
+  - wait_log: {source: compose_logs, service: shire-cryptolib, pattern: "link security", timeout_s: 60}
+  - shot:
+      name: 01-cryptolib-startup
+      kind: terminal
+      source: compose_logs
+      service: shire-cryptolib
+      include: "link security"
+      tail: 1
+      title: SHIRE CryptoLib
+
+  # Housekeeping is read back over the debug path, so an attack on the radio path cannot hide the instrument.
+  - command:
+      name: /SHIRE_GROUND/USE_DEBUG_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_CONFIG_CC
+      args: {MODE: Duplex Mode}
+      send: true
+  - command:
+      name: /RADIO/RADIO_RST_COUNTERS_CC
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_CommandCount, equals: 0, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_HK_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 02-radio-counters-baseline, settle_ms: 1000}
+
+  # ---- Send a genuine command ----------------------------------------------------------------------------
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_NOOP_CC
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_CommandCount, equals: 1, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_HK_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 03-genuine-command-accepted, settle_ms: 1000}
+
+  # ---- Tamper with a command -----------------------------------------------------------------------------
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_CORRUPT_PACKETS
+      args: {DIRECTION: UPLINK, COUNT: 1, OFFSET: 22}
+  - shot: {name: 04-corrupt-packets-command}
+  - send: true
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_NOOP_CC
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_DeviceErrorCount, equals: 1, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_HK_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 05-tampered-command-rejected, settle_ms: 1000}
+  - wait_log: {source: compose_logs, service: shire-fsw, pattern: 'Crypto_TC_ProcessSecurity failed, status=-21', timeout_s: 60}
+  - shot:
+      name: 06-fsw-authentication-failed
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: "Crypto_TC_ProcessSecurity"
+      tail: 1
+      title: SHIRE flight software
+
+  # The link recovers, and the next genuine command is accepted.
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_NOOP_CC
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_CommandCount, equals: 2, fresh: true, timeout_s: 60}
+
+  # ---- Replay a command ----------------------------------------------------------------------------------
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_REPLAY_PACKET
+      args: {DIRECTION: UPLINK}
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_DeviceErrorCount, equals: 2, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_HK_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 07-replayed-command-rejected, settle_ms: 1000}
+  - wait_log: {source: compose_logs, service: shire-fsw, pattern: 'Crypto_TC_ProcessSecurity failed, status=-23', timeout_s: 60}
+  - shot:
+      name: 08-fsw-replay-rejected
+      kind: terminal
+      source: compose_logs
+      service: shire-fsw
+      include: "Crypto_TC_ProcessSecurity"
+      tail: 2
+      title: SHIRE flight software
+
+  # The link recovers from the replay too, and the next genuine command is accepted.
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_NOOP_CC
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_CommandCount, equals: 3, fresh: true, timeout_s: 60}
+
+  # ---- Attack the downlink -------------------------------------------------------------------------------
+  - wait_param: {name: /RADIO/RADIO_DEVICE_BytesSent, min: 1, fresh: true, timeout_s: 60}
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_REPLAY_PACKET
+      args: {DIRECTION: DOWNLINK}
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - command:
+      name: /RADIO/BACKDOOR_RADIO_CORRUPT_PACKETS
+      args: {DIRECTION: DOWNLINK, COUNT: 1, OFFSET: 30}
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_log: {source: compose_logs, service: shire-cryptolib, pattern: 'Crypto_TM_ProcessSecurity Failed with status = -21', timeout_s: 90}
+  - shot:
+      name: 09-cryptolib-downlink-rejections
+      kind: terminal
+      source: compose_logs
+      service: shire-cryptolib
+      include: "Crypto_TM_ProcessSecurity Failed"
+      tail: 2
+      title: SHIRE CryptoLib
+
+  # ---- Respond -------------------------------------------------------------------------------------------
+  # The baseline exchange again, after the attacks, shows that the link recovered with its counters intact.
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_NOOP_CC
+      send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_HK_CommandCount, equals: 4, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_HK_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 10-baseline-restored, settle_ms: 1000}

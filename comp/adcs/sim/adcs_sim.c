@@ -78,7 +78,11 @@ static void quat_mul(const double a[4], const double b[4], double out[4]) {
 // adcs_controller_update(), which already gates on a valid context_42
 // before dispatching -- no redundant guard needed here.
 static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_context_t* context_42) {
-    // B-dot detumble: M = -k * (w x B) to remove angular momentum
+    // B-dot detumble: M = +k * (w x B) to remove angular momentum.
+    // The field is fixed in inertial space, so its body frame derivative is -(w x B), and the
+    // classic law M = -k * dB/dt is M = +k * (w x B). The magnetorquer torque is M x B, which
+    // is -k * |B|^2 times the part of w that is perpendicular to B, so it always opposes w.
+    // B is in tesla, so k is large: it is in A*m^2 per (rad/s * T), see ADCS_DETUMBLE_GAIN_BASE.
     double w[3] = {context_42->wn[0], context_42->wn[1], context_42->wn[2]};
     double b[3] = {context_42->mag_field_body[0], context_42->mag_field_body[1], context_42->mag_field_body[2]};
     double rate_magnitude = vector_magnitude(w);
@@ -101,7 +105,7 @@ static int adcs_bdot_controller(adcs_sim_state_t* state, const simulith_42_conte
     // Scale by adaptive detumble gain and negate
     double dipole_cmd[3];
     for (int i = 0; i < 3; i++) {
-        dipole_cmd[i] = -detumble_gain * w_cross_b[i];
+        dipole_cmd[i] = detumble_gain * w_cross_b[i];
 
         // Limit to MTB saturation
         if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;
@@ -209,7 +213,7 @@ static int adcs_point_vector_controller(adcs_sim_state_t* state, const simulith_
         double w_cross_b[3]; cross_product(w, b, w_cross_b);
         double dipole_cmd[3];
         for (int i = 0; i < 3; i++) {
-            dipole_cmd[i] = -mtb_gain * w_cross_b[i];
+            dipole_cmd[i] = mtb_gain * w_cross_b[i];
             if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;
             else if (dipole_cmd[i] < -state->gains.mtb_max_dipole) dipole_cmd[i] = -state->gains.mtb_max_dipole;
         }
@@ -392,10 +396,10 @@ static int adcs_hybrid_sun_pointing_controller(adcs_sim_state_t* state, const si
         double w_cross_b[3];
         cross_product(w, b, w_cross_b);
         
-        // Apply MTB dipole command: M = -k * (w x B)
+        // Apply MTB dipole command: M = +k * (w x B), the same damping law as the B-dot controller
         double dipole_cmd[3];
         for (int i = 0; i < 3; i++) {
-            dipole_cmd[i] = -mtb_gain * w_cross_b[i];
+            dipole_cmd[i] = mtb_gain * w_cross_b[i];
 
             // Limit to MTB saturation
             if (dipole_cmd[i] > state->gains.mtb_max_dipole) dipole_cmd[i] = state->gains.mtb_max_dipole;

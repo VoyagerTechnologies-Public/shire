@@ -1,0 +1,503 @@
+{
+  "$schema": "https://yamcs.org/schema/stack.schema.json",
+  "steps": [
+    {
+      "type": "text",
+      "text": "Radio link and command paths. The same harmless command, an ES NOOP, is sent over the debug path and over the radio path, and its effect is read from the ES command counter. Before running in Yamcs Links: enable debug-in and sim-backdoor, and leave debug-out and radio-out enabled as they start. Keep the simulation playing. Every ES housekeeping request goes by the debug path, so the counter can always be read.",
+      "comment": "Radio link and command paths. The same harmless command, an ES NOOP, is sent over the debug path and over the radio path, and its effect is read from the ES command counter. Before running in Yamcs Links: enable debug-in and sim-backdoor, and leave debug-out and radio-out enabled as they start. Keep the simulation playing. Every ES housekeeping request goes by the debug path, so the counter can always be read."
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_RESET_LINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "baseline: the ES counters are zero",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Debug path: the NOOP goes straight to the flight software and is counted once",
+      "comment": "Debug path: the NOOP goes straight to the flight software and is counted once"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "one NOOP counted by the debug path",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "1"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Radio path: USE_RADIO_UPLINK sends the NOOP through CryptoLib and the Radio, and RESTORE_UPLINK returns to the debug path before the counter is read",
+      "comment": "Radio path: USE_RADIO_UPLINK sends the NOOP through CryptoLib and the Radio, and RESTORE_UPLINK returns to the debug path before the counter is read"
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "one more NOOP counted, which arrived by the radio path",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "2"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Out of view: the Radio discards what the ground sends, so the YAMCS command history still shows the NOOP as sent while the flight counter does not move",
+      "comment": "Out of view: the Radio discards what the ground sends, so the YAMCS command history still shows the NOOP as sent while the flight counter does not move"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_LINK_MODE",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "NEVER_IN_VIEW"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the ground lock flag reports no contact",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_LINK_MODE",
+      "arguments": [
+        {
+          "name": "MODE",
+          "value": "ALWAYS_IN_VIEW"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the ground lock flag reports contact again",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Recovery: the debug path carries a NOOP, and the count shows only the commands that arrived",
+      "comment": "Recovery: the debug path carries a NOOP, and the count shows only the commands that arrived"
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "three commands counted, so the one sent out of view was lost",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "3"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Delay: with an uplink delay of 6 seconds the radio NOOP is counted later. The check waits up to 30 seconds for the counter to move",
+      "comment": "Delay: with an uplink delay of 6 seconds the radio NOOP is counted later. The check waits up to 30 seconds for the counter to move"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_DELAY",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "UPLINK"
+        },
+        {
+          "name": "DELAY_MS",
+          "value": "6000"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the delayed NOOP is counted once it arrives",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "eq",
+          "value": "4"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_RESET_LINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the reset link is in view",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Loss: half of the uplink packets are dropped from a seeded generator, so the same run loses the same commands. Ten radio NOOPs are sent and some of them are counted",
+      "comment": "Loss: half of the uplink packets are dropped from a seeded generator, so the same run loses the same commands. Ten radio NOOPs are sent and some of them are counted"
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_SEED",
+      "arguments": [
+        {
+          "name": "SEED",
+          "value": "1"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_DROP_RATE",
+      "arguments": [
+        {
+          "name": "DIRECTION",
+          "value": "UPLINK"
+        },
+        {
+          "name": "DROP_PPM",
+          "value": "500000"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_RADIO_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_NOOP",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/RESTORE_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "some of the ten NOOPs arrived and some were lost",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "gt",
+          "value": "4"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER",
+          "operator": "lt",
+          "value": "14"
+        },
+        {
+          "parameter": "/CFE_ES/CFE_ES_HKPACKET/ERRCOUNTER",
+          "operator": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_SET_IMPAIRMENTS_ENABLED",
+      "arguments": [
+        {
+          "name": "ENABLED",
+          "value": "ENABLED"
+        }
+      ],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/BACKDOOR_RADIO_RESET_LINK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "command",
+      "name": "/RADIO/RADIO_REQ_HK",
+      "arguments": [],
+      "extraOptions": []
+    },
+    {
+      "type": "verify",
+      "comment": "the reset link is in view",
+      "timeout": 30000,
+      "condition": [
+        {
+          "parameter": "/RADIO/RADIO_DEVICE_GroundLock",
+          "operator": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "/SHIRE_GROUND/USE_DEBUG_UPLINK",
+      "arguments": [],
+      "extraOptions": []
+    }
+  ]
+}

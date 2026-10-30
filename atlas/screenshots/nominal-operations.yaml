@@ -1,0 +1,158 @@
+# Screenshots for atlas/docs/scenarios/nominal-operations.md, in the order the page presents them.
+# Regenerate with: make screenshots SCENARIO=nominal-operations
+# The lesson runs from a freshly booted lab with the default nominal scenario, so run `make` with
+# `scenario: nominal` in build/active.yaml first. The run takes about 6 minutes.
+scenario: nominal-operations
+doc: scenarios/nominal-operations.md
+viewport: {width: 1280, height: 800}
+
+steps:
+  # Wait for the Do No Harm startup actions, as the Commissioning scenario does.
+  - wait_log: {source: start_log, pattern: "LC 38: Reset AP stats command: AP = 5", timeout_s: 240}
+  - wait: {ms: 8000}
+
+  # ---- Prepare the pass ----------------------------------------------------------------------------------
+  - goto: /links
+  - wait: {text: debug-in}
+  - wait: {ms: 3000}
+  - shot: {name: 01-links-before-pass, settle_ms: 500}
+  - command:
+      name: /SHIRE_GROUND/USE_DEBUG_UPLINK
+      send: true
+  - goto: /alarms
+  - wait: {ms: 3000}
+  - shot: {name: 02-alarms-clear, settle_ms: 500}
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_RESET
+      send: true
+  - command:
+      name: /CFE_ES/CFE_ES_COMMANDS/CFE_ES_SEND_HK
+      send: true
+  - wait_param: {name: /CFE_ES/CFE_ES_HKPACKET/CMDCOUNTER, equals: 0, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FCFE_ES%2FCFE_ES_HKPACKET
+  - wait: {text: CMDCOUNTER}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: COUNTER}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 03-es-baseline, settle_ms: 1000}
+  - command:
+      name: /CF/CF_COMMANDS/CF_RESET_COUNTERS
+      args: {RESET_TYPE: 0, SPARE1: 0, SPARE2: 0}
+      send: true
+
+  # ---- Open the window -----------------------------------------------------------------------------------
+  - command:
+      name: /SC/SC_COMMANDS/SC_START_RTS
+      args: {RTSID: 6, PADDING: 0}
+  - shot: {name: 04-start-pass-command}
+  - send: true
+  - wait_param: {name: /RADIO/RADIO_DEVICE_Mode, equals: 3, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_DEVICE_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 05-radio-duplex, settle_ms: 1000}
+
+  # ---- Review health -------------------------------------------------------------------------------------
+  - goto: /telemetry/parameters?system=%2FEPS
+  - wait: {text: BATTERY_VOLTAGE}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: BATTERY}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 06-battery-in-limits, settle_ms: 1000}
+
+  # ---- Collect payload data ------------------------------------------------------------------------------
+  - command:
+      name: /DEMO/DEMO_ENABLE_CC
+      send: true
+  - command:
+      name: /DEMO/DEMO_CONFIG_CC
+      args: {DEVICE_CONFIG: 10}
+      send: true
+  - command:
+      name: /DEMO/DEMO_REQ_HK
+      send: true
+  - wait_param: {name: /DEMO/DEVICE_CONFIG, equals: 10, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FDEMO
+  - wait: {text: DEVICE_ENABLED}
+  - wait: {ms: 2000}
+  - shot: {name: 07-demo-marker, settle_ms: 1000}
+
+  # ---- Select the file -----------------------------------------------------------------------------------
+  # The file that the flight software opened at boot is named for that time. Closing the files makes it complete,
+  # and Data Storage opens a new file named for the current time.
+  - command:
+      name: /DS/DS_COMMANDS/DS_CLOSE_ALL
+      send: true
+  - command:
+      name: /FM/FM_COMMANDS/FM_GET_DIR_PKT
+      args: {DIRECTORY: /d, DIRLISTOFFSET: 0, GETSIZETIMEMODE: 1}
+      send: true
+  - wait_param: {name: /FM/FM_DIRLISTPKT/FILESIZE1, min: 1, fresh: true, timeout_s: 120}
+  - goto: /telemetry/parameters?system=%2FFM%2FFM_DIRLISTPKT
+  - wait: {text: FILENAME1}
+  - wait: {ms: 2000}
+  - shot: {name: 08-fm-directory-listing, settle_ms: 1000}
+
+  # ---- Downlink the file ---------------------------------------------------------------------------------
+  # USE_RADIO_UPLINK lasts 30 seconds, so the command follows it without a pause.
+  - command:
+      name: /SHIRE_GROUND/USE_RADIO_UPLINK
+      send: true
+  - command:
+      name: /CF/CF_COMMANDS/CF_TX_FILE
+      args:
+        CFDP_CLASS: "CLASS 2 - WITH FEEDBACK"
+        KEEP_FILE: KEEP
+        CHANNEL: "CHANNEL 0"
+        PRIORITY: 0
+        DESTINATION_ENTITY_ID: 23
+        SOURCE_FILENAME: "/d/sv1980012140320.ds"
+        DESTINATION_FILENAME: sv1980012140320.ds
+  - shot: {name: 09-transmit-command}
+  - send: true
+  - command:
+      name: /SHIRE_GROUND/RESTORE_UPLINK
+      send: true
+  - goto: /file-transfer?interval=NO_LIMIT
+  - wait: {text: sv1980012140320.ds, timeout_s: 120}
+  - wait_transfer: {timeout_s: 300}
+  - shot: {name: 10-transfer-complete, settle_ms: 3000}
+  - command:
+      name: /RADIO/RADIO_REQ_HK
+      send: true
+  - wait_param: {name: /RADIO/RADIO_DEVICE_BytesReceived, min: 44, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_DEVICE_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 11-radio-bytes-received, settle_ms: 1000}
+
+  # ---- Close the pass ------------------------------------------------------------------------------------
+  - command:
+      name: /SC/SC_COMMANDS/SC_STOP_RTS
+      args: {RTSID: 6, PADDING: 0}
+      send: true
+  - command:
+      name: /RADIO/RADIO_CONFIG_CC
+      args: {MODE: Receive Only Mode, RX_SPEED: 1, RX_WAVE: 2, TX_SPEED: 0, TX_WAVE: 0}
+      send: true
+  - wait_param: {name: /RADIO/RADIO_DEVICE_Mode, equals: 2, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FRADIO
+  - wait: {text: RADIO_DEVICE_Mode}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: RADIO_DEVICE_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 12-radio-receive, settle_ms: 1000}
+  - command:
+      name: /CF/CF_COMMANDS/CF_SEND_HK
+      send: true
+  - wait_param: {name: /CF/CF_HKPACKET/COMMAND_COUNTER, equals: 1, fresh: true, timeout_s: 60}
+  - goto: /telemetry/parameters?system=%2FCF%2FCF_HKPACKET
+  - wait: {text: COMMAND_COUNTER}
+  - fill: {selector: 'input[placeholder="Search by name"]', value: COMMAND_}
+  - press: {selector: 'input[placeholder="Search by name"]', key: Enter}
+  - wait: {ms: 2000}
+  - shot: {name: 13-cf-counters-final, settle_ms: 1000}
