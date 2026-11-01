@@ -20,7 +20,7 @@ def prepare_repository(temporary, scenario=None):
     (root / "tools").mkdir()
     shutil.copytree(ROOT / "comp/eps/support", root / "comp/eps/support")
     shutil.copytree(ROOT / "comp/eps/gsw", root / "comp/eps/gsw")
-    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_radio_config.py", "shire_runner_lib.py", "shire_eps_stacks.py",
+    for name in ("shire-orchestrator.py", "shire_provenance.py", "shire_eps_config.py", "shire_radio_config.py", "shire_runner_lib.py", "shire_config.py", "shire_eps_stacks.py",
                  "shire_board_config.py", "shire_limits_config.py"):
         shutil.copy2(ROOT / "tools" / name, root / "tools" / name)
     if scenario:

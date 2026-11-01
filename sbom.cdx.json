@@ -190,6 +190,96 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-bp@c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668",
+      "name": "cFS Bundle Protocol application (BPNode)",
+      "version": "c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-bp@c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/VoyagerTechnologies-Public/external-bp.git"
+        }
+      ],
+      "properties": [
+        {
+          "name": "shire:directory",
+          "value": "cfs/apps/bp/"
+        },
+        {
+          "name": "shire:submodule",
+          "value": "true"
+        },
+        {
+          "name": "shire:license-evidence",
+          "value": "cfs/apps/bp/LICENSE"
+        },
+        {
+          "name": "shire:provenance-status",
+          "value": "Voyager fork, unmodified at the pin (upstream 7.0.5 release commit)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-bplib@c5fb8358dd99149aa7ba463ed416d76049521a3a",
+      "name": "Bundle Protocol Library (BPLib)",
+      "version": "c5fb8358dd99149aa7ba463ed416d76049521a3a",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/VoyagerTechnologies-Public/external-bplib@c5fb8358dd99149aa7ba463ed416d76049521a3a",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "c5fb8358dd99149aa7ba463ed416d76049521a3a"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/VoyagerTechnologies-Public/external-bplib.git"
+        }
+      ],
+      "properties": [
+        {
+          "name": "shire:directory",
+          "value": "cfs/apps/bplib/"
+        },
+        {
+          "name": "shire:submodule",
+          "value": "true"
+        },
+        {
+          "name": "shire:license-evidence",
+          "value": "cfs/apps/bplib/LICENSE"
+        },
+        {
+          "name": "shire:provenance-status",
+          "value": "Voyager fork, unmodified at the pin (upstream 7.0.5 release commit)"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:github/VoyagerTechnologies-Public/external-CF@deaeacfa0fe6ffd040a4d63e460941b591f5b169",
       "name": "cFS CFDP application",
       "version": "deaeacfa0fe6ffd040a4d63e460941b591f5b169",
@@ -1147,6 +1237,8 @@
         "shire:simulith",
         "shire:components",
         "pkg:github/VoyagerTechnologies-Public/external-42@37defafe5e3fabfaa5d51b15d8220c7faa800d2f",
+        "pkg:github/VoyagerTechnologies-Public/external-bp@c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668",
+        "pkg:github/VoyagerTechnologies-Public/external-bplib@c5fb8358dd99149aa7ba463ed416d76049521a3a",
         "pkg:github/VoyagerTechnologies-Public/external-CF@deaeacfa0fe6ffd040a4d63e460941b591f5b169",
         "pkg:github/VoyagerTechnologies-Public/external-ci_lab@68d91759f6f0cb50e8383dc358790598f8a277e8",
         "pkg:github/VoyagerTechnologies-Public/external-DS@f141f837199a7395c1c17fef3df6618f019cd08f",

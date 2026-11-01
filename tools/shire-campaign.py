@@ -40,12 +40,10 @@ import threading
 import yaml
 
 from shire_provenance import ROOT, run, git_metadata, host_metadata
+from shire_config import ConfigError, MissionConfig, load_mission
 from shire_runner_lib import compute_build_key, find_free_port_offset, resolve_component_configs, run_streaming
 
 CFG_DIR = ROOT / "cfg"
-GLOBAL_CONFIG = CFG_DIR / "shire-config.yaml"
-CAMPAIGNS_DIR = CFG_DIR / "drm" / "campaigns"
-IC_DIR = CFG_DIR / "drm" / "initial_conditions"
 ACTIVE_PATH = ROOT / "build" / "active.yaml"
 
 # Same lock tools/shire-scenario.py holds around its own active.yaml write +
@@ -131,29 +129,14 @@ def reset_active_campaign_fields() -> None:
 # side effects.
 # --------------------------------------------------------------------------
 
-def load_configs(mission: str, spacecraft: str, scenario_name: str) -> tuple[dict, dict, dict, dict]:
-    global_cfg = load_yaml(GLOBAL_CONFIG) or {}
-    mission_entry = next((m for m in global_cfg.get("build", {}).get("missions", [])
-                          if m["name"] == mission), None)
-    if not mission_entry:
-        fail(f"mission '{mission}' not found in {GLOBAL_CONFIG}")
-    mission_cfg = load_yaml(CFG_DIR / mission_entry["config_file"]) or {}
-
-    spacecraft_cfg: dict = {}
-    spacecraft_entry = next((sc for sc in mission_cfg.get("spacecraft", [])
-                             if sc["name"] == spacecraft), None)
-    if spacecraft_entry:
-        spacecraft_cfg = load_yaml(CFG_DIR / spacecraft_entry["config_file"]) or {}
-
-    scenario_entry = next((s for s in mission_cfg.get("scenarios", [])
-                           if s["name"] == scenario_name), None)
-    if not scenario_entry:
-        fail(f"scenario '{scenario_name}' not found for mission '{mission}'")
-    scenario_cfg = load_yaml(CFG_DIR / scenario_entry["config_file"])
-    if scenario_cfg is None:
-        fail(f"could not load scenario config for '{scenario_name}'")
-
-    return global_cfg, mission_cfg, spacecraft_cfg, scenario_cfg
+def load_configs(mission: str, spacecraft: str, scenario_name: str) -> tuple[MissionConfig, dict, dict]:
+    """Resolves the selection through the shared mission registry; fails on an unknown name."""
+    try:
+        mission_config = load_mission(mission, cfg_dir=CFG_DIR)
+        return (mission_config, mission_config.load_spacecraft(spacecraft),
+                mission_config.load_scenario(scenario_name))
+    except ConfigError as exc:
+        fail(str(exc))
 
 
 # --------------------------------------------------------------------------
@@ -338,10 +321,11 @@ def write_trial_files(report_dir: pathlib.Path, token: str, campaign_name: str, 
     return ic_path, params_path
 
 
-def compute_trial_build_key(global_cfg: dict, mission_cfg: dict, spacecraft_cfg: dict,
+def compute_trial_build_key(mission_config: MissionConfig, spacecraft_cfg: dict,
                             scenario_cfg: dict, resolved_ic: dict) -> str:
-    resolved_components = resolve_component_configs(global_cfg, mission_cfg, spacecraft_cfg,
-                                                     scenario_cfg, resolved_ic)
+    resolved_components = resolve_component_configs(
+        mission_config.global_cfg, mission_config.mission_cfg, spacecraft_cfg, scenario_cfg, resolved_ic,
+        ground_stations=mission_config.ground_stations())
     return compute_build_key(resolved_ic, resolved_components)
 
 
@@ -661,9 +645,13 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.list_campaigns:
-        names = sorted(p.stem for p in CAMPAIGNS_DIR.glob("*.yaml"))
+        try:
+            campaigns_dir = load_mission(args.mission, cfg_dir=CFG_DIR).campaigns_dir
+        except ConfigError as exc:
+            fail(str(exc))
+        names = sorted(p.stem for p in campaigns_dir.glob("*.yaml"))
         if not names:
-            print(f"\t[campaign] no campaigns found under {CAMPAIGNS_DIR}", file=sys.stderr)
+            print(f"\t[campaign] no campaigns found under {campaigns_dir}", file=sys.stderr)
             return 1
         for name in names:
             print("\t" + name)
@@ -682,9 +670,14 @@ def main() -> int:
         fail("--campaign is required (or use --from-report)")
         return 2
 
-    campaign_cfg = load_yaml(CAMPAIGNS_DIR / f"{args.campaign}.yaml")
+    try:
+        mission_config = load_mission(args.mission, cfg_dir=CFG_DIR)
+    except ConfigError as exc:
+        fail(str(exc))
+        return 2
+    campaign_cfg = load_yaml(mission_config.campaigns_dir / f"{args.campaign}.yaml")
     if campaign_cfg is None:
-        fail(f"campaign '{args.campaign}' not found at {CAMPAIGNS_DIR}")
+        fail(f"campaign '{args.campaign}' not found at {mission_config.campaigns_dir}")
         return 2
     if args.seed is not None:
         campaign_cfg["seed"] = args.seed
@@ -698,12 +691,12 @@ def main() -> int:
     (report_dir / "trials").mkdir(parents=True, exist_ok=True)
 
     scenario_name = campaign_cfg["scenario"]
-    global_cfg, mission_cfg, spacecraft_cfg, scenario_cfg = load_configs(
+    mission_config, spacecraft_cfg, scenario_cfg = load_configs(
         args.mission, args.spacecraft, scenario_name)
     base_ic_name = campaign_cfg["base_initial_conditions"]
-    base_ic = load_yaml(IC_DIR / f"{base_ic_name}.yaml")
+    base_ic = load_yaml(mission_config.initial_conditions_dir / f"{base_ic_name}.yaml")
     if base_ic is None:
-        fail(f"base_initial_conditions '{base_ic_name}' not found at {IC_DIR}")
+        fail(f"base_initial_conditions '{base_ic_name}' not found at {mission_config.initial_conditions_dir}")
         return 2
     validate_campaign_parameters(campaign_cfg, base_ic)
     validate_campaign_metrics(campaign_cfg)
@@ -725,8 +718,7 @@ def main() -> int:
         token = trial_token(index, width)
         ic_path, _ = write_trial_files(report_dir, token, args.campaign, campaign_cfg["seed"],
                                        base_ic_name, resolved_ic, detail, index)
-        build_key = compute_trial_build_key(global_cfg, mission_cfg, spacecraft_cfg,
-                                            scenario_cfg, resolved_ic)
+        build_key = compute_trial_build_key(mission_config, spacecraft_cfg, scenario_cfg, resolved_ic)
         trials_meta.append({
             "trial_index": index, "token": token, "ic_path": ic_path, "build_key": build_key,
             "parameters": {d["path"]: d["resolved_value"] for d in detail},

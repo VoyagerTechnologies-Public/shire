@@ -62,3 +62,11 @@
 	path = comp/cryptolib
 	url = https://github.com/VoyagerTechnologies-Public/external-CryptoLib.git
 	branch = dev
+[submodule "cfs/apps/bplib"]
+	path = cfs/apps/bplib
+	url = https://github.com/VoyagerTechnologies-Public/external-bplib.git
+	branch = main
+[submodule "cfs/apps/bp"]
+	path = cfs/apps/bp
+	url = https://github.com/VoyagerTechnologies-Public/external-bp.git
+	branch = main

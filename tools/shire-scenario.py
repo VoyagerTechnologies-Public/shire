@@ -36,6 +36,7 @@ import yaml
 import requests
 
 from shire_provenance import ROOT, run, git_head_sha
+from shire_config import ConfigError, load_mission
 from shire_runner_lib import (container_names, run_streaming, try_parse_marker, resolve_component_configs,
                               evaluate_log_assertions)
 from shire_eps_stacks import write_stacks
@@ -55,7 +56,6 @@ HEARTBEAT_INTERVAL_S = 10.0
 CFG_DIR = ROOT / "cfg"
 ACTIVE_PATH = ROOT / "build" / "active.yaml"
 ACTIVE_LOCK_PATH = ROOT / "build" / ".shire-active.lock"
-GLOBAL_CONFIG = CFG_DIR / "shire-config.yaml"
 
 
 def load_yaml(path: pathlib.Path) -> dict[str, object] | None:
@@ -65,23 +65,8 @@ def load_yaml(path: pathlib.Path) -> dict[str, object] | None:
 
 
 def load_scenario_cfg(mission: str, scenario_name: str) -> dict[str, object]:
-    """Mirrors shire-orchestrator.py's mission/scenario config_file lookup,
-    so this script finds the same scenario YAML the orchestrator will."""
-    global_cfg = load_yaml(GLOBAL_CONFIG) or {}
-    mission_entry = next(
-        (m for m in global_cfg.get("build", {}).get("missions", [])
-         if m["name"] == mission), None)
-    if not mission_entry:
-        raise RuntimeError(f"mission '{mission}' not found in {GLOBAL_CONFIG}")
-    mission_cfg = load_yaml(CFG_DIR / mission_entry["config_file"]) or {}
-    scenario_entry = next(
-        (s for s in mission_cfg.get("scenarios", []) if s["name"] == scenario_name), None)
-    if not scenario_entry:
-        raise RuntimeError(f"scenario '{scenario_name}' not found for mission '{mission}'")
-    scenario_cfg = load_yaml(CFG_DIR / scenario_entry["config_file"])
-    if scenario_cfg is None:
-        raise RuntimeError(f"could not load scenario config for '{scenario_name}'")
-    return scenario_cfg
+    """Finds the same scenario YAML the orchestrator will, through the shared mission registry."""
+    return load_mission(mission, cfg_dir=CFG_DIR).load_scenario(scenario_name)
 
 
 def list_scenario_names(mission: str) -> list[str]:
@@ -89,14 +74,10 @@ def list_scenario_names(mission: str) -> list[str]:
     (e.g. cfg/drm/drm.yaml's `scenarios:` list) -- the same list
     load_scenario_cfg() looks a name up against, so this is always exactly
     what --scenario will accept."""
-    global_cfg = load_yaml(GLOBAL_CONFIG) or {}
-    mission_entry = next(
-        (m for m in global_cfg.get("build", {}).get("missions", [])
-         if m["name"] == mission), None)
-    if not mission_entry:
+    try:
+        return load_mission(mission, cfg_dir=CFG_DIR).scenario_names()
+    except ConfigError:
         return []
-    mission_cfg = load_yaml(CFG_DIR / mission_entry["config_file"]) or {}
-    return [s["name"] for s in mission_cfg.get("scenarios", [])]
 
 
 INSTANCE_RE = re.compile(r"^[a-z0-9]{1,8}$")
@@ -474,19 +455,19 @@ def main(argv=None, *, backend=None) -> int:
             build_command = backend.build_command() if backend else ["make", build_target]
             build_returncode, build_stdout = run_streaming(build_command)
             if build_returncode == 0:
-                global_cfg = load_yaml(GLOBAL_CONFIG)
-                mission_entry = next(m for m in global_cfg['build']['missions'] if m['name'] == mission)
-                mission_cfg = load_yaml(CFG_DIR / mission_entry['config_file'])
-                spacecraft_entry = next(s for s in mission_cfg['spacecraft'] if s['name'] == spacecraft)
-                spacecraft_cfg = load_yaml(CFG_DIR / spacecraft_entry['config_file'])
-                run_scenario_cfg = load_scenario_cfg(mission, args.scenario)
-                ic_path = pathlib.Path(args.initial_conditions_file) if args.initial_conditions_file else CFG_DIR / 'drm' / 'initial_conditions' / (run_scenario_cfg.get('initial_conditions','nominal-baseline')+'.yaml')
-                resolved_components = resolve_component_configs(global_cfg, mission_cfg, spacecraft_cfg, run_scenario_cfg, load_yaml(ic_path))
+                mission_config = load_mission(mission, cfg_dir=CFG_DIR)
+                global_cfg, mission_cfg = mission_config.global_cfg, mission_config.mission_cfg
+                spacecraft_cfg = mission_config.load_spacecraft(spacecraft)
+                run_scenario_cfg = mission_config.load_scenario(args.scenario)
+                _, ic_path, ic_cfg = mission_config.load_initial_conditions(
+                    run_scenario_cfg.get('initial_conditions'), args.initial_conditions_file)
+                resolved_components = resolve_component_configs(global_cfg, mission_cfg, spacecraft_cfg, run_scenario_cfg, ic_cfg,
+                                                          ground_stations=mission_config.ground_stations())
                 (report_dir / 'resolved-settings.yaml').write_text(yaml.safe_dump(resolved_components, sort_keys=False))
                 shutil.copy2(ic_path, report_dir / 'initial-conditions.yaml')
                 snapshot_name=f'{args.scenario}.snapshot.yaml'
                 snapshot={'scenario_name':args.scenario,'scenario_config':run_scenario_cfg,
-                          'initial_conditions':str(ic_path),'resolved_ic':load_yaml(ic_path),
+                          'initial_conditions':str(ic_path),'resolved_ic':ic_cfg,
                           'resolved_components':resolved_components,'git_sha':result['git_sha'],
                           'image_tag':args.image_tag or spacecraft}
                 (report_dir/snapshot_name).write_text(yaml.safe_dump(snapshot,sort_keys=False))

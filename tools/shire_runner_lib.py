@@ -14,18 +14,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import os
 import socket
 import subprocess
 import threading
 import time
 
-import yaml
-
 from shire_provenance import ROOT
-from shire_eps_config import normalize_eps, merge_component_config
-from shire_radio_config import normalize_radio
-from shire_limits_config import resolve_limits
+from shire_config import resolve_component_configs  # noqa: F401  (re-exported for the runners)
 
 
 def container_names(mission: str, spacecraft: str, instance: str | None = None) -> dict[str, str]:
@@ -114,74 +109,6 @@ def try_parse_marker(log: str, marker: str) -> dict[str, object] | None:
         return parse_marker(log, marker)
     except (RuntimeError, ValueError):
         return None
-
-
-def _load_ground_station_catalog() -> list[dict]:
-    path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        "../cfg/drm/ground_stations.yaml"))
-    if not os.path.exists(path):
-        return []
-    with open(path, "r") as f:
-        return (yaml.safe_load(f) or {}).get("ground_stations", [])
-
-
-def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[str, object],
-                              spacecraft_cfg: dict[str, object], scenario_cfg: dict[str, object],
-                              ic_cfg: dict[str, object], *, cli_debug: bool = False,
-                              cli_component: str = 'demo') -> dict[str, dict]:
-    """Reproduces shire-orchestrator.py's per-component cascading merge
-    (fallback -> global -> mission -> spacecraft -> IC component_overrides
-    -> scenario -> scenario overrides) standalone, without Jinja/Docker, so
-    a Monte Carlo campaign runner can hash "everything that will end up
-    baked into comp/<name>/shared/device_cfg.h" for a trial without
-    actually rendering or building anything. Keep this in lockstep with
-    shire-orchestrator.py's main() cascading-merge loop -- it is a
-    deliberate duplicate (that loop is inline in a large main(), not
-    exported), not a shared import, so a change to one must be mirrored in
-    the other."""
-    if spacecraft_cfg and spacecraft_cfg.get("components"):
-        components = spacecraft_cfg.get("components", [])
-    else:
-        components = mission_cfg.get("components", [])
-
-    resolved: dict[str, dict] = {}
-    for comp in components:
-        comp_name = comp.get("name")
-        if not comp_name:
-            continue
-
-        fallback_path = os.path.abspath(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        f"../comp/{comp_name}/support/device_config.yaml"))
-        comp_cfg: dict[str, object] = {}
-        if os.path.exists(fallback_path):
-            with open(fallback_path, "r") as f:
-                fallback_data = yaml.safe_load(f)
-            if fallback_data and fallback_data.get(comp_name):
-                comp_cfg = dict(fallback_data[comp_name])
-
-        merge_component_config(comp_name, comp_cfg, global_cfg.get(comp_name, {}) or {})
-        merge_component_config(comp_name, comp_cfg, mission_cfg.get(comp_name, {}) or {})
-        if spacecraft_cfg:
-            merge_component_config(comp_name, comp_cfg, spacecraft_cfg.get(comp_name, {}) or {})
-        merge_component_config(comp_name, comp_cfg, (ic_cfg.get("component_overrides") or {}).get(comp_name, {}) or {})
-        merge_component_config(comp_name, comp_cfg, scenario_cfg.get(comp_name, {}) or {})
-        merge_component_config(comp_name, comp_cfg, scenario_cfg.get("overrides", {}) or {})
-        if cli_debug and comp_name == cli_component:
-            comp_cfg["debug"] = True
-
-        if comp_name == "eps":
-            comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
-        if comp_name == "radio":
-            comp_cfg = normalize_radio(comp_cfg, _load_ground_station_catalog())
-        resolved[comp_name] = comp_cfg
-    if scenario_cfg.get('retain_all_events'):
-        resolved['__fsw'] = {'event_burst_max':1000000,'event_refill_per_sec':1000000}
-    limits = resolve_limits(global_cfg.get("limits"), mission_cfg.get("limits"),
-                            (spacecraft_cfg or {}).get("limits"), scenario_cfg.get("limits"))
-    if limits:
-        resolved['__limits'] = limits
-    return resolved
 
 
 def evaluate_log_assertions(assertions: list[dict] | None, logs: dict[str, str]) -> list[dict]:

@@ -8,13 +8,13 @@ import sys
 import os
 import re
 import uuid
+from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 import yaml
 
 from shire_provenance import ROOT, git_head_sha
-from shire_eps_config import normalize_eps, merge_component_config
-from shire_radio_config import normalize_radio
-from shire_runner_lib import resolve_component_configs
+from shire_config import (ConfigError, cascade_component, load_component_fallback, load_mission,
+                          resolve_component_configs, select_components)
 from shire_eps_stacks import write_stacks, write_xtce
 from shire_limits_config import LimitError, mdb_sources, resolve_limits, write_limited_mdb
 from shire_board_config import DEFAULT_PROFILE
@@ -128,55 +128,23 @@ def main():
     image_tag = active.get("image_tag")
     initial_conditions_file = active.get("initial_conditions_file")
 
-    # Find mission config file
-    mission_entry = next((m for m in global_cfg["build"]["missions"] if m["name"] == mission), None)
-    if not mission_entry:
-        fail(f"Mission '{mission}' not found in global config.")
-    mission_cfg_path = os.path.join(CFG_DIR, mission_entry["config_file"])
-    mission_cfg = load_yaml(mission_cfg_path)
+    try:
+        mission_config = load_mission(mission, global_cfg=global_cfg, cfg_dir=Path(CFG_DIR))
+        mission_cfg = mission_config.mission_cfg
+        scenario_cfg = mission_config.load_scenario(scenario)
 
-    # Find scenario config file
-    scenario_entry = next((s for s in mission_cfg["scenarios"] if s["name"] == scenario), None)
-    if not scenario_entry:
-        fail(f"Scenario '{scenario}' not found in mission config.")
-    scenario_cfg_path = os.path.join(CFG_DIR, scenario_entry["config_file"])
-    scenario_cfg = load_yaml(scenario_cfg_path)
-
-    # Load the Initial Condition (IC) bin this scenario references (orbit,
-    # epoch, attitude, and optional per-component state). Scenarios that
-    # don't set `initial_conditions:` get "nominal-baseline", which
-    # reproduces today's hardcoded values exactly, so existing scenarios
-    # (drm-nominal, drm-debug) render unchanged.
-    # A campaign trial's generated, perturbed IC (initial_conditions_file,
-    # an absolute path written by tools/shire-campaign.py) takes priority
-    # over the scenario's named IC bin -- this is the only hook a per-trial
-    # IC needs into the orchestrator.
-    if initial_conditions_file:
-        ic_name = f"file:{initial_conditions_file}"
-        ic_cfg = load_yaml(initial_conditions_file)
-        if ic_cfg is None:
-            fail(f"Initial condition file '{initial_conditions_file}' not found.")
-    else:
-        ic_name = scenario_cfg.get("initial_conditions", "nominal-baseline")
-        ic_cfg_path = os.path.join(CFG_DIR, "drm", "initial_conditions", f"{ic_name}.yaml")
-        ic_cfg = load_yaml(ic_cfg_path)
-        if ic_cfg is None:
-            fail(f"Initial condition bin '{ic_name}' not found at {ic_cfg_path}.")
-
-    ground_stations_cfg = load_yaml(os.path.join(CFG_DIR, "drm", "ground_stations.yaml"))
-    ground_stations = (ground_stations_cfg or {}).get("ground_stations", [])
-
-    # Load spacecraft config if specified
-    spacecraft_cfg = {}
-    if spacecraft:
-        spacecraft_list = mission_cfg.get("spacecraft", [])
-        spacecraft_entry = next((sc for sc in spacecraft_list if sc["name"] == spacecraft), None)
-        if not spacecraft_entry:
-            fail(f"Spacecraft '{spacecraft}' not found in mission config.")
-        spacecraft_cfg_path = os.path.join(CFG_DIR, spacecraft_entry["config_file"])
-        spacecraft_cfg = load_yaml(spacecraft_cfg_path)
-        if not spacecraft_cfg:
-            spacecraft_cfg = {}
+        # Load the Initial Condition (IC) bin this scenario references (orbit, epoch, attitude, and
+        # optional per-component state). Scenarios that don't set `initial_conditions:` get
+        # "nominal-baseline", which reproduces the original hardcoded values exactly.
+        # A campaign trial's generated, perturbed IC (initial_conditions_file, an absolute path written by
+        # tools/shire-campaign.py) takes priority over the scenario's named IC bin; that is the only hook a
+        # per-trial IC needs into the orchestrator.
+        ic_name, _, ic_cfg = mission_config.load_initial_conditions(
+            scenario_cfg.get("initial_conditions"), initial_conditions_file)
+        ground_stations = mission_config.ground_stations()
+        spacecraft_cfg = mission_config.load_spacecraft(spacecraft)
+    except ConfigError as exc:
+        fail(str(exc))
 
     # Merge configs (minimal: just collect for now)
     merged = {
@@ -214,12 +182,8 @@ def main():
     # file is what got baked into the image; re-rendering it here would
     # race a concurrently-building trial with different content).
     if not args.compose_only:
-        # Determine which components to process based on spacecraft or fallback to mission components
-        if spacecraft and merged["spacecraft_cfg"]:
-            components = merged["spacecraft_cfg"].get("components", [])
-        else:
-            # Fallback to mission-level components for backward compatibility
-            components = merged["mission_cfg"].get("components", [])
+        # Fall back to mission-level components for backward compatibility when no spacecraft is selected
+        components = select_components(merged["mission_cfg"], merged["spacecraft_cfg"])
 
         resolved_components = {}
         for comp in components:
@@ -228,57 +192,15 @@ def main():
                 continue
 
             # Full cascading merge: fallback -> global -> mission -> spacecraft -> IC bin -> scenario -> scenario overrides
-            # 1. Fallback config
-            fallback_path = os.path.abspath(os.path.join(CFG_DIR, f'../comp/{comp_name}/support/device_config.yaml'))
-            fallback_data = load_yaml(fallback_path)
-            comp_cfg = dict(fallback_data.get(comp_name, {})) if fallback_data and fallback_data.get(comp_name) else {}
-
-            # 2. Global config
-            global_cfg_comp = merged["global"].get(comp_name, {})
-            merge_component_config(comp_name, comp_cfg, global_cfg_comp)
-
-            # 3. Mission config
-            mission_cfg_comp = merged["mission_cfg"].get(comp_name, {})
-            merge_component_config(comp_name, comp_cfg, mission_cfg_comp)
-
-            # 4. Spacecraft config (NEW LAYER)
-            if merged["spacecraft_cfg"]:
-                spacecraft_cfg_comp = merged["spacecraft_cfg"].get(comp_name, {})
-                merge_component_config(comp_name, comp_cfg, spacecraft_cfg_comp)
-
-            # 5. Initial condition bin's per-component state (NEW LAYER: EPS SOC,
-            #    ADCS starting mode, fault-injection flags, etc.) — applied
-            #    before the scenario's own component config so a scenario can
-            #    still override an IC's component state if it needs to.
-            ic_comp_overrides = (ic_cfg.get("component_overrides") or {}).get(comp_name, {})
-            merge_component_config(comp_name, comp_cfg, ic_comp_overrides)
-
-            # 6. Scenario config
-            scenario_cfg_comp = merged["scenario_cfg"].get(comp_name, {})
-            merge_component_config(comp_name, comp_cfg, scenario_cfg_comp)
-
-            # 7. Scenario-level 'overrides' dict
-            overrides = merged["scenario_cfg"].get("overrides", {})
-            if overrides is None:
-                overrides = {}
-            merge_component_config(comp_name, comp_cfg, overrides)
-
-            # 8. CLI debug override (highest priority)
-            if args.cli_debug and comp_name == cli_component:
-                comp_cfg["debug"] = True
-
-            if comp_name == "eps":
-                try:
-                    comp_cfg = normalize_eps(comp_cfg, {c["name"] for c in components})
-                except ValueError as exc:
-                    fail(str(exc))
-
-            if comp_name == "radio":
-                try:
-                    comp_cfg = normalize_radio(comp_cfg, ground_stations)
-                except ValueError as exc:
-                    fail(str(exc))
-
+            try:
+                comp_cfg = cascade_component(
+                    comp_name, components, load_component_fallback(comp_name, ROOT),
+                    global_cfg=merged["global"], mission_cfg=merged["mission_cfg"],
+                    spacecraft_cfg=merged["spacecraft_cfg"], ic_cfg=ic_cfg,
+                    scenario_cfg=merged["scenario_cfg"], ground_stations=ground_stations,
+                    cli_debug=args.cli_debug, cli_component=cli_component)
+            except ValueError as exc:
+                fail(str(exc))
             resolved_components[comp_name] = comp_cfg
 
             # Try to find a template for this component
