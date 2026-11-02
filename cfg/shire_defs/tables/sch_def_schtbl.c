@@ -95,7 +95,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #1 */
   {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG, 10,  2, 40, SCH_GROUP_CFE_HK },   /* Demo HK Request */
@@ -165,10 +165,10 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   /* slot #10 */
 /*{  SCH_DISABLED, SCH_ACTIVITY_SEND_MSG,  1,  0, 24, SCH_GROUP_MD_WAKEUP }, */  /* MD Wakeup */
   {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 44, SCH_GROUP_CFE_HK },   /* ADCS HK Request */
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG, 10,  0, 54, SCH_GROUP_CFS_HK },   /* BPNode Channel and Contact Status HK Request */
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG, 10,  8, 52, SCH_GROUP_CFS_HK },   /* BPNode Node MIB Counters HK Request */
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG, 10,  9, 53, SCH_GROUP_CFS_HK },   /* BPNode Storage HK Request */
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #11 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -242,7 +242,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #21 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -315,7 +315,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #31 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -389,7 +389,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #41 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -461,7 +461,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #51 */
   {  SCH_ENABLED, SCH_ACTIVITY_SEND_MSG,  1,  0, 22, SCH_GROUP_NONE },      /* LC Sample Action Points */
@@ -535,7 +535,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #61 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -607,7 +607,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #71 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -679,7 +679,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #81 */
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
@@ -751,7 +751,7 @@ SCH_ScheduleEntry_t SCH_DefaultScheduleTable[SCH_TABLE_ENTRIES] =
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
   {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
-  {  SCH_UNUSED,   0,      0,  0, 0,  SCH_GROUP_NONE},
+  {  SCH_ENABLED,  SCH_ACTIVITY_SEND_MSG,  1,  0, 51, SCH_GROUP_NONE },     /* BPNode Wakeup */
 
   /* slot #91 */
 /*{  SCH_DISABLED, SCH_ACTIVITY_SEND_MSG,  4,  0, 16, SCH_GROUP_CFS_HK }, */  /* HK Send Combined HK '1' */

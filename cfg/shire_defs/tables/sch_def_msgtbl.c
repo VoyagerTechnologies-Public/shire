@@ -51,6 +51,7 @@
 #include "demo_msgids.h"
 #include "eps_msgids.h"
 #include "radio_msgids.h"
+#include "bpnode_msgids.h"
 
 
 /*************************************************************************
@@ -232,13 +233,13 @@ SCH_MessageEntry_t SCH_DefaultMessageTable[SCH_MAX_MESSAGES] =
     /* command ID #50 - Demo Request Telemetry */
   { { CFE_MAKE_BIG16(DEMO_REQ_HK_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0001 } }, /* Demo Telemetry Request */
     /* command ID #51 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
+  { { CFE_MAKE_BIG16(BPNODE_WAKEUP_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x0000 } }, /* BPNode wakeup */
     /* command ID #52 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
+  { { CFE_MAKE_BIG16(BPNODE_CMD_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x002A } }, /* BPNode node MIB counters HK request */
     /* command ID #53 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
+  { { CFE_MAKE_BIG16(BPNODE_CMD_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x002C } }, /* BPNode storage HK request */
     /* command ID #54 */
-  { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },  
+  { { CFE_MAKE_BIG16(BPNODE_CMD_MID),  CFE_MAKE_BIG16(0xC000), CFE_MAKE_BIG16(0x0001), 0x002D } }, /* BPNode channel and contact status HK request */
     /* command ID #55 */
   { { CFE_MAKE_BIG16(SCH_UNUSED_MID) } },
     /* command ID #56 */

@@ -32,6 +32,9 @@ The orchestrator then resolves the device settings for every selected component.
 | Selected spacecraft | `cfg/drm/spacecraft/*.yaml` | Selects the component set and supplies spacecraft specific device values. |
 | Selected scenario | `cfg/drm/scenarios/*.yaml` | Supplies scenario specific component values and values applied to every selected component. |
 
+The table shows the DRM.
+The lunar relay mission follows the same layout, and [Missions and constellations](missions.md) explains what a mission owns and how to add one.
+
 `build/active.yaml` selects these inputs but does not directly supply component device values.
 The orchestrator stores the selected inputs in `build/build.yaml` so later build steps can use the same configuration snapshot.
 

@@ -67,6 +67,6 @@
 	url = https://github.com/VoyagerTechnologies-Public/external-bplib.git
 	branch = main
 [submodule "cfs/apps/bp"]
-	path = cfs/apps/bp
+	path = cfs/apps/bpnode
 	url = https://github.com/VoyagerTechnologies-Public/external-bp.git
 	branch = main

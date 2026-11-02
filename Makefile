@@ -1,5 +1,5 @@
 # Makefile for SHIRE development
-.PHONY: 42 board-build board-connect board-deploy board-inspect board-prepare board-scenario board-start board-stop board-test build build-complexity campaign cfg cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke screenshots screenshots-check screenshots-setup sim start stop test-fsw test-sim test-simulith uninstall
+.PHONY: 42 board-build board-connect board-deploy board-inspect board-prepare board-scenario board-start board-stop board-test build build-complexity campaign cfg cfg-check cfg-cli cfg-compose-only clean clean-42 clean-cache clean-cli clean-fsw clean-gsw clean-sim cli cli-start complexity constellation container container-export container-import container-use-local debug docs-check docs-serve fsw gsw help list mold perf perf-compare perf-smoke replay replay-delete replay-list scenario scenario-smoke screenshots screenshots-check screenshots-setup sim start stop test-fsw test-sim test-simulith uninstall
 .DEFAULT_GOAL := build
 
 # Build image name
@@ -83,8 +83,19 @@ campaign:
 	fi
 	python3 tools/shire-campaign.py --campaign "$(CAMPAIGN)" $(if $(MAX_PARALLEL),--max-parallel "$(MAX_PARALLEL)",)
 
+constellation:
+	@if [ -z "$(CONSTELLATION)" ]; then \
+		echo "CONSTELLATION=<name> is required. Constellations registered for mission $(MISSION):"; \
+		python3 -c "import sys; sys.path.insert(0, 'tools'); from shire_config import load_mission; print(*['\t' + n for n in load_mission('$(MISSION)').constellation_names()], sep='\n')"; \
+		exit 2; \
+	fi
+	python3 tools/shire-constellation.py --mission "$(MISSION)" --constellation "$(CONSTELLATION)" $(if $(SCENARIO),--scenario "$(SCENARIO)",) $(if $(DURATION),--duration "$(DURATION)",)
+
 cfg: container
 	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/tools --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py
+
+cfg-check:
+	python3 tools/shire-cfg-check.py
 
 cfg-cli: container
 	docker run --rm --network none -v $(CURDIR):$(CURDIR) -w $(CURDIR)/tools --user $(shell id -u):$(shell id -g) $(BUILD_IMAGE) python3 shire-orchestrator.py --cli-debug
@@ -158,7 +169,8 @@ container-use-local:
 	done
 	@docker run --rm --network none -v $(CURDIR)/tools/requirements.txt:/local/requirements.txt:ro $(BUILD_IMAGE) \
 		sh -c 'cmp /requirements.txt /local/requirements.txt && python3 -c "import yaml, jinja2"'
-	@docker run --rm --network none $(NATIVE_RUNTIME_IMAGE) sh -c 'dpkg-query -W libzmq5 libgcrypt20 >/dev/null'
+	@docker run --rm --network none $(BUILD_IMAGE) sh -c 'test -f /usr/include/sqlite3.h && test -f /usr/local/lib/libqcbor.a'
+	@docker run --rm --network none $(NATIVE_RUNTIME_IMAGE) sh -c 'dpkg-query -W libzmq5 libgcrypt20 libsqlite3-0 >/dev/null'
 	@docker run --rm --network none -v $(CURDIR)/yamcs/visualization:/local:ro $(VIEWER_BASE_IMAGE) \
 		sh -c 'cmp /baseline/package.json /local/package.json && cmp /baseline/package-lock.json /local/package-lock.json'
 	@docker run --rm --network none -v $(CURDIR)/yamcs/pom.xml:/local/pom.xml:ro $(YAMCS_BUILD_IMAGE) \
@@ -207,9 +219,11 @@ help:
 	@echo "  build          - Build the full runtime environment"
 	@echo "  campaign       - Run CAMPAIGN=<name> Monte Carlo trials and aggregate results (optional MAX_PARALLEL=N)"
 	@echo "  cfg            - Run orchestrator to configure environment"
+	@echo "  cfg-check      - Validate mission, spacecraft, scenario, campaign and constellation configuration (no Docker)"
 	@echo "  cfg-cli        - Enable debug for the selected CLI component and configure its environment"
 	@echo "  cli            - Build CLI components"
 	@echo "  cli-start      - Start CLI compose"
+	@echo "  constellation  - Build and run CONSTELLATION=<name> on one shared clock (optional SCENARIO=<name> DURATION=<s>)"
 	@echo "  clean          - Remove build artifacts and stop compose"
 	@echo "  clean-42       - Clean 42 simulator container"
 	@echo "  clean-cache    - Delete retained SHIRE replay archives and prune Docker build cache"

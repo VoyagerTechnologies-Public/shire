@@ -19,11 +19,12 @@ with patch.object(sys, 'path', [str(TOOLS), *sys.path]):
 
 
 class ScenarioTests(unittest.TestCase):
-    def args(self):
+    def args(self, simulith_speed=None):
         return SimpleNamespace(scenario='checkout', port_offset=None, instance_id=None,
-                               image_tag=None, simulith_speed=None)
+                               image_tag=None, simulith_speed=simulith_speed)
 
-    def execute(self, directory, *, runtime=None, config=None, completed=True, verification=None):
+    def execute(self, directory, *, runtime=None, config=None, completed=True, verification=None,
+                simulith_speed=None):
         def command_result(command, **kwargs):
             output = ''
             if command[:2] == ['docker', 'logs']:
@@ -41,7 +42,8 @@ class ScenarioTests(unittest.TestCase):
                 patch.object(scenario, 'wait_for_completion', return_value=completed) as wait, \
                 patch.object(scenario, 'archive_coverage', return_value={'replay_ready': True}):
             result = {}
-            code = scenario.execute_scenario(self.args(), 'drm', 'sat-1', result, directory, runtime=runtime)
+            code = scenario.execute_scenario(self.args(simulith_speed), 'drm', 'sat-1', result, directory,
+                                             runtime=runtime)
         return code, result, run, stacks, wait
 
     def test_board_compose_verification_archive_and_health_callback_are_shared(self):
@@ -90,6 +92,26 @@ class ScenarioTests(unittest.TestCase):
             self.assertTrue(up.args[0][3].endswith('/build/drm/shire-compose.yaml'))
             self.assertEqual(up.kwargs['env']['SIMULITH_SCENARIO_ENABLED'], '0')
             self.assertIn('-v', run.call_args.args[0])
+
+    def compose_speed(self, *, config, simulith_speed=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            code, result, run, *_ = self.execute(Path(temporary), config=config, simulith_speed=simulith_speed)
+            up = next(call for call in run.call_args_list if 'up' in call.args[0])
+            return result['simulith_speed'], up.kwargs['env'].get('SIMULITH_SPEED')
+
+    def test_the_server_receives_max_not_zero_for_unbounded_speed(self):
+        # The Simulith server accepts the word "max" or a speed above zero, and rejects 0 and 0.0.
+        # The runner records 0 for max but must export "max", or the server exits with
+        # "Invalid SIMULITH_SPEED" before the run starts.
+        self.assertEqual(self.compose_speed(config={'run_duration_s': 30, 'simulith_speed': 'max'}), (0, 'max'))
+        self.assertEqual(self.compose_speed(config={'run_duration_s': 30, 'simulith_speed': 5}), (5.0, '5.0'))
+        self.assertEqual(self.compose_speed(config={'run_duration_s': 30, 'simulith_speed': 'max'},
+                                            simulith_speed=2.0), (2.0, '2.0'))
+        self.assertEqual(self.compose_speed(config={'run_duration_s': 30, 'simulith_speed': 5},
+                                            simulith_speed=0.0), (0, 'max'))
+
+    def test_a_scenario_without_a_speed_leaves_the_servers_default_in_place(self):
+        self.assertEqual(self.compose_speed(config={'run_duration_s': 30}), (None, None))
 
     def test_transport_error_still_retains_logs_and_stops_compose(self):
         with tempfile.TemporaryDirectory() as temporary:

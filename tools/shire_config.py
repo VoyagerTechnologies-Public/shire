@@ -11,6 +11,7 @@ cascade_component() here, so a change to the layering happens in one place.
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,15 +21,70 @@ from shire_provenance import ROOT
 from shire_eps_config import normalize_eps, merge_component_config
 from shire_radio_config import normalize_radio
 from shire_limits_config import resolve_limits
+from shire_constellation_config import normalize_constellation
 
 CFG_DIR = ROOT / "cfg"
 GLOBAL_CONFIG = CFG_DIR / "shire-config.yaml"
-GROUND_STATIONS_PATH = CFG_DIR / "drm" / "ground_stations.yaml"
 DEFAULT_INITIAL_CONDITIONS = "nominal-baseline"
 
 
 class ConfigError(RuntimeError):
     """A selection (mission, spacecraft, scenario, initial condition) that does not resolve."""
+
+
+REPLACE_KEY = "_replace"
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """Returns a new dict where nested mappings merge key by key and anything else in `override`
+    (a scalar or a list) replaces the base value. A mapping in `override` that carries
+    `_replace: true` replaces the base value wholesale; the marker is dropped from the result."""
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict):
+            replace = bool(value.get(REPLACE_KEY))
+            value = {k: v for k, v in value.items() if k != REPLACE_KEY}
+            if not replace and isinstance(merged.get(key), dict):
+                merged[key] = deep_merge(merged[key], value)
+                continue
+            merged[key] = deepcopy(value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def vehicle_initial_conditions(ic_cfg: dict, vehicle_id: str) -> dict:
+    """The IC a single vehicle starts from. An IC bin may carry a `vehicles:` section keyed by
+    vehicle id that overlays the top-level orbit, attitude, and component_overrides; a vehicle with no
+    entry (and every single-vehicle IC) gets the top-level values unchanged."""
+    shared = {k: v for k, v in ic_cfg.items() if k != "vehicles"}
+    return deep_merge(shared, (ic_cfg.get("vehicles") or {}).get(vehicle_id) or {})
+
+
+def select_vehicle(constellation: dict, vehicle_id: str | None) -> dict:
+    """The named vehicle of a normalized constellation."""
+    vehicles = {v["id"]: v for v in constellation["vehicles"]}
+    if not vehicle_id:
+        raise ConfigError(f"No vehicle is selected. Vehicles in constellation '{constellation['constellation_name']}': "
+                          f"{', '.join(vehicles)}.")
+    if vehicle_id not in vehicles:
+        raise ConfigError(f"Vehicle '{vehicle_id}' not found in constellation '{constellation['constellation_name']}'. "
+                          f"Available: {', '.join(vehicles)}.")
+    return vehicles[vehicle_id]
+
+
+def apply_vehicle(spacecraft_cfg: dict, ic_cfg: dict, vehicle: dict) -> tuple[dict, dict]:
+    """Specializes a spacecraft type and an initial condition bin for one constellation vehicle.
+
+    The vehicle's node number replaces the spacecraft's `dtn.node_id`, and its per component overrides merge
+    over the spacecraft's settings (above the spacecraft file, below the IC bin and the scenario). The IC becomes
+    the vehicle's own orbit and attitude. Neither input is modified."""
+    specialized = deepcopy(spacecraft_cfg)
+    if "dtn" in specialized:
+        specialized["dtn"] = deep_merge(specialized["dtn"] or {}, {"node_id": vehicle["node_id"]})
+    for component, settings in vehicle["overrides"].items():
+        specialized[component] = deep_merge(specialized.get(component) or {}, settings)
+    return specialized, vehicle_initial_conditions(ic_cfg, vehicle["id"])
 
 
 def load_yaml(path) -> dict | None:
@@ -39,8 +95,13 @@ def load_yaml(path) -> dict | None:
         return yaml.safe_load(f)
 
 
-def load_ground_station_catalog(path=GROUND_STATIONS_PATH) -> list[dict]:
+def load_ground_station_catalog(path) -> list[dict]:
     return (load_yaml(path) or {}).get("ground_stations", [])
+
+
+def installed_components(root: Path = ROOT) -> set[str]:
+    """Component names present in the checkout (the directories under comp/)."""
+    return {p.name for p in (root / "comp").iterdir() if p.is_dir()} if (root / "comp").is_dir() else set()
 
 
 @dataclass(frozen=True)
@@ -81,20 +142,53 @@ class MissionConfig:
     def spacecraft_names(self) -> list[str]:
         return [s["name"] for s in self.mission_cfg.get("spacecraft", [])]
 
+    def _available(self, key: str) -> str:
+        return ", ".join(e["name"] for e in self.mission_cfg.get(key, [])) or "none"
+
     def _load_entry(self, kind: str, key: str, name: str) -> dict:
         entry = next((e for e in self.mission_cfg.get(key, []) if e["name"] == name), None)
         if not entry:
-            raise ConfigError(f"{kind} '{name}' not found in mission '{self.name}' config.")
+            raise ConfigError(f"{kind} '{name}' not found in mission '{self.name}' config. "
+                              f"Available: {self._available(key)}.")
         return load_yaml(self.cfg_dir / entry["config_file"]) or {}
 
     def load_spacecraft(self, name: str | None) -> dict:
-        """The spacecraft's config, or {} when no spacecraft is selected."""
-        return self._load_entry("Spacecraft", "spacecraft", name) if name else {}
+        """The spacecraft's config, or {} when no spacecraft is selected. A spacecraft may name another
+        registered spacecraft in `extends:`; the child deep-merges over its base (lists replace), so a
+        relay or leaf vehicle can be a small delta over a base vehicle type."""
+        return self._load_spacecraft(name, ()) if name else {}
 
-    def load_scenario(self, name: str) -> dict:
+    def _load_spacecraft(self, name: str, chain: tuple[str, ...]) -> dict:
+        if name in chain:
+            raise ConfigError(f"Spacecraft extends cycle: {' -> '.join((*chain, name))}.")
+        config = self._load_entry("Spacecraft", "spacecraft", name)
+        base_name = config.get("extends")
+        if not base_name:
+            return config
+        own = {k: v for k, v in config.items() if k != "extends"}
+        return deep_merge(self._load_spacecraft(base_name, (*chain, name)), own)
+
+    def constellation_names(self) -> list[str]:
+        return [c["name"] for c in self.mission_cfg.get("constellations", [])]
+
+    def load_constellation(self, name: str, component_names: set[str] | None = None) -> dict:
+        """The normalized constellation: validated, with vehicle indices and link seeds assigned."""
+        raw = self._load_entry("Constellation", "constellations", name)
+        try:
+            return normalize_constellation(
+                raw, spacecraft_names=self.spacecraft_names(),
+                component_names=component_names if component_names is not None else installed_components())
+        except ValueError as exc:
+            raise ConfigError(f"Constellation '{name}': {exc}") from exc
+
+    def load_scenario(self, name: str | None) -> dict:
+        if not name:
+            raise ConfigError(f"No scenario is selected. Scenarios in mission '{self.name}': "
+                              f"{self._available('scenarios')}.")
         entry = next((e for e in self.mission_cfg.get("scenarios", []) if e["name"] == name), None)
         if not entry:
-            raise ConfigError(f"Scenario '{name}' not found in mission '{self.name}' config.")
+            raise ConfigError(f"Scenario '{name}' not found in mission '{self.name}' config. "
+                              f"Available: {self._available('scenarios')}.")
         scenario_cfg = load_yaml(self.cfg_dir / entry["config_file"])
         if scenario_cfg is None:
             raise ConfigError(f"Could not load scenario config for '{name}'.")
@@ -127,7 +221,8 @@ def load_mission(name: str, *, global_cfg: dict | None = None, cfg_dir: Path = C
         global_cfg = load_global_config(cfg_dir / "shire-config.yaml")
     entry = next((m for m in global_cfg.get("build", {}).get("missions", []) if m["name"] == name), None)
     if not entry:
-        raise ConfigError(f"Mission '{name}' not found in global config.")
+        available = ", ".join(m["name"] for m in global_cfg.get("build", {}).get("missions", [])) or "none"
+        raise ConfigError(f"Mission '{name}' not found in global config. Available: {available}.")
     mission_cfg = load_yaml(cfg_dir / entry["config_file"]) or {}
     return MissionConfig(name, global_cfg, entry["config_file"], mission_cfg, cfg_dir)
 
@@ -178,14 +273,14 @@ def resolve_component_configs(global_cfg: dict[str, object], mission_cfg: dict[s
                               spacecraft_cfg: dict[str, object], scenario_cfg: dict[str, object],
                               ic_cfg: dict[str, object], *, cli_debug: bool = False,
                               cli_component: str = 'demo',
-                              ground_stations: list[dict] | None = None) -> dict[str, dict]:
+                              ground_stations: list[dict]) -> dict[str, dict]:
     """Resolves every component of the selected build without Jinja or Docker, so a
     campaign can hash everything that will be baked into comp/<name>/shared/device_cfg.h
     without rendering or building anything. Also carries the `__fsw` and `__limits`
-    pseudo-components that the scenario snapshot records."""
+    pseudo-components that the scenario snapshot records. `ground_stations` is the selected
+    mission's catalog (MissionConfig.ground_stations()); it has no default, so one mission's
+    stations can never silently stand in for another's."""
     components = select_components(mission_cfg, spacecraft_cfg)
-    if ground_stations is None:
-        ground_stations = load_ground_station_catalog()
 
     resolved: dict[str, dict] = {}
     for comp in components:

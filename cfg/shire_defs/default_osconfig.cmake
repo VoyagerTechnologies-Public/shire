@@ -57,3 +57,8 @@ set(OSAL_CONFIG_MAX_MUTEXES             45)
 # Note that emulating module loading for statically-linked objects also
 # requires a slot in this table, as it still assigns an OSAL ID.
 set(OSAL_CONFIG_MAX_MODULES             64)
+
+# The maximum depth of any queue, which also bounds the message pipes cFE creates. NASA's BPNode validates its
+# default ADU proxy table against this value and exits at startup if a pipe depth exceeds it. The table asks for
+# 125 for one flow, and BPNode's own reference configuration uses 256.
+set(OSAL_CONFIG_QUEUE_MAX_DEPTH          256)

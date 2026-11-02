@@ -1,0 +1,49 @@
+# Initial Condition (IC) bin for a three vehicle lunar relay architecture, used by the crosslink-demo
+# constellation (cfg/lunar-relay/constellations/crosslink-demo.yaml).
+#
+# The top-level orbit and attitude describe the low lunar orbit the leaf vehicles share, and apply to any
+# vehicle without an entry under `vehicles:`. Each vehicle entry overlays orbit, attitude, and
+# component_overrides for that vehicle id only. The leaves fly the same polar low orbit on opposite sides of
+# the Moon, so the Moon itself blocks the line of sight between them. The relay flies a high elliptical orbit
+# that keeps it in view of both for long stretches. The numbers are illustrative, not a specific mission design.
+name: "lunar-formation"
+description: >
+  Two leaf vehicles on opposite sides of a 100 km polar lunar orbit, and a relay in a high elliptical
+  lunar orbit.
+
+epoch:
+  month: 11
+  day: 1
+  year: 2026
+  hour: 12
+  minute: 0
+  second: 0.0
+  leap_seconds: 37.0
+
+orbit:
+  center: LUNA
+  periapsis_alt_km: 100.0
+  apoapsis_alt_km: 100.0
+  inclination_deg: 90.0
+  raan_deg: 0.0
+  arg_periapsis_deg: 0.0
+  true_anomaly_deg: 0.0
+
+attitude:
+  angular_velocity_deg_s: [1.0, -1.0, 2.0]
+  quaternion: [0.0, 0.0, 0.0, 1.0]
+
+component_overrides: {}
+
+vehicles:
+  leaf-1:
+    orbit: {true_anomaly_deg: 0.0}
+  relay:
+    orbit:
+      periapsis_alt_km: 500.0
+      apoapsis_alt_km: 8000.0
+      inclination_deg: 57.0
+      arg_periapsis_deg: 90.0
+      true_anomaly_deg: 180.0
+  leaf-2:
+    orbit: {true_anomaly_deg: 180.0}

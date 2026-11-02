@@ -43,6 +43,8 @@ list(APPEND MISSION_GLOBAL_APPLIST
         demo
         eps
         radio
+        bpnode
+        bplib
 )
 
 # Create Application Platform Include List
@@ -69,6 +71,9 @@ SET(MISSION_CPUNAMES cpu1) # cpu2
 
 # SHIRE synchronized Linux processor (native host, ARM32, or AArch64 PIL)
 SET(cpu1_PROCESSORID 1)
+# BPNode's UDP convergence layer reaches the network through a PSP IO driver module that ships with BPNode.
+list(APPEND MISSION_MODULE_SEARCH_PATH "apps/bpnode/psp_mod")
+SET(cpu1_PSP_MODULELIST udpsock_intf)
 SET(cpu1_APPLIST) # Note: Using all ${MISSION_GLOBAL_APPLIST} automatically
 SET(cpu1_FILELIST cfe_es_startup.scr adcs_time.dat)
 if (ENABLE_UNIT_TESTS)

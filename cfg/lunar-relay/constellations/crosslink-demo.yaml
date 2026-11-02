@@ -1,0 +1,45 @@
+# Constellation: two lunar orbiters that reach each other, and Earth, through a relay in a high lunar orbit.
+#
+# DRAFT: the crosslink component and relay flight software that make this runnable are still being
+# built (issue 25). The file is validated by `make cfg-check` today so its schema stays honest.
+#
+# vehicles: each entry flies a registered spacecraft type. `id` names the vehicle in container names, so it
+#   is lowercase letters, digits, and hyphens. `node_id` is the vehicle's Bundle Protocol ipn node number.
+#   The 42 spacecraft index is the vehicle's position in this list. `overrides` are per vehicle component
+#   settings applied above the spacecraft file and below the scenario.
+# links: each link joins two vehicles. `delay: range` is range divided by the speed of light, or give
+#   `{mode: fixed, ms: N}`. Seeds for the two directions derive from `master_seed` so a run repeats.
+#   `disruptions` are scripted on simulated time: outage (link down), drop (extra loss in parts per
+#   million), and delay (extra delay in milliseconds). A partition is simultaneous outages on several links.
+constellation_name: "crosslink-demo"
+description: "Two low lunar orbiters and a relay in a high elliptical lunar orbit."
+initial_conditions: "lunar-formation"
+master_seed: 20261101
+
+vehicles:
+  - id: "leaf-1"
+    spacecraft: "leaf"
+    role: "leaf"
+    node_id: 101
+  - id: "relay"
+    spacecraft: "relay"
+    role: "relay"
+    node_id: 100
+  - id: "leaf-2"
+    spacecraft: "leaf"
+    role: "leaf"
+    node_id: 102
+
+links:
+  - name: "leaf-1-relay"
+    endpoints: ["leaf-1", "relay"]
+    max_range_km: 12000
+    delay: "range"
+    drop_ppm: 0
+  - name: "relay-leaf-2"
+    endpoints: ["relay", "leaf-2"]
+    max_range_km: 12000
+    delay: "range"
+    drop_ppm: 0
+    disruptions:
+      - {type: "outage", at_s: 300, until_s: 420}

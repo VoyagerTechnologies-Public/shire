@@ -877,7 +877,7 @@ void simulith_server_run(void)
                 continue;
             }
             if (ready_fields == 1)
-                phase_mask = strcmp(client_id, "shire-fsw") == 0 ?
+                phase_mask = simulith_client_is_flight_software(client_id) ?
                     SIMULITH_PHASE_MASK_EXECUTE : SIMULITH_PHASE_MASK_COMMIT;
             const unsigned valid_mask = SIMULITH_PHASE_MASK_PREPARE |
                                         SIMULITH_PHASE_MASK_EXECUTE |

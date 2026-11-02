@@ -1,0 +1,12 @@
+# Smoke: one lunar relay vehicle for one simulated minute, with no ground procedures to race. It runs on
+# today's single vehicle stack, so `make scenario SCENARIO=smoke` under this mission confirms the
+# mission's configuration, ground definitions, and lunar initial conditions build and boot end to end.
+scenario_name: "smoke"
+description: >
+  One simulated minute in the lunar low orbit, from the lunar-baseline initial condition,
+  with default component settings.
+initial_conditions: "lunar-baseline"
+overrides:
+  debug: false
+run_duration_s: 60
+simulith_speed: "max"

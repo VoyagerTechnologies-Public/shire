@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" name="SHIRE_GROUND">
+  <xtce:CommandMetaData>
+    <xtce:MetaCommandSet>
+      <xtce:MetaCommand name="USE_DEBUG_UPLINK" shortDescription="Select debug for normal commanding">
+        <xtce:LongDescription>Disable radio-out and enable debug-out, establishing a command path that remains available during radio outages. Recover any active temporary uplink selection first. This is an idempotent ground-only command and sends no spacecraft packet.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">ground_control</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="USE_DEBUG_UPLINK_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="OPERATION" binaryValue="03" sizeInBits="8"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="USE_RADIO_UPLINK" shortDescription="Temporarily select the existing radio uplink">
+        <xtce:LongDescription>Save debug-out and radio-out states, disable debug-out, and enable radio-out. Restore with RESTORE_UPLINK. The saved states are restored automatically after 30 wall-clock seconds if execution is interrupted. This is a ground-only command and sends no spacecraft packet.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">ground_control</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="USE_RADIO_UPLINK_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="OPERATION" binaryValue="01" sizeInBits="8"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+      <xtce:MetaCommand name="RESTORE_UPLINK" shortDescription="Restore the saved uplink states">
+        <xtce:LongDescription>Restore the link states saved by USE_RADIO_UPLINK. A missing or expired selection is rejected, so the stack cannot silently claim successful restoration. This is a ground-only command.</xtce:LongDescription>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="yamcs:stream">ground_control</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:ArgumentList/>
+        <xtce:CommandContainer name="RESTORE_UPLINK_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="OPERATION" binaryValue="02" sizeInBits="8"/>
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+    </xtce:MetaCommandSet>
+  </xtce:CommandMetaData>
+</xtce:SpaceSystem>

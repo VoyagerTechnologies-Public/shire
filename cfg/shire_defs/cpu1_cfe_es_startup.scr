@@ -1,11 +1,13 @@
 CFE_LIB, cryptolib,   Crypto_SC_Init,     CRYPTOLIB,     0,       0, 0x0, 0;
 CFE_LIB, io_lib,      IO_LibInit,         IO_LIB,        0,       0, 0x0, 0;
+CFE_LIB, bplib,       BPLib_PrintVersion, BP_LIB,        0,       0, 0x0, 0;
 
 CFE_APP, cf,          CF_AppMain,         CF,           40,   32768, 0x0, 0;
 CFE_APP, ds,          DS_AppMain,         DS,           41,   32768, 0x0, 0;
 CFE_APP, fm,          FM_AppMain,         FM,           99,   32768, 0x0, 0;
 CFE_APP, lc,          LC_AppMain,         LC,           43,   16384, 0x0, 0;
 CFE_APP, sc,          SC_AppMain,         SC,           44,   16384, 0x0, 0;
+CFE_APP, bpnode,      BPNode_AppMain,     BPNODE,       45,   16384, 0x0, 0;
 CFE_APP, sch,         SCH_AppMain,        SCH,          20,   16384, 0x0, 0;
 
 CFE_APP, adcs,        ADCS_AppMain,       ADCS_APP,     60,    8192, 0x0, 0;

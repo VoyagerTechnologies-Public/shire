@@ -20,6 +20,11 @@ const char *simulith_rep_address(int bind)
     return endpoint_setting(bind ? "SIMULITH_REP_BIND" : "SIMULITH_REP_ADDR", LOCAL_REP_ADDR);
 }
 
+const char *simulith_client_id(const char *fallback)
+{
+    return endpoint_setting("SIMULITH_CLIENT_ID", fallback);
+}
+
 typedef enum {
     LOG_MODE_STDOUT,
     LOG_MODE_FILE,

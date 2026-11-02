@@ -51,7 +51,7 @@ int simulith_client_init(const char *pub_addr, const char *rep_addr, const char 
     last_received_phase = 0;
     last_received_phase_completed = 0;
     pthread_mutex_unlock(&phase_state_mutex);
-    client_phase_mask = strcmp(id ? id : "", "shire-fsw") == 0 ?
+    client_phase_mask = simulith_client_is_flight_software(id) ?
         SIMULITH_PHASE_MASK_EXECUTE : SIMULITH_PHASE_MASK_COMMIT;
     const char *sync_transport = getenv("SIMULITH_SYNC_TRANSPORT");
     use_shared_barrier = rep_addr && strncmp(rep_addr, "ipc://", 6) == 0 &&

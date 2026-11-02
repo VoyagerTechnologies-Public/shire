@@ -1,0 +1,20 @@
+# The relay vehicle: a leaf with its own identity, its own power bus address and radio chip select, and the
+# Earth to Moon light time on its radio link. `extends` deep merges this file over leaf.yaml, so only the
+# differences are written here.
+extends: "leaf"
+spacecraft_name: "relay"
+spacecraft_id: 2
+
+dtn:
+  node_id: 100
+
+eps:
+  i2c_device_addr: 0x1F
+
+radio:
+  spi_cs: 1
+  gpio_power_pin: 12
+  gpio_interrupt_pin: 13
+  # One way light time over the mean Earth to Moon distance, 384400 km at 299792 km/s, rounded to a millisecond.
+  uplink_delay_ms: 1282
+  downlink_delay_ms: 1282

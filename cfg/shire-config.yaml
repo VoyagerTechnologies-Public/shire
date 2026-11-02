@@ -2,6 +2,8 @@ build:
   missions:
     - name: "drm"
       config_file: "drm/drm.yaml"
+    - name: "lunar-relay"
+      config_file: "lunar-relay/lunar-relay.yaml"
   spacecraft:
     - name: "sat-1"
   components:

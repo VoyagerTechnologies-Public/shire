@@ -80,6 +80,26 @@ extern "C"
     const char *simulith_pub_address(int bind);
     const char *simulith_rep_address(int bind);
 
+    /**
+     * @brief Returns this process's Simulith client name: SIMULITH_CLIENT_ID when set and not empty, else `fallback`.
+     *
+     * Vehicles that share one clock each need unique client names, such as "shire-fsw-leaf-1".
+     */
+    const char *simulith_client_id(const char *fallback);
+
+    /**
+     * @brief Returns 1 when `id` names a flight software client: "shire-fsw" or "shire-fsw-<vehicle>".
+     *
+     * Flight software joins only the execute phase of each tick. Inline so that every user of the header, including
+     * the tests that compile one source file in isolation, gets the same rule.
+     */
+    static inline int simulith_client_is_flight_software(const char *id)
+    {
+        static const char prefix[] = "shire-fsw";
+        const size_t length = sizeof(prefix) - 1;
+        return id && strncmp(id, prefix, length) == 0 && (id[length] == '\0' || id[length] == '-');
+    }
+
     // Logging function
     void simulith_log(const char *fmt, ...);
 

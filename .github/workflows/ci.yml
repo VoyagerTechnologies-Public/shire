@@ -295,6 +295,10 @@ jobs:
           sh test-uplink-selection.sh
           sh test-upload-validation.sh
 
+      - name: Test that missions stage their own ground files
+        working-directory: yamcs
+        run: sh test-mission-isolation.sh
+
   build-cli:
     name: Build command-line interfaces
     runs-on: ubuntu-latest

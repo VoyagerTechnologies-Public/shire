@@ -56,8 +56,8 @@ table in `THIRD_PARTY_NOTICES.md`.
 | Path | Component | Pinned commit | License status | Checkout repository |
 |---|---|---|---|---|
 | `42` | 42 spacecraft simulator | `37defafe5e3fabfaa5d51b15d8220c7faa800d2f` | NASA Open Source Agreement, exact version unresolved; asset-specific terms | `https://github.com/VoyagerTechnologies-Public/external-42` |
-| `cfs/apps/bp` | cFS Bundle Protocol application (BPNode) | `c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-bp` |
 | `cfs/apps/bplib` | Bundle Protocol Library (BPLib) | `c5fb8358dd99149aa7ba463ed416d76049521a3a` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-bplib` |
+| `cfs/apps/bpnode` | cFS Bundle Protocol application (BPNode) | `c9cc1dd9adfe788fe8df4c63ed6ee6b5d6afb668` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-bp` |
 | `cfs/apps/cf` | cFS CFDP application | `deaeacfa0fe6ffd040a4d63e460941b591f5b169` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-CF` |
 | `cfs/apps/ci_lab` | cFS Command Ingest Lab | `68d91759f6f0cb50e8383dc358790598f8a277e8` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-ci_lab` |
 | `cfs/apps/ds` | cFS Data Storage | `f141f837199a7395c1c17fef3df6618f019cd08f` | Apache-2.0 | `https://github.com/VoyagerTechnologies-Public/external-DS` |
@@ -135,6 +135,8 @@ the release process must lock, hash, and inventory the artifacts actually used.
 | ZeroMQ / libzmq | Distribution package | Simulith transport | Resolved package/license inventory required |
 | libcurl | Distribution package | HTTP/network support | Resolved package/license inventory required |
 | libsocketcan | Distribution package | CAN hardware integration | Resolved package/license inventory required |
+| QCBOR | `v1.5.1`, commit `f9175730ccd361a10a466093ce1db8231ce409e9`, built from source in `tools/Dockerfile.base` | BPLib CBOR encoding for the Bundle Protocol flight software | BSD-3-Clause per the upstream project; license file to be captured from the pinned checkout |
+| SQLite | Distribution package (`libsqlite3-dev` in the build image, `libsqlite3-0` in the runtime image) | BPLib bundle storage | Public domain per the upstream project; resolved package/license inventory required |
 
 ## Container images
 

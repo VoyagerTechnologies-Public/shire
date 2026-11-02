@@ -31,6 +31,10 @@ add_cfe_tables(sc
 # Alternate LC watchpoint table for the ground to upload (see up_lc_wdt.c).
 add_cfe_tables(lc up_lc_wdt.c)
 
+# The SCH message table schedules BPNode's wakeup and housekeeping, so it needs BPNode's message id header, which is
+# generated into BPNode's include directories.
+target_include_directories(sch.table INTERFACE $<TARGET_PROPERTY:bpnode,INCLUDE_DIRECTORIES>)
+
 # Repository-owned coverage tests for upstream applications live in the
 # mission layer so upstream submodules stay pristine.  This hook runs after
 # all application targets have been created, which is when coverage tests can

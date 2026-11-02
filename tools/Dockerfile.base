@@ -40,12 +40,25 @@ RUN apt-get update && \
     libgcrypt20-dev \
     libjson-xs-perl \
     libsocketcan-dev \
+    libsqlite3-dev \
     libzmq3-dev \
     pmccabe \
     pkg-config \
     python3 \
     python3-pip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# QCBOR (BSD-3-Clause) is required by BPLib and is not packaged in Debian trixie. The release tag is verified against
+# a pinned commit, and the library is built static and position independent so it links into BPLib's shared module.
+ARG QCBOR_VERSION=v1.5.1
+ARG QCBOR_COMMIT=f9175730ccd361a10a466093ce1db8231ce409e9
+RUN git clone --branch ${QCBOR_VERSION} https://github.com/laurencelundblade/QCBOR.git /tmp/qcbor && \
+    test "$(git -C /tmp/qcbor rev-parse HEAD)" = "${QCBOR_COMMIT}" && \
+    cmake -S /tmp/qcbor -B /tmp/qcbor/build -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+      -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /tmp/qcbor/build -j"$(nproc)" && \
+    cmake --install /tmp/qcbor/build && \
+    rm -rf /tmp/qcbor
 
 # Fail the image build if the compiler/LCOV pair cannot emit MC/DC records.
 RUN printf '%s\n' \

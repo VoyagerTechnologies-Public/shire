@@ -53,3 +53,7 @@ if((ENABLE_UNIT_TESTS OR SHIRE_COVERAGE) AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
     )
     add_link_options(--coverage)
 endif()
+
+# Per-spacecraft Bundle Protocol settings (for example the node number) that tools/shire-orchestrator.py generates
+# from the spacecraft's `dtn:` block. The file is absent for spacecraft that do not run BPNode.
+include("${MISSION_DEFS}/dtn.cmake" OPTIONAL)

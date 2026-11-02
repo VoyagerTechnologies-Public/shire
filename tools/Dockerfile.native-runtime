@@ -19,7 +19,7 @@
 #
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libzmq5 libgcrypt20 && rm -rf /var/lib/apt/lists/*
+    libzmq5 libgcrypt20 libsqlite3-0 && rm -rf /var/lib/apt/lists/*
 LABEL org.opencontainers.image.title="shire-native-runtime" \
       org.opencontainers.image.description="Shared native runtime dependencies for SHIRE" \
       org.opencontainers.image.source="https://github.com/VoyagerTechnologies-Public/shire" \

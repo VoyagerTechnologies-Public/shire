@@ -1,0 +1,198 @@
+# constellation-compose.j2
+# Jinja2 template for the compose file of a multi-vehicle constellation run.
+#
+# Every vehicle runs the same services as a single vehicle run (see shire-compose.j2) on a network of its own, where
+# the services keep their usual aliases (shire-fsw, shire-director, shire-42, shire-gsw, shire-cryptolib), so no
+# hostname in the flight software, the Director, or Yamcs changes. One Simulith server joins every vehicle network
+# under the alias shire-server, which puts all vehicles on one simulated clock. Clock synchronization uses TCP
+# because the shared memory barrier only works inside one stack.
+#
+# Each vehicle's images are tagged with its vehicle id, built by `shire-constellation.py` (or one vehicle at a time
+# with a constellation and vehicle in build/active.yaml).
+name: shire-{{ constellation }}
+services:
+{%- for v in vehicles %}
+
+  shire-42-{{ v.id }}:
+    image: shire-42-{{ mission }}:{{ v.id }}
+    container_name: shire-42-{{ v.id }}
+    networks:
+      net-{{ v.id }}:
+        aliases: [shire-42]
+    attach: false
+    cpus: "2.0"
+    mem_limit: 2g
+    environment:
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
+      - SHIRE_42_PROFILE=${SHIRE_42_PROFILE:-0}
+      - SHIRE_42_REPORT_MODE=${SHIRE_42_REPORT_MODE:-control}
+    volumes:
+      - ipc_{{ v.id }}:/tmp
+    shm_size: '2gb'
+
+  shire-gsw-{{ v.id }}:
+    image: shire-gsw-{{ mission }}:{{ v.id }}
+    container_name: shire-gsw-{{ v.id }}
+    networks:
+      net-{{ v.id }}:
+        aliases: [shire-gsw]
+    attach: false
+    ports:
+      - "{{ v.gsw_port }}:8090"
+    environment:
+      - SHIRE_RUN_ID=${SHIRE_RUN_ID:-}
+      - SHIRE_MISSION={{ mission }}
+      - SHIRE_SPACECRAFT={{ v.spacecraft }}
+      - SHIRE_VISUAL_HZ=${SHIRE_VISUAL_HZ:-20}
+    volumes:
+      - gsw_data_{{ v.id }}:/app/yamcs-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    cpus: "2.0"
+    mem_limit: 1g
+
+  shire-cryptolib-{{ v.id }}:
+    image: shire-cryptolib-{{ mission }}:{{ v.id }}
+    container_name: shire-cryptolib-{{ v.id }}
+    networks:
+      net-{{ v.id }}:
+        aliases: [shire-cryptolib]
+    stdin_open: true
+    tty: true
+    depends_on:
+      - shire-gsw-{{ v.id }}
+    environment:
+      # SDLS link security; must match this vehicle's flight radio app.
+      - SHIRE_UPLINK_ENCRYPTION={{ 1 if v.uplink_encryption else 0 }}
+      - SHIRE_DOWNLINK_ENCRYPTION={{ 1 if v.downlink_encryption else 0 }}
+    cpus: "1.0"
+    mem_limit: 512m
+    volumes:
+      - ipc_{{ v.id }}:/tmp
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=100m
+
+  shire-director-{{ v.id }}:
+    image: shire-director-{{ mission }}:{{ v.id }}
+    container_name: shire-director-{{ v.id }}
+    networks:
+      net-{{ v.id }}:
+        aliases: [shire-director]
+    stdin_open: true
+    tty: true
+    depends_on:
+      shire-42-{{ v.id }}:
+        condition: service_started
+      shire-cryptolib-{{ v.id }}:
+        condition: service_started
+      shire-gsw-{{ v.id }}:
+        condition: service_healthy
+      shire-server:
+        condition: service_started
+    environment:
+      - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SIMULITH_CLIENT_ID=shire-director-{{ v.id }}
+      - SIMULITH_SYNC_TRANSPORT=zmq
+      - SIMULITH_PUB_ADDR=tcp://shire-server:50000
+      - SIMULITH_REP_ADDR=tcp://shire-server:50001
+      - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
+      - SIMULITH_DURATION=${SIMULITH_DURATION:-}
+      - SHIRE_CONTROL_TRACE_DIR=/run/shire-traces
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
+      - FORTYTWO_SOCKET_PATH=/tmp/42_ipc.sock
+      - FORTYTWO_IPC_MODE=${FORTYTWO_IPC_MODE:-shared}
+      - SIMULITH_42_RECONNECT_ATTEMPTS=${SIMULITH_42_RECONNECT_ATTEMPTS:-90}
+      - SIMULITH_SCENARIO_ENABLED=0
+      - SHIRE_RUN_ID=${SHIRE_RUN_ID:-}
+      - SHIRE_VISUAL_HZ=${SHIRE_VISUAL_HZ:-20}
+    command: ["/bin/sh", "-c", "exec /app/simulith_director_standalone"]
+    cpus: "4.0"
+    mem_limit: 512m
+    volumes:
+      - ipc_{{ v.id }}:/tmp
+      - {{ v.trace_dir }}:/run/shire-traces
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=100m
+
+  shire-fsw-{{ v.id }}:
+    image: shire-fsw-{{ mission }}:{{ v.id }}
+    container_name: shire-fsw-{{ v.id }}
+    networks:
+      net-{{ v.id }}:
+        aliases: [shire-fsw]
+    stdin_open: true
+    tty: true
+    depends_on:
+      - shire-cryptolib-{{ v.id }}
+      - shire-director-{{ v.id }}
+      - shire-server
+    environment:
+      - SIMULITH_LOG_MODE={{ log_mode | default('stdout') }}
+      - SIMULITH_CLIENT_ID=shire-fsw-{{ v.id }}
+      - SIMULITH_SYNC_TRANSPORT=zmq
+      - SIMULITH_PUB_ADDR=tcp://shire-server:50000
+      - SIMULITH_REP_ADDR=tcp://shire-server:50001
+      - SHIRE_GROUND_OUTPUT_HZ=${SHIRE_GROUND_OUTPUT_HZ:-20}
+      - SHIRE_SYNCHRONIZE_GROUND_OUTPUT=${SHIRE_SYNCHRONIZE_GROUND_OUTPUT:-0}
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
+    sysctls:
+      - fs.mqueue.msg_max=10000
+    ulimits:
+      rtprio: 99
+    cap_add:
+      - SYS_NICE
+    cpus: "4.0"
+    mem_limit: 2g
+    volumes:
+      - ipc_{{ v.id }}:/tmp
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=1g
+    privileged: false
+{%- endfor %}
+
+  shire-server:
+    image: shire-server-{{ mission }}:{{ vehicles[0].id }}
+    container_name: shire-server-{{ constellation }}
+    networks:
+{%- for v in vehicles %}
+      net-{{ v.id }}:
+        aliases: [shire-server]
+{%- endfor %}
+    stdin_open: true
+    tty: true
+    environment:
+      # Every vehicle contributes a Director and a flight software client.
+      - NUM_CLIENTS={{ vehicles | length * 2 }}
+      - SIMULITH_LOG_MODE=stdout
+      - SIMULITH_SYNC_TRANSPORT=zmq
+      - SIMULITH_PUB_BIND=tcp://0.0.0.0:50000
+      - SIMULITH_REP_BIND=tcp://0.0.0.0:50001
+      - SIMULITH_SPEED=${SIMULITH_SPEED:-1}
+      - SIMULITH_DURATION=${SIMULITH_DURATION:-}
+      - SIMULITH_WARMUP=${SIMULITH_WARMUP:-0}
+      - SIMULITH_WATCHDOG_SECONDS=${SIMULITH_WATCHDOG_SECONDS:-5}
+      - SHIRE_BARRIER_PROFILE=${SHIRE_BARRIER_PROFILE:-0}
+    command: ["/bin/sh", "-c", "/app/simulith_server_standalone $${NUM_CLIENTS}"]
+    cpus: "4.0"
+    mem_limit: 2g
+    tmpfs:
+      - /dev/shm:noexec,nosuid,size=1g
+    privileged: false
+
+networks:
+{%- for v in vehicles %}
+  net-{{ v.id }}:
+    driver: bridge
+{%- endfor %}
+
+volumes:
+{%- for v in vehicles %}
+  ipc_{{ v.id }}:
+    driver: local
+  gsw_data_{{ v.id }}:
+    driver: local
+{%- endfor %}

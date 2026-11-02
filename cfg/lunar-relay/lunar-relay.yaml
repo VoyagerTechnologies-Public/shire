@@ -1,0 +1,46 @@
+# Lunar Relay: vehicles in lunar orbit that reach each other, and Earth, through a relay vehicle. It is the
+# reference for a mission other than the DRM, and the home of the constellation work (issue 25).
+#
+# A mission is a directory under cfg/ that this file registers in cfg/shire-config.yaml. Everything
+# it owns lives beside this file and is named relative to cfg/: spacecraft types, scenarios,
+# initial conditions, constellations, the ground station catalog, and its ground software
+# definitions (gsw/). `make cfg-check` validates all of it.
+#
+# What makes it lunar: its initial conditions set `orbit.center: LUNA`, so 42 propagates the orbit about
+# the Moon, and the relay's radio carries the Earth to Moon light time as link delay (see spacecraft/relay.yaml).
+mission_name: "lunar-relay"
+eps:
+  wire_default_loads: true
+
+# Yellow and red telemetry limits, in engineering units. A relay carries a heavier radio load than the
+# DRM vehicles, so the battery limits sit higher than the DRM's. Battery voltage is 16 + 8 x state of
+# charge with the default 16 to 24 V span.
+limits:
+  /EPS/BATTERY_VOLTAGE:
+    yellow: {min: 21.0}
+    red: {min: 19.0}
+  /EPS/BATTERY_TEMPERATURE:
+    yellow: {min: 0.0, max: 40.0}
+    red: {min: -10.0, max: 50.0}
+
+# Spacecraft types. A vehicle in a constellation flies one of these; relay extends leaf.
+spacecraft:
+  - name: "leaf"
+    config_file: "lunar-relay/spacecraft/leaf.yaml"
+  - name: "relay"
+    config_file: "lunar-relay/spacecraft/relay.yaml"
+
+# Constellations: multi-vehicle runs with crosslinks (see lunar-relay/constellations/)
+constellations:
+  - name: "crosslink-demo"
+    config_file: "lunar-relay/constellations/crosslink-demo.yaml"
+
+# Fallback components if no spacecraft selected
+components:
+  - name: "adcs"
+  - name: "eps"
+  - name: "radio"
+
+scenarios:
+  - name: "smoke"
+    config_file: "lunar-relay/scenarios/smoke.yaml"

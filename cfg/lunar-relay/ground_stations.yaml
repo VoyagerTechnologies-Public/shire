@@ -1,0 +1,26 @@
+# Ground station catalog for the lunar relay mission, shared by:
+#   - cfg/42_shire_config/Inp_Sim.j2 (renders 42's "Ground Stations" block)
+#   - the radio simulator (comp/radio), which uses the Earth stations to decide when a vehicle is "in view"
+#     under link_mode: auto
+#
+# Each station has a `world`: EARTH or LUNA. The radio only selects Earth stations, so the lunar surface site is
+# for 42 and for the surface and relay link models that follow. Optional per-station fields: min_elev_deg
+# (elevation mask in degrees, default 5) and enabled (false to start disabled). Coordinates are rounded and
+# for simulation only.
+ground_stations:
+  - name: "Goldstone, CA"
+    world: EARTH
+    lon_deg: -116.89
+    lat_deg: 35.4267
+  - name: "Madrid, Spain"
+    world: EARTH
+    lon_deg: -4.2481
+    lat_deg: 40.4314
+  - name: "Canberra, Australia"
+    world: EARTH
+    lon_deg: 148.9831
+    lat_deg: -35.4014
+  - name: "Shackleton rim"
+    world: LUNA
+    lon_deg: 0.0
+    lat_deg: -89.9

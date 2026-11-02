@@ -548,7 +548,9 @@ def execute_scenario(args, mission, spacecraft, result, report_dir, *, runtime=N
         # simulated clock doesn't outrun verification and freeze
         # telemetry mid-stack, see wait_for_simulated_time's docstring) --
         # confirmed empirically, not something to set blindly.
-        trial_env["SIMULITH_SPEED"] = str(simulith_speed)
+        # The server accepts the word "max" or a speed above zero and rejects 0 and 0.0, so the unbounded
+        # speed this runner records as 0 is exported as "max".
+        trial_env["SIMULITH_SPEED"] = "max" if simulith_speed == 0 else str(simulith_speed)
     trial_env["SIMULITH_SCENARIO_ENABLED"] = "0"
     trial_env.pop("SIMULITH_SCENARIO_FILE", None)
     if director_command_scenario:

@@ -217,7 +217,7 @@
       "properties": [
         {
           "name": "shire:directory",
-          "value": "cfs/apps/bp/"
+          "value": "cfs/apps/bpnode/"
         },
         {
           "name": "shire:submodule",
@@ -225,7 +225,7 @@
         },
         {
           "name": "shire:license-evidence",
-          "value": "cfs/apps/bp/LICENSE"
+          "value": "cfs/apps/bpnode/LICENSE"
         },
         {
           "name": "shire:provenance-status",

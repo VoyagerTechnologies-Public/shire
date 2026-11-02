@@ -218,6 +218,31 @@ static void test_log_survives_an_unwritable_log_file(void)
     rmdir("/tmp/simulith.log");
 }
 
+static void test_client_id_defaults_and_is_overridden_by_the_environment(void)
+{
+    unsetenv("SIMULITH_CLIENT_ID");
+    TEST_ASSERT_EQUAL_STRING("shire-director", simulith_client_id("shire-director"));
+    setenv("SIMULITH_CLIENT_ID", "", 1);
+    TEST_ASSERT_EQUAL_STRING("shire-fsw", simulith_client_id("shire-fsw"));
+    setenv("SIMULITH_CLIENT_ID", "shire-fsw-leaf-1", 1);
+    TEST_ASSERT_EQUAL_STRING("shire-fsw-leaf-1", simulith_client_id("shire-fsw"));
+    unsetenv("SIMULITH_CLIENT_ID");
+}
+
+static void test_flight_software_is_recognized_by_name_and_by_vehicle_suffix(void)
+{
+    TEST_ASSERT_TRUE(simulith_client_is_flight_software("shire-fsw"));
+    TEST_ASSERT_TRUE(simulith_client_is_flight_software("shire-fsw-leaf-1"));
+    TEST_ASSERT_TRUE(simulith_client_is_flight_software("shire-fsw-relay"));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software("shire-director"));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software("shire-director-leaf-1"));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software("shire-fswx"));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software("shire-fs"));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software("my-shire-fsw"));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software(""));
+    TEST_ASSERT_FALSE(simulith_client_is_flight_software(NULL));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -227,5 +252,7 @@ int main(void)
     RUN_TEST(test_log_none);
     RUN_TEST(test_log_invalid_mode_falls_back_and_reset_closes_file);
     RUN_TEST(test_log_file_and_both);
+    RUN_TEST(test_client_id_defaults_and_is_overridden_by_the_environment);
+    RUN_TEST(test_flight_software_is_recognized_by_name_and_by_vehicle_suffix);
     return UNITY_END();
 }

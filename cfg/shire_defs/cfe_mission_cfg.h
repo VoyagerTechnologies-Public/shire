@@ -273,7 +273,11 @@
 **  but not cfe_tbl_interface_cfg.h, so struct sizes must come from here.
 **  cfe_tbl_interface_cfg.h uses #ifndef guards to avoid redefining these.
 */
-#define CFE_MISSION_TBL_MAX_NAME_LENGTH    16  /**< Max table name portion length */
+/* cFE rejects a table name of this many characters or more, so 16 allows names of at most 15. BPNode registers
+ * tables named MIBConfigPNTable and MIBConfigPSTable, which are 16 characters. 20 matches CFE_MISSION_MAX_API_LEN and
+ * still fits CFE_MISSION_TBL_MAX_FULL_NAME_LEN below (19 characters of application, a dot, 19 of table, and a NUL).
+ * Packet and table file layouts use the full name length, so this changes no layout. */
+#define CFE_MISSION_TBL_MAX_NAME_LENGTH    20  /**< Max table name portion length */
 #define CFE_MISSION_TBL_MAX_FULL_NAME_LEN  40  /**< Max full table name (name+app+4) */
 
 

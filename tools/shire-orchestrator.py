@@ -13,8 +13,9 @@ from jinja2 import Environment, FileSystemLoader
 import yaml
 
 from shire_provenance import ROOT, git_head_sha
-from shire_config import (ConfigError, cascade_component, load_component_fallback, load_mission,
-                          resolve_component_configs, select_components)
+from shire_config import (ConfigError, apply_vehicle, cascade_component, load_component_fallback, load_mission,
+                          resolve_component_configs, select_components, select_vehicle)
+from shire_dtn_config import normalize_dtn, prune_startup_script, render_dtn_cmake
 from shire_eps_stacks import write_stacks, write_xtce
 from shire_limits_config import LimitError, mdb_sources, resolve_limits, write_limited_mdb
 from shire_board_config import DEFAULT_PROFILE
@@ -128,6 +129,12 @@ def main():
     image_tag = active.get("image_tag")
     initial_conditions_file = active.get("initial_conditions_file")
 
+    # A constellation build is one vehicle at a time: `constellation` names a file registered in the mission and
+    # `vehicle` picks one of its vehicles. The vehicle selects the spacecraft type, node number, overrides and orbit.
+    constellation_name = active.get("constellation")
+    vehicle_id = active.get("vehicle")
+    vehicle = None
+
     try:
         mission_config = load_mission(mission, global_cfg=global_cfg, cfg_dir=Path(CFG_DIR))
         mission_cfg = mission_config.mission_cfg
@@ -139,10 +146,18 @@ def main():
         # A campaign trial's generated, perturbed IC (initial_conditions_file, an absolute path written by
         # tools/shire-campaign.py) takes priority over the scenario's named IC bin; that is the only hook a
         # per-trial IC needs into the orchestrator.
-        ic_name, _, ic_cfg = mission_config.load_initial_conditions(
-            scenario_cfg.get("initial_conditions"), initial_conditions_file)
+        ic_request = scenario_cfg.get("initial_conditions")
+        if constellation_name:
+            constellation = mission_config.load_constellation(constellation_name)
+            vehicle = select_vehicle(constellation, vehicle_id)
+            spacecraft = vehicle["spacecraft"]
+            # The constellation's own IC bin, which gives each vehicle an orbit, outranks the scenario's.
+            ic_request = constellation.get("initial_conditions") or ic_request
+        ic_name, _, ic_cfg = mission_config.load_initial_conditions(ic_request, initial_conditions_file)
         ground_stations = mission_config.ground_stations()
         spacecraft_cfg = mission_config.load_spacecraft(spacecraft)
+        if vehicle:
+            spacecraft_cfg, ic_cfg = apply_vehicle(spacecraft_cfg, ic_cfg, vehicle)
     except ConfigError as exc:
         fail(str(exc))
 
@@ -155,8 +170,11 @@ def main():
         "mission_cfg": mission_cfg,
         "spacecraft_cfg": spacecraft_cfg,
         "scenario_cfg": scenario_cfg,
-        "image_tag": image_tag or spacecraft,
+        "image_tag": image_tag or (vehicle["id"] if vehicle else spacecraft),
     }
+    if vehicle:
+        merged["constellation"] = constellation_name
+        merged["vehicle"] = vehicle
     
     # Override global.build.cli with the active CLI component from active.yaml
     if "global" in merged and "build" in merged["global"]:
@@ -174,7 +192,7 @@ def main():
     if args.compose_only and spacecraft and merged["spacecraft_cfg"]:
         resolved_components = resolve_component_configs(
             merged["global"], merged["mission_cfg"], merged["spacecraft_cfg"], merged["scenario_cfg"], ic_cfg,
-            cli_debug=args.cli_debug, cli_component=cli_component)
+            cli_debug=args.cli_debug, cli_component=cli_component, ground_stations=ground_stations)
 
     # Render config files for components. Skipped under --compose-only:
     # this writes comp/<name>/shared/device_cfg.h, which a Monte Carlo
@@ -362,6 +380,20 @@ def main():
                 with open(path,'w') as stream: stream.write(text)
             print('[orchestrator] Runtime event limits raised; unit tests retain baseline squelch limits')
 
+        # Bundle Protocol (BPNode) runs only on a spacecraft with a dtn: block. Its node number is a compile time setting,
+        # so render it for the flight software build, and remove any file left by an earlier build without the block.
+        try:
+            dtn = normalize_dtn((merged["spacecraft_cfg"] or {}).get("dtn"))
+        except ValueError as exc:
+            fail(str(exc))
+        dtn_cmake_path = os.path.join(build_cfg_dir, "dtn.cmake")
+        if dtn is not None:
+            with open(dtn_cmake_path, "w") as f:
+                f.write(render_dtn_cmake(dtn))
+            print(f"[orchestrator] dtn.cmake written to {dtn_cmake_path} (node_id={dtn['node_id']})")
+        elif os.path.exists(dtn_cmake_path):
+            os.remove(dtn_cmake_path)
+
         # Manipulate cpu1_cfe_es_startup.scr to remove lines for components not enabled for the spacecraft
         startup_scr_path = os.path.join(build_cfg_dir, "cpu1_cfe_es_startup.scr")
         enabled_components = set()
@@ -374,31 +406,9 @@ def main():
         if os.path.exists(startup_scr_path):
             with open(startup_scr_path, "r") as f:
                 lines = f.readlines()
-            new_lines = []
-            # Only modify lines for spacecraft-specific components (adcs, demo, eps, radio)
-            spacecraft_apps = {"adcs", "demo", "eps", "radio"}
-            for line in lines:
-                # Only process non-comment, non-blank lines before '!'
-                if line.strip().startswith("!") or not line.strip():
-                    new_lines.append(line)
-                    continue
-                # Check for CFE_APP lines for spacecraft-specific components
-                if line.startswith("CFE_APP"):
-                    parts = [p.strip() for p in line.split(",")]
-                    if len(parts) > 1:
-                        comp_name = parts[1]
-                        if comp_name in spacecraft_apps:
-                            # Only keep if enabled for this spacecraft
-                            if comp_name in enabled_components:
-                                new_lines.append(line)
-                            else:
-                                print(f"[orchestrator] Removing {comp_name} from startup script (not enabled for {spacecraft})")
-                        else:
-                            new_lines.append(line)
-                    else:
-                        new_lines.append(line)
-                else:
-                    new_lines.append(line)
+            new_lines, removed = prune_startup_script(lines, enabled_components, dtn is not None)
+            for name in removed:
+                print(f"[orchestrator] Removing {name} from startup script (not enabled for {spacecraft})")
             with open(startup_scr_path, "w") as f:
                 f.writelines(new_lines)
             print(f"[orchestrator] Updated {startup_scr_path} to only include enabled spacecraft components: {sorted(enabled_components)}")

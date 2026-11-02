@@ -1,0 +1,32 @@
+# Initial Condition (IC) bin: the lunar relay reference orbit, a circular 100 km polar orbit about the Moon.
+# `orbit.center: LUNA` makes 42 propagate about the Moon; the default, used by every other bin, is EARTH.
+# SHIRE's 42 configuration enables only Earth and the Moon, so those are the two valid centers.
+# See atlas/docs/manual/how-to/scenarios.md for the IC bin schema.
+name: "lunar-baseline"
+description: >
+  Circular 100 km polar orbit about the Moon, starting slightly tumbling. The default for
+  single vehicle runs in the lunar-relay mission.
+
+epoch:
+  month: 11
+  day: 1
+  year: 2026
+  hour: 12
+  minute: 0
+  second: 0.0
+  leap_seconds: 37.0
+
+orbit:
+  center: LUNA
+  periapsis_alt_km: 100.0
+  apoapsis_alt_km: 100.0
+  inclination_deg: 90.0
+  raan_deg: 0.0
+  arg_periapsis_deg: 0.0
+  true_anomaly_deg: 0.0
+
+attitude:
+  angular_velocity_deg_s: [1.0, -1.0, 2.0]
+  quaternion: [0.0, 0.0, 0.0, 1.0]
+
+component_overrides: {}

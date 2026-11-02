@@ -26,6 +26,7 @@ nav = [
     { "How-To Guides" = [
       { "Setup and Operation" = [
         { "Configuration" = "manual/how-to/configuration.md" },
+        { "Missions and Constellations" = "manual/how-to/missions.md" },
         { "Docker" = "manual/how-to/docker.md" },
         { "Performance" = "manual/how-to/performance.md" },
         { "Visualization and Replay" = "manual/how-to/visualization-replay.md" },
